@@ -38,8 +38,10 @@ npm-debug.log*
 
 # Local-only data: large extracted reference binaries and bundles (kept on disk, not in git)
 data/*/raw/
-research/raw
 research.zip
+
+# Local-only research notes and specs (any directory named research)
+research/
 
 # Local recordings and scratch output
 conv/
