@@ -43,6 +43,9 @@ research.zip
 # Local-only research notes and specs (any directory named research)
 research/
 
+# Local-only curated component vault
+master-vault/
+
 # Local recordings and scratch output
 conv/
 reports/
