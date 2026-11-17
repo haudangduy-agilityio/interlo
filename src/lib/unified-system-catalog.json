@@ -9,7 +9,7 @@
         "name": "LanguageSettingsPill",
         "title": "Language Settings Pill",
         "description": "Compact interactive language selector pill for real-time translation pairs.",
-        "componentPath": "src/components/live-meeting-copilot/LanguageSettingsPill.tsx",
+        "componentPath": "src/components/interlo/LanguageSettingsPill.tsx",
         "category": "controls"
       },
       {
@@ -17,7 +17,7 @@
         "name": "TranslationLatencyMonitor",
         "title": "Translation Latency Monitor",
         "description": "HUD element displaying roundtrip audio and translation latency in milliseconds.",
-        "componentPath": "src/components/live-meeting-copilot/TranslationLatencyMonitor.tsx",
+        "componentPath": "src/components/interlo/TranslationLatencyMonitor.tsx",
         "category": "metrics"
       },
       {
@@ -25,7 +25,7 @@
         "name": "RealtimeTranslatedSpeechPlayer",
         "title": "Realtime Translated Speech Player",
         "description": "Low-latency WebAudio player consuming Int16 PCM 24kHz streams.",
-        "componentPath": "src/components/live-meeting-copilot/RealtimeTranslatedSpeechPlayer.tsx",
+        "componentPath": "src/components/interlo/RealtimeTranslatedSpeechPlayer.tsx",
         "category": "audio"
       }
     ],
@@ -35,7 +35,7 @@
         "name": "Controllers",
         "title": "Floating HUD Controller Bar",
         "description": "Floating pill HUD with meeting start/pause, language switches, audio mute, and latency badge.",
-        "componentPath": "src/components/live-meeting-copilot/Controllers.tsx",
+        "componentPath": "src/components/interlo/Controllers.tsx",
         "category": "hud"
       },
       {
@@ -43,7 +43,7 @@
         "name": "Transcript",
         "title": "Bilingual Live Transcript Stream",
         "description": "Virtualized dual-track speech balloon stream with real-time speaker diarization.",
-        "componentPath": "src/components/live-meeting-copilot/Transcript.tsx",
+        "componentPath": "src/components/interlo/Transcript.tsx",
         "category": "speech"
       },
       {
@@ -51,7 +51,7 @@
         "name": "Bullet",
         "title": "Real-time AI Highlight Bullets",
         "description": "Automated 3-second evaluation loop emitting concise meeting action items and key insights.",
-        "componentPath": "src/components/live-meeting-copilot/Bullet.tsx",
+        "componentPath": "src/components/interlo/Bullet.tsx",
         "category": "summarization"
       },
       {
@@ -59,7 +59,7 @@
         "name": "Ask",
         "title": "In-Meeting Ask AI Copilot",
         "description": "Live in-meeting whisper assistant offering contextual insights and suggestions.",
-        "componentPath": "src/components/live-meeting-copilot/Ask.tsx",
+        "componentPath": "src/components/interlo/Ask.tsx",
         "category": "copilot"
       },
       {
@@ -67,7 +67,7 @@
         "name": "NotionEditor",
         "title": "Block-based Rich Notes Editor",
         "description": "Notion-like markdown editor syncing personal user notes with meeting transcripts.",
-        "componentPath": "src/components/live-meeting-copilot/NotionEditor.tsx",
+        "componentPath": "src/components/interlo/NotionEditor.tsx",
         "category": "editor"
       },
       {
@@ -75,7 +75,7 @@
         "name": "DesktopVoiceTyping",
         "title": "Voice Typing Settings & Coordinator",
         "description": "System-wide dictation control panel and Fn key listener preferences.",
-        "componentPath": "src/components/live-meeting-copilot/DesktopVoiceTyping.tsx",
+        "componentPath": "src/components/interlo/DesktopVoiceTyping.tsx",
         "category": "system"
       }
     ],
@@ -85,7 +85,7 @@
         "name": "DesktopRecordingDetail",
         "title": "Meeting Review & WaveSurfer Dashboard",
         "description": "Complete post-meeting review workspace with normalized waveform playback and seek-synchronized bilingual transcripts.",
-        "componentPath": "src/components/live-meeting-copilot/DesktopRecordingDetail.tsx",
+        "componentPath": "src/components/interlo/DesktopRecordingDetail.tsx",
         "category": "pages"
       },
       {
@@ -93,7 +93,7 @@
         "name": "DesktopHome",
         "title": "Desktop Home & Meeting Hub",
         "description": "Main desktop hub with upcoming calendar events, recent meeting cards, and quick start.",
-        "componentPath": "src/components/live-meeting-copilot/DesktopHome.tsx",
+        "componentPath": "src/components/interlo/DesktopHome.tsx",
         "category": "pages"
       }
     ]

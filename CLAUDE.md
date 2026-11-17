@@ -19,8 +19,8 @@ All verified engineering discoveries, mathematical models, algorithms, and speci
 ---
 
 ## 3. Directory Layout & Architecture Rules
-- **`src/`**: Pure production source code (`src/components/live-meeting-copilot/`, `src/lib/audio/`, `src/lib/realtime/`, `src/lib/classic/`).
-- **`master-vault/`**: Curated, framework-ready components with standardized manifests (`master-vault/live-meeting-copilot/`).
+- **`src/`**: Pure production source code (`src/components/interlo/`, `src/lib/audio/`, `src/lib/realtime/`, `src/lib/classic/`).
+- **`master-vault/`**: Curated, framework-ready components with standardized manifests (`master-vault/interlo/`).
 - **`research/`**: Architectural documentation, specs, diagrams, and verified technical findings.
 - **`data/`**: Standardized source inventory and raw extracted reference code.
 - **ZERO-CLUTTER RULE**: Never create ad-hoc directories or leave scratch markdown files at the root.

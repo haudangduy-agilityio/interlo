@@ -1,6 +1,6 @@
 # Live Meeting Copilot & Speech-to-Speech Assistant (Deconstruction Package)
 
-- **Source Identifier**: `live-meeting-copilot`
+- **Source Identifier**: `interlo`
 - **Architecture**: Electron Desktop (Mach-O ARM64) + Next.js / React 19 Frontend + Express / Socket.IO Backend
 - **Target Category**: Real-time meeting transcription, speech-to-speech live translation, automated note generation, in-meeting AI assistance, and system-wide voice dictation.
 
@@ -9,7 +9,7 @@
 ## 1. Directory Structure
 
 ```
-data/live-meeting-copilot/
+data/interlo/
 ├── components/           # Curated & sanitized React/TypeScript UI components
 │   ├── AudioRecorder.tsx                # Dual-channel audio capture & streaming engine
 │   ├── Controllers.tsx                  # Floating overlay pill/HUD controls

@@ -6,7 +6,7 @@ This directory contains standardized, sanitized, and reverse-engineered source p
 
 | Source Name | Category | Primary Stack | Key Highlights | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| [`live-meeting-copilot`](./live-meeting-copilot/README.md) | AI Meeting Assistant & Live Translation | Electron (ARM64), Next.js, React 19, Socket.IO, Swift | Realtime S2S (OpenAI Realtime WebSocket), BlackHole/VB-CABLE audio loopback, Live 3s bullet points, System-wide Fn dictation, Notion-like editor | **Curated & Ready** |
+| [`interlo`](./interlo/README.md) | AI Meeting Assistant & Live Translation | Electron (ARM64), Next.js, React 19, Socket.IO, Swift | Realtime S2S (OpenAI Realtime WebSocket), BlackHole/VB-CABLE audio loopback, Live 3s bullet points, System-wide Fn dictation, Notion-like editor | **Curated & Ready** |
 
 ---
 
