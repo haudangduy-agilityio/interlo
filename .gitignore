@@ -37,7 +37,7 @@ npm-debug.log*
 *.swp
 
 # Local-only data: large extracted reference binaries and bundles (kept on disk, not in git)
-data/*/raw/
+data/
 research.zip
 
 # Local-only research notes and specs (any directory named research)
