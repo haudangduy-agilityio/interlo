@@ -25,13 +25,47 @@ import {
 } from "../../hooks/useSameLanguageOutputPreference";
 import { useAutoscrollToBottom } from "../../hooks/useAutoscrollToBottom";
 
+interface TtsPlaybackState {
+    revision?: number | string;
+    ready?: boolean;
+    readyReason?: string;
+    readyAt?: string | number | Date;
+    stabilityMs?: number;
+    translationPending?: boolean;
+    eligibleForOnline?: boolean;
+    blockedReason?: string;
+    targetLanguage?: string;
+}
+
+interface TranscriptItem {
+    sectionId: number;
+    speakerName: string;
+    start: Date;
+    captions: Array<{ text?: string } | null | undefined>;
+    translatedText?: string;
+    translationUpdatedAt?: unknown;
+    desktopAudioSource?: string;
+    sameLanguageOutputSuppressed?: boolean;
+    fastOutputLanguage?: string;
+    ttsPlayback?: TtsPlaybackState;
+}
+
+interface UsageInfo {
+    used: number;
+    limit: number;
+}
+
+type SinkSettableAudio = HTMLAudioElement & {
+    setSinkId?: (sinkId: string) => Promise<void>;
+};
+
 interface TranscriptProps {
     enabled: boolean;
-    transcriptData: any;
+    transcriptData: TranscriptItem[];
     transcriptionLimitExceeded: boolean;
     translationLimitExceeded: boolean;
-    transcriptionUsage: any;
-    translationUsage: any;
+    transcriptionUsage: UsageInfo;
+    translationUsage: UsageInfo;
     isRecording: boolean;
     isTranscriptionReady?: boolean;
     bulletPointEnabled: boolean;
@@ -40,7 +74,7 @@ interface TranscriptProps {
     bulletMinimizedHeight?: number;
     isMaximized?: boolean;
     reverseTranslationActive?: boolean;
-    reverseTranscriptData?: any;
+    reverseTranscriptData?: TranscriptItem[];
     spokenLanguage?: string;
     translatedLanguage?: string;
     shareCode?: string;
@@ -148,7 +182,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
     );
 
     const hasExtras = !!extraTranslatedLanguages && extraTranslatedLanguages.length > 0;
-    const transcriptDisplayGroups = useMemo(() => groupTranscriptForDisplay<any>(
+    const transcriptDisplayGroups = useMemo(() => groupTranscriptForDisplay<TranscriptItem>(
         transcriptData,
         { fastMode: useFastOnlineTranscriptLayout, mode: speechToSpeechMode },
     ), [transcriptData, useFastOnlineTranscriptLayout, speechToSpeechMode]);
@@ -169,7 +203,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
     // sentence-by-sentence so the user sees a small multilingual group, then the next group,
     // etc. (instead of one long block per language). Used when extras are selected.
     const renderMixedTranslations = (
-        item: any,
+        item: TranscriptItem,
         primaryText: string | undefined,
         sectionId: number,
         isLocked: boolean,
@@ -252,7 +286,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
     const textToSpeechEnabledRef = useRef(textToSpeechEnabled);
     const textToSpeechSessionModeRef = useRef(textToSpeechSessionMode);
     const speechToSpeechModeRef = useRef(speechToSpeechMode);
-    const transcriptDataRef = useRef<any[]>(transcriptData || []);
+    const transcriptDataRef = useRef<TranscriptItem[]>(transcriptData || []);
     const lockedTranslationsRef = useRef<Set<number>>(new Set());
     const translatedLanguageRef = useRef(translatedLanguage);
     const meetUplinkTtsOwnVoiceRef = useRef(
@@ -279,9 +313,9 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         translatedLanguageRef.current = translatedLanguage;
     }, [translatedLanguage]);
 
-    const getTranscriptRowIdentity = (item: any, index: number) => String(item?.sectionId ?? index);
+    const getTranscriptRowIdentity = (item: TranscriptItem, index: number) => String(item?.sectionId ?? index);
 
-    const getSectionSpeechKey = (item: any, index: number) => {
+    const getSectionSpeechKey = (item: TranscriptItem, index: number) => {
         const sectionId = item?.sectionId ?? index;
         const revision = Number(item?.ttsPlayback?.revision);
 
@@ -293,7 +327,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         return `${sectionId}:${translatedText}`;
     };
 
-    const isSectionTranslationLocked = (item: any, index: number) => {
+    const isSectionTranslationLocked = (item: TranscriptItem, index: number) => {
         if (item?.ttsPlayback?.ready === true) {
             return true;
         }
@@ -301,12 +335,12 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         return lockedTranslations.has(index);
     };
 
-    const isTtsReadyImmediate = (item: any) => {
+    const isTtsReadyImmediate = (item: TranscriptItem) => {
         const r = item?.ttsPlayback?.readyReason;
         return r === 'finalized' || r === 'section-closed';
     };
 
-    const isSectionEligibleForTtsPlayback = (item: any, index: number) => {
+    const isSectionEligibleForTtsPlayback = (item: TranscriptItem, _index: number) => {
         if (!sameLanguageOutputEnabled && item?.sameLanguageOutputSuppressed === true) return false;
         if (!item?.translatedText?.trim()) return false;
         if (item?.ttsPlayback?.ready !== true) return false;
@@ -325,7 +359,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         return false;
     };
 
-    const emitTranslatedSpeechPlaybackState = (active: boolean, detail: Record<string, any> = {}) => {
+    const emitTranslatedSpeechPlaybackState = (active: boolean, detail: Record<string, unknown> = {}) => {
         window.dispatchEvent(new CustomEvent(TRANSLATED_SPEECH_PLAYBACK_EVENT, {
             detail: {
                 active,
@@ -344,7 +378,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
     const isMeetUplinkTtsOwnVoiceEnabled = () =>
         typeof window !== 'undefined' && localStorage.getItem(MEET_UPLINK_TTS_OWN_VOICE_KEY) === 'true';
 
-    const getAiPlaybackSinkIdForSection = (item: any) => {
+    const getAiPlaybackSinkIdForSection = (item: TranscriptItem) => {
         if (typeof window === 'undefined') return 'default';
         const uplink = localStorage.getItem(AI_AUDIO_OUTPUT_STORAGE_KEY) || 'default';
         const incoming = localStorage.getItem(AI_AUDIO_OUTPUT_INCOMING_STORAGE_KEY);
@@ -365,7 +399,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         outputDeviceId?: string
     ) => {
         const resolved = outputDeviceId ?? getConfiguredAiAudioOutputId();
-        const sinkSetter = (audio as any).setSinkId as ((sinkId: string) => Promise<void>) | undefined;
+        const sinkSetter = (audio as SinkSettableAudio).setSinkId;
 
         if (!sinkSetter || resolved === 'default') {
             return 'default';
@@ -388,7 +422,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
 
 
 
-    const shouldSkipTextToSpeechForSection = (item: any, sessionMode: 'online' | 'in-person' = textToSpeechSessionMode) => {
+    const shouldSkipTextToSpeechForSection = (item: TranscriptItem, sessionMode: 'online' | 'in-person' = textToSpeechSessionMode) => {
         if (!sameLanguageOutputEnabled && item?.sameLanguageOutputSuppressed === true) {
             return true;
         }
@@ -556,17 +590,17 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         transcriptDataRef.current = transcriptData || [];
     }, [transcriptData]);
 
-    const getSectionSourceDisplayText = (item: any) => (
+    const getSectionSourceDisplayText = (item: TranscriptItem) => (
         Array.isArray(item?.captions)
-            ? item.captions.map((caption: any) => caption?.text || '').join(' ')
+            ? item.captions.map((caption) => caption?.text || '').join(' ')
             : ''
     ).trim();
 
-    const getPrimaryTargetLanguage = (item: any) => translationMode === 'fast'
+    const getPrimaryTargetLanguage = (item: TranscriptItem) => translationMode === 'fast'
         ? item?.fastOutputLanguage || translatedLanguage
         : translatedLanguage;
 
-    const suppressPrimaryTranslation = (item: any) => {
+    const suppressPrimaryTranslation = (item: TranscriptItem) => {
         if (!sameLanguageOutputEnabled
             && translationMode === 'fast'
             && item?.sameLanguageOutputSuppressed === true) return true;
@@ -579,7 +613,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         });
     };
 
-    const shouldHideSectionSource = (item: any) => {
+    const shouldHideSectionSource = (item: TranscriptItem) => {
         if (!hideSourceCaptions) return false;
         const targets = [getPrimaryTargetLanguage(item) || '', ...(extraTranslatedLanguages || [])].filter(Boolean);
         return targets.some((targetLanguage, targetIndex) => {
@@ -599,12 +633,12 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
         });
     };
 
-    const getTranslationFreezeSignature = (item: any) => {
+    const getTranslationFreezeSignature = (item: TranscriptItem) => {
         const sourceText = getSectionSourceDisplayText(item);
         return `${sourceText}::${(item?.translatedText || '').trim()}`;
     };
 
-    const renderSectionSourceText = (item: any) => {
+    const renderSectionSourceText = (item: TranscriptItem) => {
         if (shouldHideSectionSource(item)) return null;
         const sourceText = getSectionSourceDisplayText(item);
         if (!sourceText) return null;
@@ -626,7 +660,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
     };
 
     const renderTranscriptGroupEntries = (group: {
-        entries: Array<{ item: any; index: number }>;
+        entries: Array<{ item: TranscriptItem; index: number }>;
     }) => {
         if (useConsolidatedFastGroupRender && !hasExtras) {
             const mergedSource = mergeContinuousGroupSourceText(group.entries.filter(({ item }) => !shouldHideSectionSource(item)));
@@ -955,7 +989,7 @@ const Transcript = ({ enabled, transcriptData, transcriptionLimitExceeded, trans
                     // Match the same identity rule as sectionId / speech keys: server sectionId when present, else row index.
                     const rowIdentity = getTranscriptRowIdentity(item, index);
                     const latestSectionIndex = transcriptDataRef.current.findIndex(
-                        (entry: any, i: number) => getTranscriptRowIdentity(entry, i) === rowIdentity
+                        (entry: TranscriptItem, i: number) => getTranscriptRowIdentity(entry, i) === rowIdentity
                     );
                     const latestSection = latestSectionIndex >= 0 ? transcriptDataRef.current[latestSectionIndex] : undefined;
                     const latestSpeechKey = latestSection

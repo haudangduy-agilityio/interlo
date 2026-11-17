@@ -92,7 +92,7 @@ export class StreamingTranslator {
    * Applies pre-translation glossary substitution or pre-processing
    */
   public preprocess(text: string): string {
-    let clean = text.trim();
+    const clean = text.trim();
     if (this.config.glossary) {
       const glossaryKeys = Object.keys(this.config.glossary);
       if (isLikelyVocabularyPromptLeak(clean, glossaryKeys)) {
@@ -129,13 +129,10 @@ export class StreamingTranslator {
 
     messages.push({ role: 'user', content: cleanInput });
 
-    let translated = '';
-    if (executePromptFn) {
-      translated = await executePromptFn(messages);
-    } else {
-      // Clean fallback if no executor provided
-      translated = `[Translated to ${this.config.targetLanguage}]: ${cleanInput}`;
-    }
+    // Clean fallback if no executor provided
+    const translated = executePromptFn
+      ? await executePromptFn(messages)
+      : `[Translated to ${this.config.targetLanguage}]: ${cleanInput}`;
 
     const durationMs = Date.now() - start;
 

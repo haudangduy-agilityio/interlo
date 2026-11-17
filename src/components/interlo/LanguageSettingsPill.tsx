@@ -1,6 +1,7 @@
 import { ArrowRight, Check, ChevronDown, LockKeyhole, Search, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { Socket } from "socket.io-client";
 import { useTranslation } from "../../hooks/useTranslation";
 import { requestDesktopPricing } from "../../lib/desktopPricingNavigation";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
@@ -76,7 +77,7 @@ const LanguageSettingsPill = ({
 }: {
     /** Recorder reload for spoken-language changes (live session only). */
     saveStateAndReload?: (newSpokenLanguage: string, model: string) => void,
-    socketRef?: any,
+    socketRef?: MutableRefObject<Socket | null>,
     isRecording?: boolean,
     paused?: boolean,
     speechToSpeechMode?: SpeechToSpeechMode,
@@ -109,7 +110,7 @@ const LanguageSettingsPill = ({
     const [multilingualSearch, setMultilingualSearch] = useState("");
     const [fastTranslationSearch, setFastTranslationSearch] = useState("");
     const [fastUplinkTranslationSearch, setFastUplinkTranslationSearch] = useState("");
-    const [fastLanguagePicker, setFastLanguagePicker] = useState<'incoming' | 'uplink'>('incoming');
+    const [_fastLanguagePicker, setFastLanguagePicker] = useState<'incoming' | 'uplink'>('incoming');
     const [spokenLanguageSearch, setSpokenLanguageSearch] = useState("");
     const [translatedLanguageSearch, setTranslatedLanguageSearch] = useState("");
     const [selectedSpokenLanguagePlan, setSelectedSpokenLanguagePlan] = useState<SpokenLanguagePlan>(DEFAULT_SPOKEN_LANGUAGE_PLAN);

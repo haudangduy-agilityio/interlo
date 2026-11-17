@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { splitTranscriptSentences } from '../../../shared/transcriptSentences';
 import { userFacingError } from '../../utils/userFacingError'
 import { productionLogger } from '../../lib/productionLogger'
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { io, Socket } from "socket.io-client";
 import { useTranslation } from "../../hooks/useTranslation";
 import { baseURL, wsURL } from "../../lib/baseURL";
@@ -29,7 +28,6 @@ import {
   getStoredOtherAudioCaptureMode,
   isInPersonSpeechContext,
   isPhysicalCaptureDevice,
-  OTHER_AUDIO_CAPTURE_MODE_STORAGE_KEY,
   pickPhysicalMicrophone,
   resolvePhysicalMicrophoneDeviceId,
   type OtherAudioCaptureMode,
@@ -120,7 +118,6 @@ const ALL_SPOKEN_LANGUAGE_OPTIONS = [...spokenLanguages, ...microsoftSpokenLangu
 
 // Platform detection utility
 const INACTIVITY_WARNING_TIME = 240 * 1000; // 4 minutes
-const AUTO_END_TIME = 300 * 1000; // 5 minutes (4 minutes warning + 1 minute countdown)
 const LEGACY_DELAY_ANALYSIS_STORAGE_KEY = 'MeetingCopilot_delay_analysis_enabled';
 const TRANSLATION_DELAY_ANALYSIS_STORAGE_KEY = 'MeetingCopilot_translation_delay_analysis_enabled';
 const STT_DELAY_ANALYSIS_STORAGE_KEY = 'MeetingCopilot_stt_delay_analysis_enabled';
@@ -208,6 +205,115 @@ const clampTranslationQuality = (value: number, plan: SpokenLanguagePlan, model?
   return Math.min(bounds.max, Math.max(bounds.min, fallback));
 };
 
+/** Minimal shape of the Electron preload bridge exposed on `window.ipc` (absent in the browser). */
+type ElectronIpcBridge = {
+  getAppInfo: () => { version?: string } | undefined;
+  send: (channel: string, payload?: unknown) => void;
+};
+
+/** Single typed accessor for the optional Electron bridge. */
+const getElectronIpc = (): ElectronIpcBridge | undefined =>
+  (window as Window & { ipc?: ElectronIpcBridge }).ipc;
+
+/** Opaque slice of the app store: only the fields this component selects are declared. */
+type AppRootState = {
+  user: unknown;
+  recorder: { isRecording: boolean };
+  sharing: unknown;
+};
+
+type AudioSourceLabel = 'mic' | 'system' | 'unknown';
+type AudioSourceSegmentMeta = { source?: string; [key: string]: unknown };
+/** Per-chunk capture-source metadata sent alongside each audio chunk. */
+type AudioSourceMeta = {
+  source: AudioSourceLabel;
+  segments?: AudioSourceSegmentMeta[];
+  [key: string]: unknown;
+};
+
+type TimestampLike = Date | number | string | null | undefined;
+type CaptionLike = { start?: TimestampLike; text?: string; [key: string]: unknown };
+/** Loose transcript section as received from the server before presentation overrides. */
+type TranscriptSectionLike = {
+  sectionId?: number | string;
+  start?: TimestampLike;
+  end?: TimestampLike;
+  speakerName?: string;
+  captions?: CaptionLike[];
+  translatedText?: string;
+  desktopAudioSource?: string;
+  [key: string]: unknown;
+};
+
+/** Transcript section held in component state (already normalized for display). */
+type TranscriptSection = {
+  start: Date;
+  end: Date;
+  sectionId: number;
+  speakerName: string;
+  captions: Array<{ start: Date; text: string }>;
+  translatedText?: string;
+  detectedSourceLanguage?: string;
+  detectedSourceLanguageReliable?: boolean;
+};
+
+/** Server ack for `get_current_meeting_id`. */
+type MeetingIdAck = {
+  meetingId?: string;
+  shareCode?: string;
+  isRecording?: boolean;
+  usage?: {
+    translationUsage?: number;
+    translationLimit?: number;
+    transcriptionUsage?: number;
+    transcriptionLimit?: number;
+  };
+};
+
+/** Inline style that also carries CSS custom properties. */
+type CssVarStyle = CSSProperties & { [cssVar: `--${string}`]: string };
+
+/** Generic socket event body: only the fields a handler reads are narrowed. */
+type SocketEventData = { [key: string]: unknown };
+type TranscriptionResultPayload = LatencyEventPayload & {
+  pipeline?: string;
+  isPartial?: boolean;
+  [key: string]: unknown;
+};
+
+type SharedAsrTranscriptPayload = TranscriptionResultPayload & {
+  section?: TranscriptSectionLike;
+};
+
+type LanguageOption = { key: string; value: string; model?: string };
+type LiveTranslationInvitation = { meetingId: string; shareCode: string };
+type LatencySplitType = 'merge' | 'p-split' | 's-split';
+/** Latency fields attached to `transcription_result` style socket events. */
+type LatencyEventPayload = {
+  translationLatencyMs?: number;
+  translationInputChars?: number;
+  translationSplitType?: LatencySplitType;
+  sttLatencyMs?: number;
+  sttInputChars?: number;
+  sttSplitType?: LatencySplitType;
+  text?: string;
+};
+
+/** Socket.IO client plus the ad-hoc readiness/routing flags this component stores on it. */
+type AppSocket = Socket & {
+  isDeepgramReady?: boolean;
+  reverseSpokenLanguage?: string;
+  reverseTranslatedLanguage?: string;
+  reverseSpokenLanguageModel?: string;
+  isSharedDeepgramReady?: boolean;
+  sharedSpokenLanguage?: string;
+  sharedSpokenLanguageModel?: string;
+  sharedDefaultTargetLanguage?: string;
+  sharedInitChunkSent?: boolean;
+  sharedInitChunkSendInProgress?: boolean;
+  sharedLastAudioSentSequence?: number;
+};
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -217,6 +323,10 @@ export interface Message {
   isExplanation?: boolean;
   summaryId?: string; // For summaries: unique ID, for explanations: links to related summary
   speaker?: string;
+  /** Generate Speech payload attached to assistant messages by the Ask panel. */
+  speechData?: { speechText: string; pronunciation: string; language: string };
+  isMemoConfirmation?: boolean;
+  actionType?: string;
 }
 
 const AudioRecorder = ({
@@ -257,9 +367,9 @@ const AudioRecorder = ({
     reservationKey?: string;
   } | null;
 } = {}) => {
-  const { t, currentLanguage } = useTranslation();
+  const { t } = useTranslation();
   const [showLiveTranslationOnly] = useLiveTranslationOnlyPreference();
-  const { user } = useAppSelector((state) => state.user);
+  const { user } = useAppSelector((state: AppRootState) => state.user);
   const isPremiumOrAbove = user?.currentTier !== 'Freemium' && user?.currentTier !== 'Pro';
   const hasPaidMeetingStorageAccess = Boolean(
     user?.currentTier && user.currentTier !== 'Freemium'
@@ -268,13 +378,13 @@ const AudioRecorder = ({
   useEffect(() => {
     paidMeetingStorageAccessRef.current = hasPaidMeetingStorageAccess;
   }, [hasPaidMeetingStorageAccess]);
-  const reduxIsRecording = useAppSelector((state) => state.recorder.isRecording);
+  const reduxIsRecording = useAppSelector((state: AppRootState) => state.recorder.isRecording);
   const normalizedUserEmail = (user?.email || '').trim().toLowerCase();
   const liveShareStorageScope = user?.id || normalizedUserEmail || 'anonymous';
   const isDelayAnalysisAdmin = isDelayAnalysisAdminEmail(normalizedUserEmail);
 
   // Log desktop app version
-  const appInfo = (window as any).ipc?.getAppInfo();
+  const appInfo = getElectronIpc()?.getAppInfo();
   // productionLogger.debug("Desktop App Version:", appInfo?.version || null);
 
 
@@ -286,11 +396,11 @@ const AudioRecorder = ({
   // pill cannot stick after unmount (e.g. navigate-to-detail on stop).
   useEffect(() => {
     try {
-      (window as any).ipc?.send('recording-state', { recording: isRecording });
+      getElectronIpc()?.send('recording-state', { recording: isRecording });
     } catch { /* not running in Electron */ }
     return () => {
       try {
-        (window as any).ipc?.send('recording-state', { recording: false });
+        getElectronIpc()?.send('recording-state', { recording: false });
       } catch { /* not running in Electron */ }
     };
   }, [isRecording]);
@@ -306,16 +416,7 @@ const AudioRecorder = ({
   const [lastAudioBlob, setLastAudioBlob] = useState<Blob | null>(null);
   const [lastMeetingId, setLastMeetingId] = useState<string | null>(null);
 
-  const [transcriptData, setTranscriptData] = useState<Array<{
-    start: Date;
-    end: Date;
-    sectionId: number;
-    speakerName: string;
-    captions: Array<{ start: Date; text: string }>;
-    translatedText?: string;
-    detectedSourceLanguage?: string;
-    detectedSourceLanguageReliable?: boolean;
-  }>>([]);
+  const [transcriptData, setTranscriptData] = useState<TranscriptSection[]>([]);
   const [sameLanguageOutputEnabled] = useSameLanguageOutputPreference();
   const [translationSplitTokenGuardEnabled] = useTranslationSplitTokenGuardPreference();
   const speakerAliasesRef = useRef<Record<string, string>>({});
@@ -323,14 +424,16 @@ const AudioRecorder = ({
   const resolveSpeakerAlias = (speakerName: string) => {
     let resolved = speakerName;
     const visited = new Set<string>();
-    while (speakerAliasesRef.current[resolved] && !visited.has(resolved)) {
+    while (!visited.has(resolved)) {
+      const alias = speakerAliasesRef.current[resolved];
+      if (!alias) break;
       visited.add(resolved);
-      resolved = speakerAliasesRef.current[resolved];
+      resolved = alias;
     }
     return resolved;
   };
 
-  const applySpeakerAliases = (sections: any[]) => sections.map((section) => ({
+  const applySpeakerAliases = <T extends { speakerName?: string }>(sections: T[]) => sections.map((section) => ({
     ...section,
     speakerName: resolveSpeakerAlias(section?.speakerName || 'Speaker'),
   }));
@@ -371,7 +474,7 @@ const AudioRecorder = ({
       translation: s.translatedText || '',
     }));
     try {
-      (window as any).ipc?.send('caption-update', { lines });
+      getElectronIpc()?.send('caption-update', { lines });
     } catch { /* not running in Electron */ }
   }, [transcriptData, isRecording]);
   // Real-time meeting context memory (Premium ASR only). Updated by the server
@@ -504,7 +607,7 @@ const AudioRecorder = ({
     return {
       calendarEventId: calendarNoteContext.calendarEventId || calendarNoteContext.id,
       calendarEventTitle: calendarNoteContext.title,
-      calendarAttendees: (calendarNoteContext.participants ?? []).map((participant) => ({
+      calendarAttendees: (calendarNoteContext.participants ?? []).map((participant: { name?: string; email?: string; self?: boolean }) => ({
         name: participant.name,
         email: participant.email,
         self: participant.self === true,
@@ -552,16 +655,15 @@ const AudioRecorder = ({
     enabled,
     bulletPointEnabled,
     translationMode,
-  } = useAppSelector((state) => state.recorder);
-  const hasExtras = !!extraTranslatedLanguages && extraTranslatedLanguages.length > 0;
+  } = useAppSelector((state: AppRootState) => state.recorder);
 
 
   // Debug: Log bulletPointEnabled changes
   useEffect(() => {
   }, [bulletPointEnabled]);
-  const { joined } = useAppSelector((state) => state.sharing);
+  const { joined } = useAppSelector((state: AppRootState) => state.sharing);
   const dispatch = useAppDispatch();
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<AppSocket | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingTimeoutRef, setLoadingTimeoutRef] = useState<NodeJS.Timeout | null>(null);
   const [paused, setPaused] = useState(false);
@@ -624,7 +726,7 @@ const AudioRecorder = ({
     void getLiveTranslationInvitation({
       reservationKey: liveShareReservationKey,
       calendarEventId,
-    }).then((invitation) => {
+    }).then((invitation: LiveTranslationInvitation | null | undefined) => {
       if (cancelled || !invitation) return;
       writeCachedLiveTranslationInvitation(liveShareInvitationCacheKey, {
         reservationKey: liveShareReservationKey,
@@ -754,7 +856,7 @@ const AudioRecorder = ({
       startsAt: calendarNoteContext?.startsAt,
       calendarAttendees: calendarNoteContext?.participants,
       sharingLanguagePolicy,
-    }).then(async (invitation) => {
+    }).then(async (invitation: LiveTranslationInvitation) => {
       const attachedMeetingId = await activateShareInvitationIfHostIsLive({
         invitationShareCode: invitation.shareCode,
         invitationMeetingId: invitation.meetingId,
@@ -802,7 +904,7 @@ const AudioRecorder = ({
     }
   }, [environment]);
   const [selectedMeetingCaptureDevice, setSelectedMeetingCaptureDevice] = useState<string>(() => localStorage.getItem(MEETING_AUDIO_CAPTURE_STORAGE_KEY) || 'loopback');
-  const [MeetingCopilotConfig, setMeetingCopilotConfig] = useState('')
+  const [, setMeetingCopilotConfig] = useState('')
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [stopButtonDisabled, setStopButtonDisabled] = useState(false);
 
@@ -964,18 +1066,18 @@ const AudioRecorder = ({
     return systemPlayback || (micPlayback && !isVirtualMeetingCaptureEnabled);
   };
 
-  const normalizeAudioSourceMetaForPlayback = (audioSourceMeta: any) => {
+  const normalizeAudioSourceMetaForPlayback = (audioSourceMeta: AudioSourceMeta): AudioSourceMeta => {
     if (!shouldRerouteFastSystemCaptureForPlayback()) return audioSourceMeta;
 
     const segments = Array.isArray(audioSourceMeta?.segments) ? audioSourceMeta.segments : [];
     if (segments.length > 0) {
-      const normalizedSegments = segments.map((segment: any) => (
+      const normalizedSegments = segments.map((segment) => (
         segment?.source === 'system'
           ? { ...segment, source: 'mic' }
           : segment
       ));
-      const hasMicSegment = normalizedSegments.some((segment: any) => segment?.source === 'mic' || segment?.source === 'unknown');
-      const hasSystemSegment = normalizedSegments.some((segment: any) => segment?.source === 'system');
+      const hasMicSegment = normalizedSegments.some((segment) => segment?.source === 'mic' || segment?.source === 'unknown');
+      const hasSystemSegment = normalizedSegments.some((segment) => segment?.source === 'system');
 
       return {
         ...audioSourceMeta,
@@ -996,7 +1098,7 @@ const AudioRecorder = ({
     return audioSourceMeta;
   };
 
-  const shouldSuppressAudioChunkForTtsPlayback = (audioSourceMeta: any) => {
+  const shouldSuppressAudioChunkForTtsPlayback = (audioSourceMeta: AudioSourceMeta) => {
     const micPlayback = translatedPlaybackActiveBySourceRef.current.mic;
     const systemPlayback = translatedPlaybackActiveBySourceRef.current.system;
     if (!micPlayback && !systemPlayback) return false;
@@ -1007,7 +1109,7 @@ const AudioRecorder = ({
     }
 
     const segments = Array.isArray(audioSourceMeta?.segments) ? audioSourceMeta.segments : [];
-    const hasMicSegment = segments.some((segment: any) => segment?.source === 'mic' || segment?.source === 'unknown');
+    const hasMicSegment = segments.some((segment) => segment?.source === 'mic' || segment?.source === 'unknown');
     const source = audioSourceMeta?.source;
 
     if (fastRealtimePlayback) {
@@ -1215,8 +1317,8 @@ const AudioRecorder = ({
 
   const [reverseTranslationActive, setReverseTranslationActive] = useState(false);
   const reverseTranslationActiveRef = useRef(false);
-  const [reverseTranscriptData, setReverseTranscriptData] = useState<any[]>([]);
-  const reverseSocketRef = useRef<any>(null);
+  const [reverseTranscriptData, setReverseTranscriptData] = useState<TranscriptSection[]>([]);
+  const reverseSocketRef = useRef<AppSocket | null>(null);
   // MediaRecorder WebM streams typically include an initialization/header segment in the first chunk only.
   // If we start a new Deepgram stream mid-recording (reverse socket toggled on later), sending only
   // mid-stream WebM clusters can result in "no response" (Deepgram can't decode without the init segment).
@@ -1230,7 +1332,7 @@ const AudioRecorder = ({
   const delayAnalysisConfigEnabled = showDelayAnalysisControls && (translationDelayAnalysisEnabled || sttDelayAnalysisEnabled);
   const delayAnalysisConfigEnabledRef = useRef(delayAnalysisConfigEnabled);
 
-  const recordTranslationLatency = (data: any) => {
+  const recordTranslationLatency = (data: LatencyEventPayload | undefined) => {
     if (data?.translationLatencyMs === undefined) return;
     translationCountRef.current += 1;
     const id = translationCountRef.current;
@@ -1238,14 +1340,14 @@ const AudioRecorder = ({
       ...prev.slice(-49),
       {
         id,
-        latencyMs: data.translationLatencyMs,
+        latencyMs: data.translationLatencyMs as number,
         inputChars: data.translationInputChars || 0,
         splitType: data.translationSplitType || 'merge',
         timestamp: Date.now(),
       }
     ]);
   };
-  const recordSttLatency = (data: any) => {
+  const recordSttLatency = (data: LatencyEventPayload | undefined) => {
     if (data?.sttLatencyMs === undefined || data?.translationLatencyMs !== undefined) return;
     sttCountRef.current += 1;
     const id = sttCountRef.current;
@@ -1253,14 +1355,14 @@ const AudioRecorder = ({
       ...prev.slice(-49),
       {
         id,
-        latencyMs: data.sttLatencyMs,
+        latencyMs: data.sttLatencyMs as number,
         inputChars: data.sttInputChars || data?.text?.length || 0,
         splitType: data.sttSplitType || data.translationSplitType || 'merge',
         timestamp: Date.now(),
       }
     ]);
   };
-  const withDelayAnalysisConfig = (payload: Record<string, any>) => {
+  const withDelayAnalysisConfig = (payload: Record<string, unknown>) => {
     const resolvedTranslatedLanguage = payload.translatedLanguage ?? translatedLanguage;
     const resolvedUplinkLanguage =
       payload.bothModeUplinkTranslatedLanguage ?? bothModeUplinkTranslatedLanguage;
@@ -1416,11 +1518,11 @@ const AudioRecorder = ({
   const onRecordingDiscardedRef = useRef(onRecordingDiscarded);
   onRecordingDiscardedRef.current = onRecordingDiscarded;
   const postMeetingDestinationRef = useRef<PostMeetingDestination | null>(null);
-  const sharedAsrSocketPoolRef = useRef<Map<string, any>>(new Map());
+  const sharedAsrSocketPoolRef = useRef<Map<string, AppSocket>>(new Map());
   const sharedAsrTargetMapRef = useRef<Map<string, Set<string>>>(new Map());
   const sharedAsrPreRollRef = useRef<Array<{
     buffer: ArrayBuffer;
-    audioSourceMeta: { source: 'mic' | 'system'; [key: string]: unknown };
+    audioSourceMeta: AudioSourceMeta;
     capturedAt: number;
     sequence: number;
   }>>([]);
@@ -1442,9 +1544,9 @@ const AudioRecorder = ({
 
   const cleanupSharedAsrSockets = () => {
     const pooled = Array.from(sharedAsrSocketPoolRef.current.values());
-    pooled.forEach((pooledSocket: any) => {
-      try { pooledSocket.emit?.('stop_recording'); } catch { }
-      try { pooledSocket.disconnect?.(); } catch { }
+    pooled.forEach((pooledSocket) => {
+      try { pooledSocket.emit?.('stop_recording'); } catch { /* socket already closed */ }
+      try { pooledSocket.disconnect?.(); } catch { /* socket already closed */ }
     });
     sharedAsrSocketPoolRef.current.clear();
     sharedAsrTargetMapRef.current.clear();
@@ -1453,7 +1555,7 @@ const AudioRecorder = ({
   };
 
   const getReverseLanguageConfig = () => {
-    const translatedLanguageMatch = languages.find((lang) => lang.value === translatedLanguage);
+    const translatedLanguageMatch = languages.find((lang: LanguageOption) => lang.value === translatedLanguage);
     const translatedLanguageKey = translatedLanguageMatch?.key || translatedLanguage;
 
     const reverseSpokenLanguageMatch =
@@ -1488,7 +1590,7 @@ const AudioRecorder = ({
       let accum = 0;
       let count = 0;
       for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i += 1) {
-        accum += input[i];
+        accum += input[i]!;
         count += 1;
       }
       result[offsetResult] = count > 0 ? accum / count : 0;
@@ -1502,7 +1604,7 @@ const AudioRecorder = ({
   const convertFloat32ToInt16 = (input: Float32Array) => {
     const output = new Int16Array(input.length);
     for (let i = 0; i < input.length; i += 1) {
-      const sample = Math.max(-1, Math.min(1, input[i]));
+      const sample = Math.max(-1, Math.min(1, input[i]!));
       output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
     }
     return output;
@@ -1581,11 +1683,11 @@ const AudioRecorder = ({
     captionSourceSplitStateRef.current.clear();
   };
 
-  const getAnalyserRms = (analyser: AnalyserNode, buffer: Float32Array) => {
+  const getAnalyserRms = (analyser: AnalyserNode, buffer: Float32Array<ArrayBuffer>) => {
     analyser.getFloatTimeDomainData(buffer);
     let sum = 0;
     for (let index = 0; index < buffer.length; index += 1) {
-      const sample = buffer[index];
+      const sample = buffer[index]!;
       sum += sample * sample;
     }
     return Math.sqrt(sum / buffer.length);
@@ -1686,12 +1788,12 @@ const AudioRecorder = ({
     const micAnalyser = micSource ? audioContext.createAnalyser() : null;
     const systemAnalyser = systemSource ? audioContext.createAnalyser() : null;
 
-    if (micAnalyser) {
+    if (micSource && micAnalyser) {
       micAnalyser.fftSize = 1024;
       micSource.connect(micAnalyser);
     }
 
-    if (systemAnalyser) {
+    if (systemSource && systemAnalyser) {
       systemAnalyser.fftSize = 1024;
       systemSource.connect(systemAnalyser);
     }
@@ -1700,8 +1802,8 @@ const AudioRecorder = ({
     const systemBuffer = systemAnalyser ? new Float32Array(systemAnalyser.fftSize) : null;
 
     localAudioSourceCleanupRef.current = () => {
-      try { micSource?.disconnect(micAnalyser as AnalyserNode); } catch { }
-      try { systemSource?.disconnect(systemAnalyser as AnalyserNode); } catch { }
+      try { micSource?.disconnect(micAnalyser as AnalyserNode); } catch { /* node already disconnected */ }
+      try { systemSource?.disconnect(systemAnalyser as AnalyserNode); } catch { /* node already disconnected */ }
     };
 
     localAudioSourceSamplerRef.current = setInterval(() => {
@@ -1721,7 +1823,7 @@ const AudioRecorder = ({
     }, LOCAL_AUDIO_SOURCE_SAMPLE_INTERVAL_MS);
   };
 
-  const timestampToMs = (value: any) => {
+  const timestampToMs = (value: TimestampLike) => {
     if (!value) return null;
     if (value instanceof Date) {
       const ms = value.getTime();
@@ -1734,7 +1836,7 @@ const AudioRecorder = ({
     return Number.isFinite(parsed) ? parsed : null;
   };
 
-  const inferDesktopAudioSource = (startValue: any, endValue?: any): 'mic' | 'system' | 'unknown' => {
+  const inferDesktopAudioSource = (startValue: TimestampLike, endValue?: TimestampLike): AudioSourceLabel => {
     const startMs = timestampToMs(startValue);
     const endMs = timestampToMs(endValue) || (startMs ? startMs + 1000 : null);
     if (!startMs || !endMs) return 'unknown';
@@ -1771,34 +1873,12 @@ const AudioRecorder = ({
     return classifyAudioSourceSample(avgMic, avgSystem, virtualCapture);
   };
 
-  const findCaptionSplitIndex = (text: string, targetIndex: number, minIndex: number) => {
-    const safeTarget = Math.max(minIndex + 1, Math.min(text.length - 1, targetIndex));
-    const searchRadius = 80;
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (
-      let index = Math.max(minIndex + 1, safeTarget - searchRadius);
-      index <= Math.min(text.length - 1, safeTarget + searchRadius);
-      index += 1
-    ) {
-      if (!/\s/.test(text[index])) continue;
-      const distance = Math.abs(index - safeTarget);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = index;
-      }
-    }
-
-    return bestIndex === -1 ? safeTarget : bestIndex;
-  };
-
   const findAppendOnlyCaptionSplitIndex = (text: string, lockedTextLength: number) => {
     const lockedIndex = Math.max(0, Math.min(text.length - 1, lockedTextLength));
     const searchEnd = Math.min(text.length - 1, lockedIndex + 80);
 
     for (let index = lockedIndex; index <= searchEnd; index += 1) {
-      if (/\s/.test(text[index])) {
+      if (/\s/.test(text.charAt(index))) {
         return index;
       }
     }
@@ -1807,19 +1887,19 @@ const AudioRecorder = ({
   };
 
   const splitCaptionBySourceSlices = (
-    caption: any,
-    intervalStart: any,
-    intervalEnd: any,
+    caption: CaptionLike,
+    intervalStart: TimestampLike,
+    intervalEnd: TimestampLike,
     splitKey: string,
-  ): Array<{ source: 'mic' | 'system' | 'unknown'; caption: any }> => {
+  ): Array<{ source: AudioSourceLabel; caption: CaptionLike }> => {
     const text = typeof caption?.text === 'string' ? caption.text : '';
     const inferredIntervalSource = inferDesktopAudioSource(intervalStart, intervalEnd);
-    const currentSource = inferredIntervalSource === 'unknown'
+    const currentSource: AudioSourceLabel = inferredIntervalSource === 'unknown'
       ? (localAudioSourceCurrentRef.current || 'unknown')
       : inferredIntervalSource;
     const existingState = captionSourceSplitStateRef.current.get(splitKey);
     const textShrankOrChanged = existingState && !text.startsWith(existingState.lastText);
-    const initialSource = inferredIntervalSource === 'unknown' ? currentSource : inferredIntervalSource;
+    const initialSource: AudioSourceLabel = inferredIntervalSource === 'unknown' ? currentSource : inferredIntervalSource;
     const state = !existingState || textShrankOrChanged
       ? {
         lastText: '',
@@ -1869,7 +1949,7 @@ const AudioRecorder = ({
       return [{ source: state.splits[0]?.source || nextSource, caption }];
     }
 
-    const parts: Array<{ source: 'mic' | 'system' | 'unknown'; caption: any }> = [];
+    const parts: Array<{ source: AudioSourceLabel; caption: CaptionLike }> = [];
     state.splits.forEach((split, splitIndex) => {
       const nextSplit = state.splits[splitIndex + 1];
       const partText = text.slice(split.index, nextSplit?.index || text.length).trim();
@@ -1886,7 +1966,7 @@ const AudioRecorder = ({
     return parts.length > 0 ? parts : [{ source: inferDesktopAudioSource(intervalStart, intervalEnd), caption }];
   };
 
-  const getAudioSourceMetadataForChunk = (durationMs: number) => {
+  const getAudioSourceMetadataForChunk = (durationMs: number): AudioSourceMeta => {
     const virtualMeetingCapture = isVirtualMeetingCaptureEnabled;
     const chunkEndMs = Date.now();
     const chunkStartMs = chunkEndMs - Math.max(1, durationMs);
@@ -1930,7 +2010,7 @@ const AudioRecorder = ({
     }
 
     const segments: Array<{ source: 'mic' | 'system' | 'unknown'; startOffsetMs: number; endOffsetMs: number }> = [];
-    let currentSource: 'mic' | 'system' | 'unknown' = classifyAudioSourceSample(samples[0].micLevel, samples[0].systemLevel, virtualMeetingCapture);
+    let currentSource: 'mic' | 'system' | 'unknown' = classifyAudioSourceSample(samples[0]!.micLevel, samples[0]!.systemLevel, virtualMeetingCapture);
     let currentStartMs = chunkStartMs;
 
     samples.forEach((sample, sampleIndex) => {
@@ -2043,7 +2123,7 @@ const AudioRecorder = ({
     return classifyAudioSourceSample(avgMic, avgSystem, false) === 'system';
   };
 
-  const applyFastTranscriptPresentation = (sections: any[]) => applySpeakerAliases(
+  const applyFastTranscriptPresentation = (sections: TranscriptSectionLike[]) => applySpeakerAliases<TranscriptSection>(
     filterS2sOffBleedSections(
       applyDesktopSpeakerLabelOverrides(sections),
       {
@@ -2064,10 +2144,10 @@ const AudioRecorder = ({
     });
   };
 
-  const applyDesktopSpeakerLabelOverrides = (data: any[]) => {
+  const applyDesktopSpeakerLabelOverrides = (data: TranscriptSectionLike[]): TranscriptSection[] => {
     if (!Array.isArray(data)) return [];
 
-    const normalizedSections: any[] = [];
+    const normalizedSections: TranscriptSectionLike[] = [];
     const inPerson = isInPersonSessionEnvironment(environmentRef.current);
     const activeTranslationMode = translationModeRef.current;
     const activeSpeechToSpeechMode = speechToSpeechModeRef.current;
@@ -2159,7 +2239,7 @@ const AudioRecorder = ({
       }
 
       const sectionSource = inferDesktopAudioSource(section?.start || captions[0]?.start, section?.end);
-      const groups: Array<{ source: 'mic' | 'system' | 'unknown'; captions: any[]; startIndex: number }> = [];
+      const groups: Array<{ source: 'mic' | 'system' | 'unknown'; captions: CaptionLike[]; startIndex: number }> = [];
       const expandedCaptions = captions.flatMap((caption, captionIndex) => {
         const nextCaption = captions[captionIndex + 1];
         const intervalStart = caption?.start || section?.start;
@@ -2207,7 +2287,7 @@ const AudioRecorder = ({
           start: firstCaption?.start || section?.start,
           end: nextGroup?.captions?.[0]?.start || section?.end,
           sectionId: Number.isFinite(section?.sectionId)
-            ? (section.sectionId * 1000) + groupIndex
+            ? ((section.sectionId as number) * 1000) + groupIndex
             : `${section?.sectionId || 'section'}-${groupIndex}`,
           speakerName: group.source === 'mic' ? (isFastMode ? getRealtimeSpeakerNameForSource('mic') : micLabel) : (isFastMode ? remoteLabel : originalSpeakerName),
           captions: group.captions,
@@ -2217,7 +2297,7 @@ const AudioRecorder = ({
       });
     });
 
-    return normalizedSections;
+    return normalizedSections as TranscriptSection[];
   };
 
   const getFastRealtimeMergeContext = () => ({
@@ -2227,7 +2307,7 @@ const AudioRecorder = ({
   });
 
   const mergeFastRealtimeIntoTranscript = (
-    prev: any[],
+    prev: TranscriptSection[],
     payload: Parameters<typeof mergeFastRealtimeSections>[1]
   ) => mergeFastRealtimeSections(prev, payload, getFastRealtimeMergeContext());
 
@@ -2236,7 +2316,7 @@ const AudioRecorder = ({
     if (reverseAudioBufferRef.current.length > 0) {
       const combinedBlob = new Blob(reverseAudioBufferRef.current, { type: "audio/webm" });
       combinedBlob.arrayBuffer().then((buffer) => {
-        const reverseSocket: any = reverseSocketRef.current;
+        const reverseSocket = reverseSocketRef.current;
         if (reverseSocket?.connected && reverseSocket.isDeepgramReady) {
           const estimatedDurationMs = Math.max(250, reverseAudioBufferRef.current.length * 250);
           const audioSourceMeta = getAudioSourceMetadataForChunk(estimatedDurationMs);
@@ -2254,7 +2334,7 @@ const AudioRecorder = ({
     }
   };
 
-  const emitReversePendingBuffer = (reverseSocket: any, queuedBuffer: ArrayBuffer) => {
+  const emitReversePendingBuffer = (reverseSocket: AppSocket, queuedBuffer: ArrayBuffer) => {
     const durationMs = Math.max(1, Math.round(queuedBuffer.byteLength / PCM_BYTES_PER_MS));
     const audioSourceMeta = getAudioSourceMetadataForChunk(durationMs);
     reverseSocket.emit("audio_chunk", {
@@ -2267,7 +2347,7 @@ const AudioRecorder = ({
     });
   };
 
-  const flushReversePendingBuffers = (reverseSocket: any) => {
+  const flushReversePendingBuffers = (reverseSocket: AppSocket | null) => {
     if (!reverseSocket?.connected || !reverseSocket?.isDeepgramReady) return;
     const queued = reversePendingBuffersRef.current;
     if (!queued.length) return;
@@ -2352,14 +2432,13 @@ const AudioRecorder = ({
   }, [bulletPointEnabled, bulletOverlayOpen]);
 
   // AI-generated prompts state - DISABLED
-  const [aiPrompt3, setAiPrompt3] = useState<string | undefined>(undefined);
-  const [aiPrompt4, setAiPrompt4] = useState<string | undefined>(undefined);
-  const [lastPromptGenerationTime, setLastPromptGenerationTime] = useState<number>(0);
+  const [aiPrompt3] = useState<string | undefined>(undefined);
+  const [aiPrompt4] = useState<string | undefined>(undefined);
 
   // No transcription monitoring state
   const [showNoTranscriptionPopup, setShowNoTranscriptionPopup] = useState(false);
   const [noTranscriptionTimer, setNoTranscriptionTimer] = useState<NodeJS.Timeout | null>(null);
-  const [lastTranscriptionTime, setLastTranscriptionTime] = useState<Date>(new Date());
+  const [lastTranscriptionTime, setLastTranscriptionTime] = useState<Date | null>(new Date());
   const MeetingCopilotConfigLocal = localStorage.getItem("MeetingCopilot_config");
 
   const getSpokenLanguagePlan = () => {
@@ -2497,7 +2576,7 @@ const AudioRecorder = ({
     // Make sure we have the latest meetingID from the server before saving
     if (socketRef.current && socketRef.current.connected && isRecording) {
       const reloadFallback = setTimeout(reload, 1500);
-      socketRef.current.emit("get_current_meeting_id", {}, (response) => {
+      socketRef.current.emit("get_current_meeting_id", {}, (response?: MeetingIdAck) => {
         clearTimeout(reloadFallback);
         if (response && response.meetingId) {
           //productionLogger.debug(`Got latest meetingID from server: ${response.meetingId}`);
@@ -2523,21 +2602,6 @@ const AudioRecorder = ({
       // Reload the page to create a new socket connection
       reload();
     }
-  };
-
-  const startNoTranscriptionMonitoring = () => {
-    // Clear any existing timer
-    if (noTranscriptionTimer) {
-      clearTimeout(noTranscriptionTimer);
-    }
-
-    // Set timer to show popup after 30 seconds of no transcription
-    const timer = setTimeout(() => {
-      setShowNoTranscriptionPopup(true);
-    }, 30000); // 30 seconds
-
-    setNoTranscriptionTimer(timer);
-    setLastTranscriptionTime(new Date());
   };
 
   const stopNoTranscriptionMonitoring = () => {
@@ -2587,7 +2651,7 @@ const AudioRecorder = ({
         method: 'POST',
         body: formData,
         headers: {
-          'Authorization': localStorage.getItem('accessToken'),
+          'Authorization': String(localStorage.getItem('accessToken')),
         },
       });
 
@@ -2601,7 +2665,7 @@ const AudioRecorder = ({
       setLastAudioBlob(null);
       setLastMeetingId(null);
 
-    } catch (error) {
+    } catch {
       setAudioUploadError(t('desktopUi.errors.audioUpload'));
     } finally {
       setIsUploadingAudio(false);
@@ -2658,7 +2722,7 @@ const AudioRecorder = ({
     dispatch(setEnabled(false));
     setIsRecording(false);
     try {
-      (window as any).ipc?.send('recording-state', { recording: false });
+      getElectronIpc()?.send('recording-state', { recording: false });
     } catch { /* not running in Electron */ }
 
     if (!shouldNavigateToDetail && !shouldReturnHome) {
@@ -2795,58 +2859,6 @@ const AudioRecorder = ({
     await saveMeetingAndReload();
   };
 
-  // Helper function to show translation dialog if needed
-  const showTranslationDialogIfNeeded = (requireRecording = false) => {
-    // Check if we should show dialog based on current state
-    const recordingCheck = requireRecording ? isRecording : true;
-    if (translationLimitExceeded && enabled && recordingCheck) {
-      // For now, we'll assume transcription is available
-      // In a real scenario, we'd check transcriptionUsage vs transcriptionLimit
-      const mockDialogData = {
-        transcriptionUsage: translationUsage?.used || 0, // Use translation usage as proxy
-        transcriptionLimit: translationUsage?.limit || 120, // Default limit
-        usedMinutes: translationUsage?.used || 0,
-        limit: translationUsage?.limit || 60
-      };
-
-      // Only show if transcription is available (usage < limit)
-      if (mockDialogData.transcriptionUsage < mockDialogData.transcriptionLimit) {
-        // First, automatically turn off translation toggle and real-time summary toggle
-        dispatch(setEnabled(false));
-        dispatch(setBulletPointEnabled(false));
-
-        // Update socket config to disable translation
-        socketRef.current?.emit("update_config", withDelayAnalysisConfig({
-          spokenLanguage,
-          spokenLanguageModel,
-          translatedLanguage,
-          translationEnabled: false
-        }));
-
-        // Also disable bullet points since they consume translation minutes
-        socketRef.current?.emit('toggle_bullet_points', false);
-
-        // Stop translation timer
-        if (translationTimerRef.current) {
-          clearInterval(translationTimerRef.current);
-          translationTimerRef.current = null;
-        }
-
-        // Reset translation time
-        setTranslationTime(0);
-
-        // Show custom dialog
-        setDialogData(mockDialogData);
-        setShowTranslationDialog(true);
-
-        // Set up 20-second timeout for auto-No
-        dialogTimeoutRef.current = setTimeout(() => {
-          handleTranslationDialogResponse(false, 'timeout-fallback');
-        }, 20000); // Changed from 60000 to 20000 (20 seconds)
-      }
-    }
-  };
-
   // Countdown-only function for transcription dialog
   const startTranscriptionDialogCountdown = () => {
     // productionLogger.debug('🔴 TRANSCRIPTION DIALOG DEBUG: Starting countdown', {
@@ -2857,7 +2869,7 @@ const AudioRecorder = ({
     transcriptionDialogTimerRef.current = setInterval(() => {
       setTranscriptionDialogCountdown(prev => {
         if (prev <= 1) {
-          clearInterval(transcriptionDialogTimerRef.current);
+          clearInterval(transcriptionDialogTimerRef.current ?? undefined);
           transcriptionDialogTimerRef.current = null;
 
           // When countdown expires, programmatically click the "Okay" button
@@ -2888,7 +2900,7 @@ const AudioRecorder = ({
       transcriptionDialogTimeoutRef.current = null;
     }
     if (transcriptionDialogTimerRef.current) {
-      clearInterval(transcriptionDialogTimerRef.current);
+      clearInterval(transcriptionDialogTimerRef.current ?? undefined);
       transcriptionDialogTimerRef.current = null;
     }
 
@@ -2911,7 +2923,7 @@ const AudioRecorder = ({
     dialogCountdownTimerRef.current = setInterval(() => {
       setDialogCountdown(prev => {
         if (prev <= 1) {
-          clearInterval(dialogCountdownTimerRef.current);
+          clearInterval(dialogCountdownTimerRef.current ?? undefined);
           dialogCountdownTimerRef.current = null;
 
           // When countdown expires, programmatically click the "No" button to ensure identical logic
@@ -2934,7 +2946,7 @@ const AudioRecorder = ({
   };
 
   // Handler for translation dialog responses - only handles dialog state and logic
-  const handleTranslationDialogResponse = async (continueWithTranscription: boolean, source = 'unknown') => {
+  const handleTranslationDialogResponse = async (continueWithTranscription: boolean, _source = 'unknown') => {
     // productionLogger.debug('🔴 TRANSLATION DIALOG DEBUG: handleTranslationDialogResponse called', {
     //   continueWithTranscription,
     //   source,
@@ -2953,7 +2965,7 @@ const AudioRecorder = ({
 
     // Clear countdown timer
     if (dialogCountdownTimerRef.current) {
-      clearInterval(dialogCountdownTimerRef.current);
+      clearInterval(dialogCountdownTimerRef.current ?? undefined);
       dialogCountdownTimerRef.current = null;
     }
 
@@ -3010,7 +3022,7 @@ const AudioRecorder = ({
   const getCurrentMeetingId = () => {
     if (socketRef.current && socketRef.current.connected) {
       //productionLogger.debug(`Getting current meeting ID with language: ${spokenLanguage}, model: ${spokenLanguageModel}`);
-      socketRef.current.emit("get_current_meeting_id", {}, (response) => {
+      socketRef.current.emit("get_current_meeting_id", {}, (response?: MeetingIdAck) => {
         if (response && response.meetingId) {
           // productionLogger.debug("response", response)
           //productionLogger.debug(`Received meetingID from server: ${response.meetingId}`);
@@ -3082,7 +3094,7 @@ const AudioRecorder = ({
       const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
       //productionLogger.debug(`🎤 Found ${audioInputDevices.length} audio input devices:`);
 
-      audioInputDevices.forEach((device, index) => {
+      audioInputDevices.forEach((_device, _index) => {
         //productionLogger.debug(`  ${index + 1}. ${device.label || 'Unnamed device'} (ID: ${device.deviceId})`);
       });
 
@@ -3126,7 +3138,7 @@ const AudioRecorder = ({
           localStorage.setItem(MEETING_AUDIO_CAPTURE_STORAGE_KEY, 'loopback');
         }
       }
-    } catch (error) {
+    } catch {
       //productionLogger.debug("❌ Error getting audio devices:", error);
       setError({ type: 'microphone' });
     }
@@ -3218,7 +3230,7 @@ const AudioRecorder = ({
     if (displayStreamRef.current) {
       // Check if cached stream is still active
       const tracks = displayStreamRef.current.getAudioTracks();
-      if (tracks.length > 0 && tracks[0].readyState === 'live') {
+      if (tracks.length > 0 && tracks[0]!.readyState === 'live') {
         return displayStreamRef.current;
       } else {
         // Clear dead stream reference
@@ -3268,7 +3280,7 @@ const AudioRecorder = ({
 
     if (meetingAudioStreamRef.current) {
       const tracks = meetingAudioStreamRef.current.getAudioTracks();
-      if (tracks.length > 0 && tracks[0].readyState === 'live') {
+      if (tracks.length > 0 && tracks[0]!.readyState === 'live') {
         return meetingAudioStreamRef.current;
       }
       meetingAudioStreamRef.current = null;
@@ -3345,17 +3357,17 @@ const AudioRecorder = ({
 
     // Main socket readiness is still tracked for diagnostics/reconnects,
     // but the primary recorder no longer waits on it before sending audio.
-    (socketRef.current as any).isDeepgramReady = false;
+    socketRef.current.isDeepgramReady = false;
 
-    socketRef.current.on('deepgram_ready', (data: any) => {
+    socketRef.current.on('deepgram_ready', (data: unknown) => {
       productionLogger.debug('✅ Main socket Deepgram ready:', data);
-      (socketRef.current as any).isDeepgramReady = true;
+      socketRef.current!.isDeepgramReady = true;
       setIsTranscriptionReady(true);
     });
 
     // Real-time meeting memory update from the server. Ignore stale updates if
     // the session is not Premium spoken language in non-Fast mode.
-    socketRef.current.on('meeting_flow_update', (data: any) => {
+    socketRef.current.on('meeting_flow_update', (data: { flow?: unknown } | undefined) => {
       if (!isRealTimeMemoryEligible(getSpokenLanguagePlan(), translationModeRef.current)) {
         setMeetingFlow("");
         return;
@@ -3367,8 +3379,8 @@ const AudioRecorder = ({
 
     // If the transport drops mid-recording, the server cleans up the Deepgram stream.
     // Without resetting readiness + re-emitting start_recording on reconnect, the session can appear "stopped".
-    socketRef.current.on('disconnect', (reason: any) => {
-      (socketRef.current as any).isDeepgramReady = false;
+    socketRef.current.on('disconnect', (reason: unknown) => {
+      socketRef.current!.isDeepgramReady = false;
       setIsTranscriptionReady(false);
       productionLogger.debug('❌ Main socket disconnected:', reason);
     });
@@ -3401,7 +3413,7 @@ const AudioRecorder = ({
       // If we reconnect while a recording is ongoing, restart the backend session.
       // This will create a new backend meeting if the previous socket died unexpectedly, but it's better than a silent "stopped" stream.
       if (isRecordingRef.current) {
-        (socketRef.current as any).isDeepgramReady = false;
+        socketRef.current!.isDeepgramReady = false;
         emitFullConfigToServer();
         socketRef.current?.emit("start_recording", {
           existingMeetingId: meetingIdRef.current || reservedMeetingIdRef.current || undefined,
@@ -3421,7 +3433,7 @@ const AudioRecorder = ({
       }
 
       // Request current usage data from server
-      socketRef.current?.emit("get_current_meeting_id", {}, (response) => {
+      socketRef.current?.emit("get_current_meeting_id", {}, (response?: MeetingIdAck) => {
         // This callback might contain usage data - check if response has usage info
         if (response && response.usage) {
           if (response.usage.translationUsage !== undefined && response.usage.translationLimit !== undefined) {
@@ -3447,7 +3459,7 @@ const AudioRecorder = ({
         }));
 
         // Request current transcript data after initial connection
-        socketRef.current?.emit("get_current_meeting_id", {}, (response) => {
+        socketRef.current?.emit("get_current_meeting_id", {}, (response?: MeetingIdAck) => {
           if (response && response.meetingId) {
             //productionLogger.debug(`Got meetingID after initial connection: ${response.meetingId}`);
             // productionLogger.debug("response", response)
@@ -3459,7 +3471,10 @@ const AudioRecorder = ({
       }
     });
 
-    socketRef.current.on('shared_asr_requested', (data: any) => {
+    socketRef.current.on('shared_asr_requested', (data: {
+      asrConfig?: { spokenLanguage?: string; spokenLanguageModel?: string; translatedLanguage?: string };
+      shareCode?: string;
+    } | undefined) => {
       productionLogger.debug('🔔 [SHARED_ASR_REQUESTED] Event received on desktop! Raw data:', JSON.stringify(data));
       const requestedConfig = data?.asrConfig;
       if (!requestedConfig) {
@@ -3498,7 +3513,10 @@ const AudioRecorder = ({
       );
     });
 
-    socketRef.current.on('shared_asr_routes_sync', (data: any) => {
+    socketRef.current.on('shared_asr_routes_sync', (data: {
+      shareCode?: string;
+      routes?: Array<{ spokenLanguage?: string; spokenLanguageModel?: string; translatedLanguages?: string[] }>;
+    } | undefined) => {
       if (translationMode === 'fast') return;
       const sessionShareCode = data?.shareCode || shareCode;
       const routes = Array.isArray(data?.routes) ? data.routes : [];
@@ -3530,7 +3548,7 @@ const AudioRecorder = ({
         && !isDelayAnalysis
         && !wasDiscarded
       ) {
-        void updateOperationalContextFromMeeting(finalizedMeetingId).catch((error) => {
+        void updateOperationalContextFromMeeting(finalizedMeetingId).catch((error: unknown) => {
           productionLogger.error('Could not update operational context after desktop meeting:', error);
         });
       }
@@ -3561,7 +3579,7 @@ const AudioRecorder = ({
         const destination = postMeetingDestinationRef.current || resolvePostMeetingDestination(
           localStorage.getItem('MeetingCopilot_meeting_storage_preference'), paidMeetingStorageAccessRef.current,
         );
-        onRecordingCompleteRef.current(finalizedMeetingId, undefined, destination === 'transcript' ? 'transcript' : 'enhanced');
+        onRecordingCompleteRef.current?.(finalizedMeetingId, undefined, destination === 'transcript' ? 'transcript' : 'enhanced');
         return;
       }
 
@@ -3727,7 +3745,7 @@ const AudioRecorder = ({
         transcriptionDialogTimeoutRef.current = setTimeout(() => {
           // Only execute if the countdown timer hasn't already handled it
           if (transcriptionDialogTimerRef.current) {
-            clearInterval(transcriptionDialogTimerRef.current);
+            clearInterval(transcriptionDialogTimerRef.current ?? undefined);
             transcriptionDialogTimerRef.current = null;
           }
           handleTranscriptionDialogResponse();
@@ -3867,7 +3885,7 @@ const AudioRecorder = ({
     });
 
     // Track translation latency from transcription_result events
-    socketRef.current.on('transcription_result', (data: any) => {
+    socketRef.current.on('transcription_result', (data: TranscriptionResultPayload) => {
       recordTranslationLatency(data);
       recordSttLatency(data);
       if (data?.pipeline === 'realtime-fast') {
@@ -3891,7 +3909,7 @@ const AudioRecorder = ({
       }
     });
 
-    socketRef.current.on('realtime_translation_caption', (data: any) => {
+    socketRef.current.on('realtime_translation_caption', (data: SocketEventData | undefined) => {
       if (!data) return;
       applyFastRealtimeTranscriptUpdate({
         sourceText: data.sourceText,
@@ -3982,7 +4000,7 @@ const AudioRecorder = ({
     socketRef.current.on('real_time_summaries_updated', (data) => {
       productionLogger.debug('⚠️ DEPRECATED: real_time_summaries_updated event received (use chat_message_received instead)');
       // Update all summaries in messages
-      const summaryMessages = data.summaries.map((summary: any) => ({
+      const summaryMessages = data.summaries.map((summary: { text: string; timestamp: string | number | Date; summaryId?: string; speaker?: string }) => ({
         role: 'assistant' as const,
         content: summary.text,
         timestamp: new Date(summary.timestamp),
@@ -4100,7 +4118,6 @@ const AudioRecorder = ({
         consecutiveSingleSentenceSectionsRef.current = 0;
       }
 
-      const now = Date.now();
       if (
         consecutiveSingleSentenceSectionsRef.current >= 5 &&
         translationQuality < max
@@ -4187,7 +4204,7 @@ const AudioRecorder = ({
       const sourceText = (item.captions || []).map((c) => c.text).join(' ').trim();
       if (!sourceText) return;
 
-      extraTranslatedLanguages.forEach((targetLang, extraLanguageIndex) => {
+      extraTranslatedLanguages.forEach((targetLang: string, extraLanguageIndex: number) => {
         const suppressTarget = shouldSuppressSameLanguageOutput({
           section: item,
           targetLanguage: targetLang,
@@ -4328,7 +4345,7 @@ const AudioRecorder = ({
     // Reset so the "Getting ready…" status reflects the new session. (If the socket already
     // reported ready, keep it true to avoid a flash.)
     if (isRecording) {
-      setIsTranscriptionReady(Boolean((socketRef.current as any)?.isDeepgramReady));
+      setIsTranscriptionReady(Boolean(socketRef.current?.isDeepgramReady));
     } else {
       setIsTranscriptionReady(false);
     }
@@ -4554,7 +4571,7 @@ const AudioRecorder = ({
 
       // Log the tracks from the meeting audio stream
       const displayTracks = meetingAudioStream?.getAudioTracks() ?? [];
-      displayTracks.forEach((track, index) => {
+      displayTracks.forEach((_track, _index) => {
         //productionLogger.debug(`  ${index + 1}. Track ID: ${track.id}, Label: ${track.label}, Enabled: ${track.enabled}, Muted: ${track.muted}`);
       });
 
@@ -4611,7 +4628,7 @@ const AudioRecorder = ({
       // Log the tracks from the merged stream
       const mergedTracks = stream.getAudioTracks();
       //productionLogger.debug(`🎵 Merged stream has ${mergedTracks.length} audio tracks:`);
-      mergedTracks.forEach((track, index) => {
+      mergedTracks.forEach((_track, _index) => {
         //productionLogger.debug(`  ${index + 1}. Track ID: ${track.id}, Label: ${track.label}, Enabled: ${track.enabled}, Muted: ${track.muted}`);
       });
 
@@ -4650,7 +4667,7 @@ const AudioRecorder = ({
 
         // NOTE: Dialog only shows when translation_limit_exceeded event is received during live recording
 
-        let audioBuffer: Blob[] = [];
+        const audioBuffer: Blob[] = [];
         // Fast mode feeds audio to OpenAI every 100ms for continuous low-latency translation.
         // Classic mode keeps the original 250ms cadence which suits Deepgram's batching.
         const CHUNK_INTERVAL = onlineBothFast ? 50 : (translationMode === 'fast' ? 100 : 250);
@@ -4669,7 +4686,7 @@ const AudioRecorder = ({
 
         const emitMainAudioChunk = (
           buffer: ArrayBuffer,
-          audioSourceMeta: { source: 'mic' | 'system'; [key: string]: unknown },
+          audioSourceMeta: AudioSourceMeta,
           filteredAtCapture = false,
         ) => {
           if (!buffer.byteLength) return;
@@ -4681,7 +4698,7 @@ const AudioRecorder = ({
             // fragment isn't joined directly onto the previous one in model time.
             buffer = new ArrayBuffer(buffer.byteLength);
           }
-          const mainSocket: any = socketRef.current;
+          const mainSocket = socketRef.current;
           if (!mainSocket?.connected) return;
           mainSocket.emit("audio_chunk", {
             spokenLanguage,
@@ -4761,12 +4778,12 @@ const AudioRecorder = ({
           const preRollCutoff = capturedAt - SHARED_ASR_PRE_ROLL_MS;
           while (
             sharedAsrPreRollRef.current.length > 0
-            && sharedAsrPreRollRef.current[0].capturedAt < preRollCutoff
+            && sharedAsrPreRollRef.current[0]!.capturedAt < preRollCutoff
           ) {
             sharedAsrPreRollRef.current.shift();
           }
 
-          const reverseSocket: any = reverseSocketRef.current;
+          const reverseSocket = reverseSocketRef.current;
           const isReverseActive = reverseTranslationActiveRef.current;
           const isReverseConnected = reverseSocket?.connected;
           const isReverseDeepgramReady = reverseSocket?.isDeepgramReady;
@@ -4783,7 +4800,7 @@ const AudioRecorder = ({
           }
 
           const pooledSockets = Array.from(sharedAsrSocketPoolRef.current.values());
-          pooledSockets.forEach((sharedSocket: any) => {
+          pooledSockets.forEach((sharedSocket) => {
             const isSharedConnected = sharedSocket?.connected;
             const isSharedDeepgramReady = sharedSocket?.isDeepgramReady;
             const isSharedReadyEventReceived = sharedSocket?.isSharedDeepgramReady;
@@ -4893,7 +4910,7 @@ const AudioRecorder = ({
               pushPcmFromProcessEvent(processEvent, 'mic'), 'mic'
             ));
           };
-          micAudioSource.connect(micProcessor);
+          micAudioSource!.connect(micProcessor);
           micProcessor.connect(audioContext.destination);
 
           const systemProcessor = audioContext.createScriptProcessor(dualProcessorBufferSize, 1, 1);
@@ -4905,7 +4922,7 @@ const AudioRecorder = ({
               pushPcmFromProcessEvent(processEvent, 'system'), 'system'
             ));
           };
-          systemAudioSource.connect(systemProcessor);
+          systemAudioSource!.connect(systemProcessor);
           systemProcessor.connect(audioContext.destination);
         } else if (useSingleSourcePcmCapture) {
           const singleSource = micAudioSource || systemAudioSource;
@@ -4924,7 +4941,7 @@ const AudioRecorder = ({
               fixedPcmSourceRef.current || 'mixed'
             ));
           };
-          singleSource.connect(singleProcessor);
+          singleSource!.connect(singleProcessor);
           singleProcessor.connect(audioContext.destination);
         } else {
           const streamingSource = audioContext.createMediaStreamSource(stream);
@@ -4993,7 +5010,7 @@ const AudioRecorder = ({
         }
 
         mediaRecorder.start(100);
-      } catch (err) {
+      } catch {
         if (mediaRecorderRef.current?.state !== 'inactive') {
           try {
             mediaRecorderRef.current?.stop();
@@ -5126,7 +5143,7 @@ const AudioRecorder = ({
     }
 
     try {
-      const socket = io(wsURL, {
+      const socket: AppSocket = io(wsURL, {
         ...DESKTOP_SOCKET_IO_OPTIONS,
         auth: getDesktopSocketAuth(),
         query: {
@@ -5174,7 +5191,7 @@ const AudioRecorder = ({
             bulletPointEnabled: false,
             translationQuality: translationQuality.toString(),
           }));
-        } catch { }
+        } catch { /* config mirroring is best-effort; the socket may be closing */ }
       });
 
       socket.on('disconnect', () => {
@@ -5185,20 +5202,20 @@ const AudioRecorder = ({
         reversePendingBuffersRef.current = [];
       });
 
-      socket.on('error', (error: any) => {
+      socket.on('error', (error: unknown) => {
         productionLogger.error('💥 Reverse socket error:', error);
       });
 
       // Set up reverse transcript data handling (delta-first).
-      socket.on('reverse_transcription_result', (data: any) => {
+      socket.on('reverse_transcription_result', (data: SharedAsrTranscriptPayload | undefined) => {
         recordTranslationLatency(data);
         recordSttLatency(data);
         const section = data?.section;
         if (!section || typeof section.sectionId !== 'number') return;
         const normalized = applyDesktopSpeakerLabelOverrides([section]);
-        const normalizedSection = normalized[0] || section;
+        const normalizedSection = normalized[0] || (section as TranscriptSection);
         setReverseTranscriptData((prev) => {
-          const index = prev.findIndex((item: any) => item.sectionId === normalizedSection.sectionId);
+          const index = prev.findIndex((item) => item.sectionId === normalizedSection.sectionId);
           if (index === -1) {
             return [...prev, normalizedSection];
           }
@@ -5209,7 +5226,7 @@ const AudioRecorder = ({
       });
 
       // Backward-compatible full snapshot handler (throttled on server).
-      socket.on('transcript_data', (data: any) => {
+      socket.on('transcript_data', (data: TranscriptSectionLike[] | null | undefined) => {
         setReverseTranscriptData(applyDesktopSpeakerLabelOverrides(data || []));
       });
 
@@ -5228,7 +5245,7 @@ const AudioRecorder = ({
       });
 
       // Handle reverse Deepgram errors — mark not ready so audio stops flowing
-      socket.on('reverse_deepgram_error', (data: any) => {
+      socket.on('reverse_deepgram_error', (data: { message?: string } | undefined) => {
         productionLogger.warn('🔄❌ Reverse Deepgram error:', data?.message);
         socket.isDeepgramReady = false;
       });
@@ -5245,7 +5262,7 @@ const AudioRecorder = ({
   const createSharedAsrSocketConnection = (spokenLang: string, spokenLangModel: string, translatedLang: string, sessionShareCode: string) => {
     if (!user?.id || !sessionShareCode) return null;
 
-    const socket = io(wsURL, {
+    const socket: AppSocket = io(wsURL, {
       ...DESKTOP_SOCKET_IO_OPTIONS,
       auth: getDesktopSocketAuth(),
       query: {
@@ -5281,7 +5298,7 @@ const AudioRecorder = ({
           bulletPointEnabled: false,
           translationQuality: translationQuality.toString(),
         }));
-      } catch { }
+      } catch { /* config sync is best-effort; the socket may be closing */ }
 
       // Configure the pooled route before starting it so the server has the
       // multilingual/same-language policy before the first transcript arrives.
@@ -5337,7 +5354,7 @@ const AudioRecorder = ({
       socket.isSharedDeepgramReady = false;
     });
 
-    const onSharedAsrTranscript = (data: any, shouldRecordTranslationLatency = false, shouldRecordSttLatency = true) => {
+    const onSharedAsrTranscript = (data: SharedAsrTranscriptPayload | undefined, shouldRecordTranslationLatency = false, shouldRecordSttLatency = true) => {
       if (shouldRecordTranslationLatency) {
         recordTranslationLatency(data);
       }
@@ -5353,9 +5370,9 @@ const AudioRecorder = ({
       }
     };
 
-    socket.on('transcription_result', (data: any) => onSharedAsrTranscript(data));
-    socket.on('reverse_transcription_result', (data: any) => onSharedAsrTranscript(data, true, true));
-    socket.on('transcript_data', (data: any) => {
+    socket.on('transcription_result', (data: SharedAsrTranscriptPayload) => onSharedAsrTranscript(data));
+    socket.on('reverse_transcription_result', (data: SharedAsrTranscriptPayload) => onSharedAsrTranscript(data, true, true));
+    socket.on('transcript_data', (data: unknown) => {
       if (Array.isArray(data) && data.length > 0) {
         bumpTranscriptionActivityTimer();
       }
@@ -5390,7 +5407,7 @@ const AudioRecorder = ({
       return;
     }
 
-    let pooledSocket: any = sharedAsrSocketPoolRef.current.get(requestedAsrKey);
+    let pooledSocket: AppSocket | null | undefined = sharedAsrSocketPoolRef.current.get(requestedAsrKey);
     if (!pooledSocket) {
       productionLogger.debug('🆕 [SHARED_ASR_SOCKET] Creating shared ASR socket:', {
         asrKey: requestedAsrKey,
@@ -5423,7 +5440,7 @@ const AudioRecorder = ({
           bulletPointEnabled: false,
           translationQuality: translationQuality.toString(),
         }));
-      } catch { }
+      } catch { /* config sync is best-effort; the socket may be closing */ }
       if (isRecordingRef.current) {
         try {
           pooledSocket.emit('start_recording', {
@@ -5432,7 +5449,7 @@ const AudioRecorder = ({
             delayAnalysisEnabled: delayAnalysisConfigEnabledRef.current,
             translationMode,
           });
-        } catch { }
+        } catch { /* start is best-effort; the socket may have disconnected */ }
       }
     }
   };
@@ -5469,8 +5486,8 @@ const AudioRecorder = ({
 
     for (const [key, pooledSocket] of sharedAsrSocketPoolRef.current.entries()) {
       if (desiredKeys.has(key)) continue;
-      try { pooledSocket.emit?.('stop_recording'); } catch { }
-      try { pooledSocket.disconnect?.(); } catch { }
+      try { pooledSocket.emit?.('stop_recording'); } catch { /* socket already closed */ }
+      try { pooledSocket.disconnect?.(); } catch { /* socket already closed */ }
       sharedAsrSocketPoolRef.current.delete(key);
       sharedAsrTargetMapRef.current.delete(key);
     }
@@ -5481,7 +5498,7 @@ const AudioRecorder = ({
   // If only reverse translation target changes, update config in-place.
   useEffect(() => {
     if (!reverseTranslationActive || !isRecording) return;
-    const reverseSocket: any = reverseSocketRef.current;
+    const reverseSocket = reverseSocketRef.current;
     if (!reverseSocket) return;
 
     const reverseConfig = getReverseLanguageConfig();
@@ -5492,7 +5509,7 @@ const AudioRecorder = ({
     if (requiresReconnect) {
       try {
         reverseSocket.disconnect();
-      } catch { }
+      } catch { /* socket already disconnected */ }
       reverseSocketRef.current = null;
       setReverseTranscriptData([]);
       createReverseSocketConnection(
@@ -5565,7 +5582,7 @@ const AudioRecorder = ({
 
     // Start pooled shared ASR sockets as well (if any were requested before recording start)
     const pooledSockets = Array.from(sharedAsrSocketPoolRef.current.values());
-    pooledSockets.forEach((sharedSocket: any) => {
+    pooledSockets.forEach((sharedSocket) => {
       if (!sharedSocket?.connected) return;
       try {
         sharedSocket.emit('start_recording', {
@@ -5574,7 +5591,7 @@ const AudioRecorder = ({
           delayAnalysisEnabled: delayAnalysisConfigEnabledRef.current,
           translationMode,
         });
-      } catch { }
+      } catch { /* start is best-effort; the socket may have disconnected */ }
     });
   };
 
@@ -5589,7 +5606,7 @@ const AudioRecorder = ({
     // Immediately stop recording state to prevent auto-resume on reconnection
     setIsRecording(false);
     try {
-      (window as any).ipc?.send('recording-state', { recording: false });
+      getElectronIpc()?.send('recording-state', { recording: false });
     } catch { /* not running in Electron */ }
 
     // Reset stop button disabled state when stopping
@@ -5630,7 +5647,7 @@ const AudioRecorder = ({
   // Update the inactivity check to show the modal only if no transcription is received for 20 seconds
   useEffect(() => {
     const checkInactivity = setInterval(() => {
-      const timeSinceLast = Date.now() - lastTranscriptionTime.getTime();
+      const timeSinceLast = Date.now() - lastTranscriptionTime!.getTime();
       //productionLogger.debug("Inactivity (sec):", timeSinceLast / 1000, "Recording:", isRecording);
 
       if (timeSinceLast > INACTIVITY_WARNING_TIME && isRecording && !paused) {
@@ -5681,7 +5698,8 @@ const AudioRecorder = ({
 
   // Add useEffect to handle system audio stream error
   useEffect(() => {
-    if (error === "Failed to get system audio stream.") {
+    const errorValue: unknown = error;
+    if (errorValue === "Failed to get system audio stream.") {
       // Clear any existing reload timer
       if (reloadTimerRef.current) {
         clearInterval(reloadTimerRef.current);
@@ -5738,7 +5756,7 @@ const AudioRecorder = ({
     } else {
       productionLogger.debug("No active recording - just reloading");
       try {
-        (window as any).ipc?.send('recording-state', { recording: false });
+        getElectronIpc()?.send('recording-state', { recording: false });
       } catch { /* not running in Electron */ }
       window.location.reload(); // Just reload without saving
     }
@@ -5750,7 +5768,7 @@ const AudioRecorder = ({
 
     // Clear countdown timer
     if (deepgramErrorTimerRef.current) {
-      clearInterval(deepgramErrorTimerRef.current);
+      clearInterval(deepgramErrorTimerRef.current ?? undefined);
       deepgramErrorTimerRef.current = null;
     }
 
@@ -5932,7 +5950,7 @@ const AudioRecorder = ({
 
         // Mirror to shared ASR sockets so they stay in sync with host config.
         const pooled = Array.from(sharedAsrSocketPoolRef.current.values());
-        pooled.forEach((sharedSock: any) => {
+        pooled.forEach((sharedSock) => {
           if (sharedSock?.connected) {
             try {
               sharedSock.emit("update_config", withDelayAnalysisConfig({
@@ -5941,7 +5959,7 @@ const AudioRecorder = ({
                 bulletPointEnabled: false,
                 translationQuality: safeQuality.toString(),
               }));
-            } catch { }
+            } catch { /* config mirroring is best-effort; the socket may be closing */ }
           }
         });
       }, 100);
@@ -5978,7 +5996,7 @@ const AudioRecorder = ({
   useEffect(() => {
     const s = socketRef.current;
     if (!s) return;
-    const handleDeepgramError = async (data: any) => {
+    const handleDeepgramError = async (data: { error?: unknown } | undefined) => {
       if (data?.error) {
         // If we're currently recording, trigger normal stop recording to save audio
         if (isRecording && transcriptData?.length > 0) {
@@ -5995,7 +6013,7 @@ const AudioRecorder = ({
       }
     };
 
-    const handleDeepgramConnectionFailed = async (data: any) => {
+    const handleDeepgramConnectionFailed = async (data: { message?: string; showReloadButton?: boolean; meetingId?: string } | null) => {
       // productionLogger.debug('🔴 CLIENT: Deepgram connection failed event received:', data);
       // productionLogger.debug('🔴 CLIENT: Current state - isRecording:', isRecording, 'transcriptData length:', transcriptData?.length);
 
@@ -6015,7 +6033,7 @@ const AudioRecorder = ({
       deepgramErrorTimerRef.current = setInterval(() => {
         setDeepgramErrorCountdown(prev => {
           if (prev <= 1) {
-            clearInterval(deepgramErrorTimerRef.current);
+            clearInterval(deepgramErrorTimerRef.current ?? undefined);
             deepgramErrorTimerRef.current = null;
 
             // Auto-click the "Okay" button after countdown
@@ -6123,15 +6141,15 @@ const AudioRecorder = ({
         countdownIntervalRef.current = null;
       }
       if (deepgramErrorTimerRef.current) {
-        clearInterval(deepgramErrorTimerRef.current);
+        clearInterval(deepgramErrorTimerRef.current ?? undefined);
         deepgramErrorTimerRef.current = null;
       }
       if (dialogCountdownTimerRef.current) {
-        clearInterval(dialogCountdownTimerRef.current);
+        clearInterval(dialogCountdownTimerRef.current ?? undefined);
         dialogCountdownTimerRef.current = null;
       }
       if (transcriptionDialogTimerRef.current) {
-        clearInterval(transcriptionDialogTimerRef.current);
+        clearInterval(transcriptionDialogTimerRef.current ?? undefined);
         transcriptionDialogTimerRef.current = null;
       }
       if (loadingTimeoutRef) {
@@ -6161,7 +6179,7 @@ const AudioRecorder = ({
       releaseLiveAudioCaptureResources(recorder?.stream);
       mediaRecorderRef.current = null;
       if (deepgramErrorTimerRef.current) {
-        clearInterval(deepgramErrorTimerRef.current);
+        clearInterval(deepgramErrorTimerRef.current ?? undefined);
         deepgramErrorTimerRef.current = null;
       }
     };
@@ -6261,7 +6279,7 @@ const AudioRecorder = ({
         <Controllers saveStateAndReload={saveStateAndReload} pauseRecording={pauseRecording}
           stopRecording={stopRecording} isRecording={isRecording} onStartRecording={onStartRecording}
           paused={paused} transcriptionLimitExceeded={transcriptionLimitExceeded}
-          translationLimitExceeded={translationLimitExceeded} socketRef={socketRef} meetingId={meetingId}
+          translationLimitExceeded={translationLimitExceeded} socketRef={socketRef} meetingId={meetingId as string}
           bulletPointEnabled={bulletPointEnabled} stopButtonDisabled={stopButtonDisabled} authReady={authReady}
           speechToSpeechMode={speechToSpeechMode}
           languageOpenRequestId={panelRequest?.panel === 'language' ? panelRequest.id : undefined} />
@@ -6280,8 +6298,8 @@ const AudioRecorder = ({
             // Dropdowns inside the tabs use the same measured inset so their
             // own scroll area ends above Ask MeetingCopilot rather than behind it.
             '--ask-MeetingCopilot-height': `${bulletMinimizedHeight}vh`,
-          }
-          : { '--ask-MeetingCopilot-height': '0vh' }}
+          } as CssVarStyle
+          : { '--ask-MeetingCopilot-height': '0vh' } as CssVarStyle}
       >
         <Tabs
           enabled={enabled}

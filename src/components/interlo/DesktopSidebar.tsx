@@ -1162,7 +1162,6 @@ export function DesktopSidebar({
                 : "border-[#44444C] shadow-[0_12px_32px_rgba(0,0,0,0.35)]"
             }`}>
               {/* A static, high-resolution QR keeps scanning reliable without a third-party request. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/images/MeetingCopilot-mobile-download-qr.png"
                 alt={t("desktopSidebar.mobile.qrAlt")}

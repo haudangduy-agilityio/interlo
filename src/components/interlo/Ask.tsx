@@ -15,30 +15,36 @@ interface CreditUsage {
   limit: number;
 }
 
+interface IpcRenderer {
+  send: (channel: string, ...args: unknown[]) => void;
+}
+
+type IpcWindow = Window & { ipc?: IpcRenderer };
+
 interface AskProps {
   socketRef: React.MutableRefObject<Socket | null>;
   messages: Message[],
   setMessages: Dispatch<SetStateAction<Message[]>>,
   userId: string;
-  transcriptData?: any[];
+  transcriptData?: unknown[];
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
 }
 
-const Ask = ({ socketRef, messages, setMessages, userId, transcriptData, input, setInput }: AskProps) => {
+const Ask = ({ messages, setMessages, userId, transcriptData, input, setInput }: AskProps) => {
   const { t } = useTranslation();
   // Input state now managed by parent component
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [creditUsage, setCreditUsage] = useState<CreditUsage | null>(null);
-  const [ipcRenderer, setIpcRenderer] = useState<any>(null);
+  const [_creditUsage, setCreditUsage] = useState<CreditUsage | null>(null);
+  const [ipcRenderer, setIpcRenderer] = useState<IpcRenderer | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     // Initialize IPC renderer only on client side
     if (typeof window !== 'undefined') {
-      setIpcRenderer((window as any).ipc);
+      setIpcRenderer((window as IpcWindow).ipc ?? null);
     }
   }, []);
 
@@ -179,12 +185,12 @@ const Ask = ({ socketRef, messages, setMessages, userId, transcriptData, input, 
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          ul: ({ node, ...props }) => <ul className="list-disc ml-4 space-y-0.5 pl-4" style={{ listStyleType: 'disc', listStylePosition: 'outside' }} {...props} />,
-                          li: ({ node, ...props }) => <li className="text-gray-200" style={{ display: 'list-item', listStyleType: 'disc' }} {...props} />,
-                          h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mt-4" {...props} />,
-                          h2: ({ node, ...props }) => <h2 className="text-xl font-bold mt-3" {...props} />,
-                          strong: ({ node, ...props }) => <strong className="text-[#484DFF] font-bold" {...props} />,
-                          a: ({ node, href, children, ...props }) => {
+                          ul: ({ node: _node, ...props }) => <ul className="list-disc ml-4 space-y-0.5 pl-4" style={{ listStyleType: 'disc', listStylePosition: 'outside' }} {...props} />,
+                          li: ({ node: _node, ...props }) => <li className="text-gray-200" style={{ display: 'list-item', listStyleType: 'disc' }} {...props} />,
+                          h1: ({ node: _node, ...props }) => <h1 className="text-2xl font-bold mt-4" {...props} />,
+                          h2: ({ node: _node, ...props }) => <h2 className="text-xl font-bold mt-3" {...props} />,
+                          strong: ({ node: _node, ...props }) => <strong className="text-[#484DFF] font-bold" {...props} />,
+                          a: ({ node: _node, href, children }) => {
                             const openLink = () => {
                               productionLogger.debug('🔗 Opening link:', href);
                               if (href && ipcRenderer) {

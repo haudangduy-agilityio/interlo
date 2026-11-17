@@ -1,5 +1,6 @@
 import { Pause, Play, Square } from "lucide-react";
-import type { ReactNode } from "react";
+import type { MutableRefObject, ReactNode } from "react";
+import type { Socket } from "socket.io-client";
 import { useTranslation } from "../../hooks/useTranslation";
 import { useAppSelector } from "../../redux/hooks";
 import type { SpeechToSpeechMode } from "../../utils/audioRoutingAutoConfig";
@@ -28,7 +29,7 @@ const RecordingControlTooltip = ({
 
 const Controllers = ({ saveStateAndReload, pauseRecording, stopRecording, isRecording,
     onStartRecording, paused, transcriptionLimitExceeded, translationLimitExceeded,
-    socketRef, meetingId, bulletPointEnabled, stopButtonDisabled, authReady,
+    socketRef, bulletPointEnabled, stopButtonDisabled, authReady,
     speechToSpeechMode = 'off',
     languageOpenRequestId,
 }
@@ -40,7 +41,7 @@ const Controllers = ({ saveStateAndReload, pauseRecording, stopRecording, isReco
         paused: boolean,
         transcriptionLimitExceeded: boolean,
         translationLimitExceeded: boolean,
-        socketRef: any,
+        socketRef: MutableRefObject<Socket | null>,
         meetingId: string,
         bulletPointEnabled: boolean,
         stopButtonDisabled: boolean,

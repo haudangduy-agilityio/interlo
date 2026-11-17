@@ -2,7 +2,9 @@ import {
   RealtimeClientConfig,
   RealtimeClientState,
   RealtimeClientCallbacks,
-  RealtimeServerEvent
+  RealtimeServerEvent,
+  RealtimeSocket,
+  RealtimeSocketConstructor
 } from './types';
 
 /**
@@ -16,7 +18,7 @@ export function pcm16ToBase64(pcmData: Int16Array): string {
   let binary = '';
   const len = uint8.byteLength;
   for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(uint8[i]);
+    binary += String.fromCharCode(uint8[i] ?? 0);
   }
   return btoa(binary);
 }
@@ -43,7 +45,7 @@ export function base64ToPcm16(base64: string): Int16Array {
  * and barge-in interruption handling.
  */
 export class OpenAiRealtimeClient {
-  private ws: WebSocket | null = null;
+  private ws: RealtimeSocket | null = null;
   private state: RealtimeClientState = 'idle';
   private config: RealtimeClientConfig;
   private callbacks: RealtimeClientCallbacks;
@@ -87,7 +89,7 @@ export class OpenAiRealtimeClient {
   /**
    * Connect to Realtime WebSocket endpoint
    */
-  public async connect(customWsConstructor?: any): Promise<void> {
+  public async connect(customWsConstructor?: RealtimeSocketConstructor): Promise<void> {
     if (this.state === 'connected' || this.state === 'connecting') {
       return;
     }
@@ -111,39 +113,42 @@ export class OpenAiRealtimeClient {
         ? ['realtime', `openai-insecure-api-key.${this.config.apiKey}`, 'openai-beta.realtime-v1']
         : ['realtime', 'openai-beta.realtime-v1'];
 
-      this.ws = new WsClass(url.toString(), protocols);
+      const ws: RealtimeSocket = new WsClass(url.toString(), protocols);
+      this.ws = ws;
 
-      this.ws.onopen = () => {
+      ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.setState('connected');
         this.sendSessionUpdate();
       };
 
-      this.ws.onmessage = (event: MessageEvent) => {
+      ws.onmessage = (event: MessageEvent) => {
         try {
-          const rawData = typeof event.data === 'string' ? event.data : event.data.toString();
+          const rawData = typeof event.data === 'string' ? event.data : String(event.data);
           const serverEvent: RealtimeServerEvent = JSON.parse(rawData);
           this.handleServerEvent(serverEvent);
-        } catch (err: any) {
-          this.callbacks.onError?.(new Error(`Failed to parse realtime event: ${err.message}`));
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          this.callbacks.onError?.(new Error(`Failed to parse realtime event: ${reason}`));
         }
       };
 
-      this.ws.onerror = (event: any) => {
-        const error = new Error(event?.message || 'WebSocket connection error');
-        this.callbacks.onError?.(error);
+      ws.onerror = (event: Event) => {
+        const message =
+          event && 'message' in event && typeof event.message === 'string' ? event.message : '';
+        this.callbacks.onError?.(new Error(message || 'WebSocket connection error'));
       };
 
-      this.ws.onclose = () => {
+      ws.onclose = () => {
         if (!this.isExplicitDisconnect) {
           this.handleUnexpectedClose();
         } else {
           this.setState('disconnected');
         }
       };
-    } catch (err: any) {
+    } catch (err) {
       this.setState('error');
-      this.callbacks.onError?.(err);
+      this.callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
       throw err;
     }
   }
@@ -275,17 +280,18 @@ export class OpenAiRealtimeClient {
         this.activeResponseId = null;
         break;
 
-      case 'error':
+      case 'error': {
         const err = new Error(event.error?.message || 'Realtime API error');
         this.callbacks.onError?.(err);
         break;
+      }
 
       default:
         break;
     }
   }
 
-  private send(data: any): void {
+  private send(data: Record<string, unknown>): void {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(data));
     }
@@ -315,7 +321,9 @@ export class OpenAiRealtimeClient {
     if (this.ws) {
       try {
         this.ws.close();
-      } catch (_) {}
+      } catch {
+        // Closing a socket that is already closed or failed may throw; teardown continues regardless.
+      }
       this.ws = null;
     }
     this.setState('disconnected');

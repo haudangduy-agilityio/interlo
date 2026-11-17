@@ -595,7 +595,7 @@ function EnhancedNotesEditor({
 // Comment anchors are either a whole section/line ("note:123:gist") or a text
 // selection inside one ("note:123:gist#40-88"). Everything that counts or
 // highlights per section therefore matches on the base id.
-const commentAnchorBase = (anchorId: string) => anchorId.split("#")[0];
+const _commentAnchorBase = (anchorId: string) => anchorId.split("#")[0];
 
 /** Nearest ancestor that actually scrolls, so we can centre inside it. */
 function scrollableAncestor(element: HTMLElement | null): HTMLElement | null {
