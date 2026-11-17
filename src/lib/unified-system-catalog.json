@@ -1,0 +1,101 @@
+{
+  "$schema": "https://affectui.dev/schema/system-catalog.json",
+  "version": "1.0.0",
+  "system": "LiveMeetingCopilot",
+  "tiers": {
+    "primitives": [
+      {
+        "id": "language-settings-pill",
+        "name": "LanguageSettingsPill",
+        "title": "Language Settings Pill",
+        "description": "Compact interactive language selector pill for real-time translation pairs.",
+        "componentPath": "src/components/live-meeting-copilot/LanguageSettingsPill.tsx",
+        "category": "controls"
+      },
+      {
+        "id": "translation-latency-monitor",
+        "name": "TranslationLatencyMonitor",
+        "title": "Translation Latency Monitor",
+        "description": "HUD element displaying roundtrip audio and translation latency in milliseconds.",
+        "componentPath": "src/components/live-meeting-copilot/TranslationLatencyMonitor.tsx",
+        "category": "metrics"
+      },
+      {
+        "id": "realtime-translated-speech-player",
+        "name": "RealtimeTranslatedSpeechPlayer",
+        "title": "Realtime Translated Speech Player",
+        "description": "Low-latency WebAudio player consuming Int16 PCM 24kHz streams.",
+        "componentPath": "src/components/live-meeting-copilot/RealtimeTranslatedSpeechPlayer.tsx",
+        "category": "audio"
+      }
+    ],
+    "functionalBlocks": [
+      {
+        "id": "controllers-hud",
+        "name": "Controllers",
+        "title": "Floating HUD Controller Bar",
+        "description": "Floating pill HUD with meeting start/pause, language switches, audio mute, and latency badge.",
+        "componentPath": "src/components/live-meeting-copilot/Controllers.tsx",
+        "category": "hud"
+      },
+      {
+        "id": "transcript-stream",
+        "name": "Transcript",
+        "title": "Bilingual Live Transcript Stream",
+        "description": "Virtualized dual-track speech balloon stream with real-time speaker diarization.",
+        "componentPath": "src/components/live-meeting-copilot/Transcript.tsx",
+        "category": "speech"
+      },
+      {
+        "id": "bullet-points",
+        "name": "Bullet",
+        "title": "Real-time AI Highlight Bullets",
+        "description": "Automated 3-second evaluation loop emitting concise meeting action items and key insights.",
+        "componentPath": "src/components/live-meeting-copilot/Bullet.tsx",
+        "category": "summarization"
+      },
+      {
+        "id": "ask-copilot",
+        "name": "Ask",
+        "title": "In-Meeting Ask AI Copilot",
+        "description": "Live in-meeting whisper assistant offering contextual insights and suggestions.",
+        "componentPath": "src/components/live-meeting-copilot/Ask.tsx",
+        "category": "copilot"
+      },
+      {
+        "id": "notion-editor",
+        "name": "NotionEditor",
+        "title": "Block-based Rich Notes Editor",
+        "description": "Notion-like markdown editor syncing personal user notes with meeting transcripts.",
+        "componentPath": "src/components/live-meeting-copilot/NotionEditor.tsx",
+        "category": "editor"
+      },
+      {
+        "id": "desktop-voice-typing",
+        "name": "DesktopVoiceTyping",
+        "title": "Voice Typing Settings & Coordinator",
+        "description": "System-wide dictation control panel and Fn key listener preferences.",
+        "componentPath": "src/components/live-meeting-copilot/DesktopVoiceTyping.tsx",
+        "category": "system"
+      }
+    ],
+    "pageTemplates": [
+      {
+        "id": "desktop-recording-detail",
+        "name": "DesktopRecordingDetail",
+        "title": "Meeting Review & WaveSurfer Dashboard",
+        "description": "Complete post-meeting review workspace with normalized waveform playback and seek-synchronized bilingual transcripts.",
+        "componentPath": "src/components/live-meeting-copilot/DesktopRecordingDetail.tsx",
+        "category": "pages"
+      },
+      {
+        "id": "desktop-home",
+        "name": "DesktopHome",
+        "title": "Desktop Home & Meeting Hub",
+        "description": "Main desktop hub with upcoming calendar events, recent meeting cards, and quick start.",
+        "componentPath": "src/components/live-meeting-copilot/DesktopHome.tsx",
+        "category": "pages"
+      }
+    ]
+  }
+}
