@@ -1,13 +1,11 @@
 # OS
 .DS_Store
-__MACOSX/
 
 # Dependencies and build output
 node_modules/
 dist/
 build/
 out/
-app/
 .next/
 coverage/
 *.tsbuildinfo
@@ -19,14 +17,6 @@ coverage/
 *.pem
 *.key
 
-# Tool caches and local agent state
-.ruff_cache/
-.pytest_cache/
-__pycache__/
-.harness-mem/
-.claude/
-.cache/
-
 # Logs
 *.log
 npm-debug.log*
@@ -36,22 +26,6 @@ npm-debug.log*
 .vscode/
 *.swp
 
-# Local-only data: large extracted reference binaries and bundles (kept on disk, not in git)
-data/
-research.zip
-
-# Local-only research notes and specs (any directory named research)
-research/
-
-# Local-only curated component vault
-master-vault/
-
-# Local-only agent guideline file
-AGENTS.md
-
-# Local recordings and scratch output
-conv/
-reports/
-*.mp3
-*.wav
-*.zip
+# Local agent state
+.claude/
+.harness-mem/
