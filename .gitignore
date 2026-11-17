@@ -46,6 +46,9 @@ research/
 # Local-only curated component vault
 master-vault/
 
+# Local-only agent guideline file
+AGENTS.md
+
 # Local recordings and scratch output
 conv/
 reports/
