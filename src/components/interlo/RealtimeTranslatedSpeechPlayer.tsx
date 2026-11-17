@@ -1,9 +1,10 @@
+import type { Socket } from 'socket.io-client';
 import { useAppSelector } from '../../redux/hooks';
 import { useRealtimeTranslatedSpeech } from '../../hooks/useRealtimeTranslatedSpeech';
 import type { SpeechToSpeechMode } from '../../utils/realtimeTranslation/realtimeAudioRouter';
 
 type RealtimeTranslatedSpeechPlayerProps = {
-  socketRef: React.MutableRefObject<any>;
+  socketRef: React.MutableRefObject<Socket | null>;
   textToSpeechSessionMode: 'online' | 'in-person';
   speechToSpeechMode: SpeechToSpeechMode;
   textToSpeechEnabled?: boolean;

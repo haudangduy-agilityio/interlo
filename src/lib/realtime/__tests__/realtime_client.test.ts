@@ -1,31 +1,51 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import {
   OpenAiRealtimeClient,
   pcm16ToBase64,
   base64ToPcm16
 } from '../OpenAiRealtimeClient';
-import { RealtimeClientState } from '../types';
+import { RealtimeClientState, RealtimeSocket } from '../types';
+
+/**
+ * Shape of the JSON messages the client sends over the socket.
+ */
+interface SentMessage {
+  type: string;
+  audio?: string;
+  session?: { voice?: string; instructions?: string };
+}
 
 /**
  * Mock WebSocket implementation for unit testing
  */
-class MockWebSocket {
+class MockWebSocket implements RealtimeSocket {
+  public static instances: MockWebSocket[] = [];
+
+  public static latest(): MockWebSocket {
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    if (!ws) {
+      throw new Error('No MockWebSocket was created');
+    }
+    return ws;
+  }
+
   public url: string;
   public protocols: string[];
   public readyState: number = 0; // 0: CONNECTING, 1: OPEN, 2: CLOSING, 3: CLOSED
   public sentMessages: string[] = [];
 
-  public onopen: (() => void) | null = null;
-  public onmessage: ((event: { data: string }) => void) | null = null;
-  public onerror: ((event: any) => void) | null = null;
-  public onclose: (() => void) | null = null;
+  public onopen: ((event: Event) => void) | null = null;
+  public onmessage: ((event: MessageEvent) => void) | null = null;
+  public onerror: ((event: Event) => void) | null = null;
+  public onclose: ((event: CloseEvent) => void) | null = null;
 
   constructor(url: string, protocols: string[] = []) {
     this.url = url;
     this.protocols = protocols;
+    MockWebSocket.instances.push(this);
     setTimeout(() => {
       this.readyState = 1;
-      this.onopen?.();
+      this.onopen?.(new Event('open'));
     }, 5);
   }
 
@@ -35,16 +55,24 @@ class MockWebSocket {
 
   public close() {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.(new CloseEvent('close'));
   }
 
   // Helper to simulate incoming server message
-  public mockReceiveMessage(obj: any) {
-    this.onmessage?.({ data: JSON.stringify(obj) });
+  public mockReceiveMessage(obj: Record<string, unknown>) {
+    this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(obj) }));
+  }
+
+  public parsedMessages(): SentMessage[] {
+    return this.sentMessages.map((m) => JSON.parse(m) as SentMessage);
   }
 }
 
 describe('OpenAiRealtimeClient', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+  });
+
   test('PCM16 Base64 encoding and decoding lossless roundtrip', () => {
     const original = new Int16Array([0, 1000, -1000, 32767, -32768, 42]);
     const b64 = pcm16ToBase64(original);
@@ -72,15 +100,7 @@ describe('OpenAiRealtimeClient', () => {
       }
     );
 
-    let activeMockWs: MockWebSocket | null = null;
-    const MockWsFactory = class extends MockWebSocket {
-      constructor(url: string, protocols: string[] = []) {
-        super(url, protocols);
-        activeMockWs = this;
-      }
-    };
-
-    await client.connect(MockWsFactory as any);
+    await client.connect(MockWebSocket);
 
     // Wait for mock connection open
     await new Promise((r) => setTimeout(r, 20));
@@ -89,43 +109,36 @@ describe('OpenAiRealtimeClient', () => {
     expect(states).toContain('connecting');
     expect(states).toContain('connected');
 
-    expect(activeMockWs).not.toBeNull();
-    expect(activeMockWs!.sentMessages.length).toBeGreaterThan(0);
+    const sent = MockWebSocket.latest().parsedMessages();
+    expect(sent.length).toBeGreaterThan(0);
 
-    const firstMsg = JSON.parse(activeMockWs!.sentMessages[0]);
-    expect(firstMsg.type).toBe('session.update');
-    expect(firstMsg.session.voice).toBe('shimmer');
-    expect(firstMsg.session.instructions).toContain('English');
-    expect(firstMsg.session.instructions).toContain('Vietnamese');
+    const firstMsg = sent[0];
+    expect(firstMsg?.type).toBe('session.update');
+    expect(firstMsg?.session?.voice).toBe('shimmer');
+    expect(firstMsg?.session?.instructions).toContain('English');
+    expect(firstMsg?.session?.instructions).toContain('Vietnamese');
 
     client.disconnect();
     expect(client.getState()).toBe('disconnected');
   });
 
   test('Appends PCM audio buffer chunk formatted as base64', async () => {
-    let activeMockWs: MockWebSocket | null = null;
     const client = new OpenAiRealtimeClient(
       { targetLanguage: 'Spanish' },
       {}
     );
 
-    const MockWsFactory = class extends MockWebSocket {
-      constructor(url: string, protocols: string[] = []) {
-        super(url, protocols);
-        activeMockWs = this;
-      }
-    };
-
-    await client.connect(MockWsFactory as any);
+    await client.connect(MockWebSocket);
     await new Promise((r) => setTimeout(r, 15));
 
     const chunk = new Int16Array([100, 200, 300, 400]);
     const ok = client.appendAudioChunk(chunk);
     expect(ok).toBe(true);
 
-    const lastMsg = JSON.parse(activeMockWs!.sentMessages[activeMockWs!.sentMessages.length - 1]);
-    expect(lastMsg.type).toBe('input_audio_buffer.append');
-    expect(lastMsg.audio).toBe(pcm16ToBase64(chunk));
+    const sent = MockWebSocket.latest().parsedMessages();
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg?.type).toBe('input_audio_buffer.append');
+    expect(lastMsg?.audio).toBe(pcm16ToBase64(chunk));
 
     client.disconnect();
   });
@@ -135,7 +148,6 @@ describe('OpenAiRealtimeClient', () => {
     let receivedTranscript: string = '';
     let isFinalTranscript = false;
 
-    let activeMockWs: MockWebSocket | null = null;
     const client = new OpenAiRealtimeClient(
       { targetLanguage: 'French' },
       {
@@ -149,19 +161,12 @@ describe('OpenAiRealtimeClient', () => {
       }
     );
 
-    const MockWsFactory = class extends MockWebSocket {
-      constructor(url: string, protocols: string[] = []) {
-        super(url, protocols);
-        activeMockWs = this;
-      }
-    };
-
-    await client.connect(MockWsFactory as any);
+    await client.connect(MockWebSocket);
     await new Promise((r) => setTimeout(r, 15));
 
     // Simulate server response.audio.delta
     const testAudio = new Int16Array([500, 1000, 1500]);
-    activeMockWs!.mockReceiveMessage({
+    MockWebSocket.latest().mockReceiveMessage({
       type: 'response.audio.delta',
       delta: pcm16ToBase64(testAudio)
     });
@@ -171,11 +176,11 @@ describe('OpenAiRealtimeClient', () => {
     expect(receivedPcm![0]).toBe(500);
 
     // Simulate server response.audio_transcript.delta
-    activeMockWs!.mockReceiveMessage({
+    MockWebSocket.latest().mockReceiveMessage({
       type: 'response.audio_transcript.delta',
       delta: 'Bonjour '
     });
-    activeMockWs!.mockReceiveMessage({
+    MockWebSocket.latest().mockReceiveMessage({
       type: 'response.audio_transcript.delta',
       delta: 'le monde'
     });
@@ -188,7 +193,6 @@ describe('OpenAiRealtimeClient', () => {
 
   test('Handles barge-in interruption when user starts speaking while response is active', async () => {
     let speechStartedCalled = false;
-    let activeMockWs: MockWebSocket | null = null;
 
     const client = new OpenAiRealtimeClient(
       { targetLanguage: 'German' },
@@ -199,31 +203,24 @@ describe('OpenAiRealtimeClient', () => {
       }
     );
 
-    const MockWsFactory = class extends MockWebSocket {
-      constructor(url: string, protocols: string[] = []) {
-        super(url, protocols);
-        activeMockWs = this;
-      }
-    };
-
-    await client.connect(MockWsFactory as any);
+    await client.connect(MockWebSocket);
     await new Promise((r) => setTimeout(r, 15));
 
     // Simulate active response started
-    activeMockWs!.mockReceiveMessage({
+    MockWebSocket.latest().mockReceiveMessage({
       type: 'response.created',
       response: { id: 'resp_123' }
     });
 
     // Simulate user starts speaking
-    activeMockWs!.mockReceiveMessage({
+    MockWebSocket.latest().mockReceiveMessage({
       type: 'input_audio_buffer.speech_started'
     });
 
     expect(speechStartedCalled).toBe(true);
 
     // Expect client to have sent input_audio_buffer.clear and response.cancel
-    const messages = activeMockWs!.sentMessages.map((m) => JSON.parse(m));
+    const messages = MockWebSocket.latest().parsedMessages();
     const cancelMsgs = messages.filter((m) => m.type === 'response.cancel');
     const clearMsgs = messages.filter((m) => m.type === 'input_audio_buffer.clear');
 

@@ -27,7 +27,7 @@ export class LinearPcmResampler {
       const fraction = position - index;
 
       const sampleA = input[index] || 0;
-      const sampleB = index + 1 < input.length ? input[index + 1] : sampleA;
+      const sampleB = input[index + 1] ?? sampleA;
 
       const interpolated = sampleA + (sampleB - sampleA) * fraction;
       output[i] = Math.max(-32768, Math.min(32767, Math.round(interpolated)));
@@ -52,7 +52,7 @@ export class LinearPcmResampler {
       const fraction = position - index;
 
       const sampleA = input[index] || 0;
-      const sampleB = index + 1 < input.length ? input[index + 1] : sampleA;
+      const sampleB = input[index + 1] ?? sampleA;
 
       const interpolated = sampleA + (sampleB - sampleA) * fraction;
       output[i] = Math.max(-32768, Math.min(32767, Math.round(interpolated)));

@@ -264,7 +264,7 @@ export function DesktopShell() {
   const [productTourNeedsSetup, setProductTourNeedsSetup] = useState(true);
   const [forceMinutesUpgrade, setForceMinutesUpgrade] = useState(false);
   const [recordingMenuOpen, setRecordingMenuOpen] = useState(false);
-  const [minutesUpgradeDismissedKey, setMinutesUpgradeDismissedKey] = useState<string | null>(() => {
+  const [_minutesUpgradeDismissedKey, setMinutesUpgradeDismissedKey] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
       return sessionStorage.getItem("MeetingCopilot_minutes_upgrade_dismissed");

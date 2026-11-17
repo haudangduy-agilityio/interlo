@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { StreamingPcmDownsampler } from '../StreamingPcmDownsampler';
 import { LinearPcmResampler } from '../LinearPcmResampler';
 import { PcmPlaybackQueue } from '../PcmPlaybackQueue';

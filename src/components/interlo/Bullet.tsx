@@ -58,7 +58,7 @@ interface BulletProps {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   userId?: string;
-  transcriptData: any[];
+  transcriptData: TranscriptEntry[];
   input: string;
   setInput: React.Dispatch<React.SetStateAction<string>>;
   notepad: string;
@@ -76,6 +76,39 @@ interface CreditUsage {
   limit: number;
 }
 
+interface TranscriptEntry {
+  speakerName: string;
+  captions: Array<{ text: string }>;
+  translatedText?: string;
+}
+
+interface OpenAskPayload {
+  draft?: string;
+  submit?: boolean;
+}
+
+interface DesktopIpcBridge {
+  on: (channel: string, listener: (payload?: OpenAskPayload) => void) => unknown;
+  send: (channel: string, ...args: unknown[]) => void;
+}
+
+interface ElectronApiBridge {
+  openExternal: (href: string) => void;
+}
+
+// Axios-style error shape read in the catch blocks below.
+interface ApiErrorLike {
+  response: {
+    status?: number;
+    data?: { message: string; error?: string };
+  };
+}
+
+type DesktopWindow = Window & {
+  ipc?: DesktopIpcBridge;
+  electronAPI?: ElectronApiBridge;
+};
+
 const Bullet = ({
   show,
   socketRef,
@@ -89,7 +122,6 @@ const Bullet = ({
   transcriptData,
   input,
   setInput,
-  notepad,
   setNotepad,
   prompt3,
   prompt4,
@@ -156,10 +188,10 @@ const Bullet = ({
   // Receive Ask MeetingCopilot drafts/submissions from the minimized recording widget and
   // coordinate focus once the desktop window is active.
   useEffect(() => {
-    const ipc = (window as any).ipc;
+    const ipc = (window as DesktopWindow).ipc;
     if (!ipc?.on) return;
     let clearPendingFocus: (() => void) | undefined;
-    const cleanup = ipc.on('open-ask', (payload?: { draft?: string; submit?: boolean }) => {
+    const cleanup = ipc.on('open-ask', (payload) => {
       clearPendingFocus?.();
       const requestedDraft = typeof payload?.draft === 'string' ? payload.draft : '';
       const isDirectSubmission = !!requestedDraft && payload?.submit === true;
@@ -406,7 +438,7 @@ const Bullet = ({
   };
 
   // Handle mode toggle
-  const handleModeToggle = (mode: 'ask' | 'speech' | 'note') => {
+  const _handleModeToggle = (mode: 'ask' | 'speech' | 'note') => {
     setActiveMode(mode);
     setInput('');
     // Focus the textarea when mode is changed
@@ -544,7 +576,8 @@ const Bullet = ({
           [summaryId!]: t('insights.noInsightAvailable')
         }));
       }
-    } catch (error: any) {
+    } catch (caught) {
+      const error = caught as ApiErrorLike;
       productionLogger.error('❌ Error generating summary insight:', error);
 
       // Check if it's an AI credits limit error
@@ -835,7 +868,7 @@ const Bullet = ({
           // Format transcript for context - last 2 speaker chunks
           const transcriptText = transcriptData && transcriptData.length > 0
             ? transcriptData.slice(-2).map(entry => {
-              const text = entry.captions.map((c: any) => c.text).join(' ');
+              const text = entry.captions.map((c) => c.text).join(' ');
               const translation = entry.translatedText ? ` (${entry.translatedText})` : '';
               return `${entry.speakerName}: ${text}${translation}`;
             }).join('\n')
@@ -863,7 +896,7 @@ const Bullet = ({
             };
             setMessages(prev => [...prev, assistantMessage]);
           }
-        } catch (error: any) {
+        } catch (error) {
           productionLogger.error('Error generating speech view:', error);
           const errorMessage = {
             role: 'assistant' as const,
@@ -961,7 +994,8 @@ const Bullet = ({
           setCreditUsage(response.data.data.creditUsage);
         }
       }
-    } catch (error: any) {
+    } catch (caught) {
+      const error = caught as ApiErrorLike;
       productionLogger.error('Error sending question:', error.response?.data?.message);
       if (error.response?.data?.message?.includes('AI credits limit exceeded')) {
         setError('AI credits limit exceeded');
@@ -1332,7 +1366,7 @@ const Bullet = ({
                                 <span
                                   onClick={() => {
                                     if (href) {
-                                      (window as any).electronAPI?.openExternal(href);
+                                      (window as DesktopWindow).electronAPI?.openExternal(href);
                                     }
                                   }}
                                   style={{
@@ -1377,7 +1411,7 @@ const Bullet = ({
           <div ref={promptButtonsRef} className={`flex flex-wrap gap-1.5 ${(prompt3 || prompt4) ? 'mb-2' : 'hidden'}`}>
             {prompt3 && (
               <button
-                onClick={async (e) => {
+                onClick={async () => {
                   setInput(prompt3);
 
                   if (!open) {
@@ -1428,7 +1462,8 @@ const Bullet = ({
                           setCreditUsage(response.data.data.creditUsage);
                         }
                       }
-                    } catch (error: any) {
+                    } catch (caught) {
+                      const error = caught as ApiErrorLike;
                       productionLogger.error('Error sending question:', error.response?.data?.message);
                       if (error.response.data?.message.includes('AI credits limit exceeded')) {
                         setError('AI credits limit exceeded');
@@ -1446,7 +1481,7 @@ const Bullet = ({
             )}
             {prompt4 && (
               <button
-                onClick={async (e) => {
+                onClick={async () => {
                   setInput(prompt4);
 
                   if (!open) {
@@ -1497,7 +1532,8 @@ const Bullet = ({
                           setCreditUsage(response.data.data.creditUsage);
                         }
                       }
-                    } catch (error: any) {
+                    } catch (caught) {
+                      const error = caught as ApiErrorLike;
                       productionLogger.error('Error sending question:', error.response?.data?.message);
                       if (error.response.data?.message.includes('AI credits limit exceeded')) {
                         setError('AI credits limit exceeded');

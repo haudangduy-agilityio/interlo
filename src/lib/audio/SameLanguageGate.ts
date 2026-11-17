@@ -79,6 +79,23 @@ export class SameLanguageGate {
   }
 
   /**
+   * Number of frames currently held in the sliding window.
+   */
+  public getQueuedFrameCount(): number {
+    return this.queue.length;
+  }
+
+  /**
+   * Milliseconds until the oldest held frame passes the hold time (0 if it is already ready).
+   * Returns null when no frames are held.
+   */
+  public getNextReleaseDelayMs(now = Date.now()): number | null {
+    const oldest = this.queue[0];
+    if (!oldest) return null;
+    return Math.max(0, oldest.timestamp + this.holdDurationMs - now);
+  }
+
+  /**
    * Reset gate for new speaker utterance.
    */
   public reset(): void {
