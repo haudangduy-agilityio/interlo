@@ -5,6 +5,11 @@
   "version": "1.0.4",
   "author": "LiveMeetingCopilot Team",
   "main": "app/background.js",
+  "scripts": {
+    "test": "bun test src/lib",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
+  },
   "dependencies": {
     "@lexical/code": "^0.45.0",
     "@lexical/link": "^0.45.0",
@@ -38,5 +43,13 @@
     "tiptap-markdown": "0.8.10",
     "uiohook-napi": "^1.5.5",
     "wavesurfer.js": "^7.12.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "^1.4.4",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "typescript": "6",
+    "typescript-eslint": "^8.73.0"
   }
 }
