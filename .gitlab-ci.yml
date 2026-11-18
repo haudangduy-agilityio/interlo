@@ -1,0 +1,72 @@
+# GitLab pipeline for the private development project (D-112, X-55).
+# It runs the same gate as .github/workflows/ci.yml: scripts/check.sh full.
+#
+# TODO(owner): both jobs need a runner. Set `tags` to the tag of the macOS
+# runner on the Mac mini (D-143). Signing keys and certificates are never on
+# the runner. Until a runner with that tag exists, the jobs stay pending.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+variables:
+  GIT_DEPTH: "0"
+
+stages: [check]
+
+dco:
+  stage: check
+  tags: [macos] # TODO(owner): runner tag
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    # Every commit in the merge request needs a Signed-off-by trailer (D-57).
+    # Merge commits are skipped.
+    - |
+      missing=0
+      for sha in $(git rev-list --no-merges "${CI_MERGE_REQUEST_DIFF_BASE_SHA}..HEAD"); do
+        if [ "$(git show -s --format=%B "$sha" | grep -c '^Signed-off-by: .\+ <.\+>$')" -eq 0 ]; then
+          echo "Missing Signed-off-by: $(git show -s --format='%h %s' "$sha")"
+          missing=1
+        fi
+      done
+      if [ "$missing" -ne 0 ]; then
+        echo "Fix with: git rebase --signoff ${CI_MERGE_REQUEST_DIFF_BASE_SHA}"
+        exit 1
+      fi
+      echo "All commits are signed off."
+
+check:
+  stage: check
+  tags: [macos] # TODO(owner): runner tag
+  timeout: 60 minutes
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+  script:
+    - rustup toolchain install
+    - rustup show
+    - npm --prefix apps/ui ci --ignore-scripts
+    - scripts/check.sh full
+  artifacts:
+    when: on_failure
+    expire_in: 7 days
+    paths:
+      - apps/ui/playwright-report
+      - apps/ui/test-results
+
+# Weekly dependency audit. TODO(owner): create a pipeline schedule (CI/CD >
+# Schedules) that runs weekly on the default branch, so a new advisory shows up
+# without a change.
+supply:
+  stage: check
+  tags: [macos] # TODO(owner): runner tag
+  timeout: 30 minutes
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - rustup toolchain install
+    - npm --prefix apps/ui ci --ignore-scripts
+    - cargo install cargo-deny --locked
+    - scripts/check.sh supply

@@ -1,0 +1,87 @@
+# Folder structure
+
+```text
+Cargo.toml                 Rust workspace; every crate below is a member
+crates/
+  meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
+  audio-io/                devices, capture plan, output, ring buffer, resampler trait
+    tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
+  engine-host/             engine traits, registry, segmenter, language gate
+  playback/                playback queue, speed-up, mixer
+  store/                   SQLite projections, schema, full-text index
+  summary-jobs/            job queue, citation check, question answerer
+  model-store/             model specs, size and checksum checks, download gate
+  settings/                settings values, apply timing, hotkeys
+  diagnostics/             log events, redaction
+  workspace-notes/         notes, tasks, export, auto-delete (E1)
+  quick-actions/           translate, fix grammar, save note in any app (E2)
+  integration-tests/       cross-crate tests only; ships nothing
+    tests/capture.rs         capture plan and audio-io flows
+    tests/journal_replay.rs  recorded event files give the same captions
+    tests/pipeline.rs        engine chain through the coordinator
+    tests/records.rs         meeting records and summaries
+    tests/settings.rs        settings values and hotkeys
+    tests/delete_meeting.rs  deleting a meeting scrubs the store and the journal files
+apps/
+  desktop/src-tauri/       Tauri shell
+    src/commands/          one file per command group
+    src/clock.rs           time source for the shell
+    src/native_confirm.rs  native dialog that proves an owner click (stub, ADR 0006)
+    src/navigation.rs      webview navigation rules (only the app itself)
+    tests/                 IPC contract, security config, demo-data gate, native confirm gate,
+                           network boundary
+    build.rs               registers the command list for the capability check
+    tauri.conf.json        window, CSP and bundle settings
+    src/ipc.rs             command DTOs and IpcError
+    src/events.rs          event names and payloads
+    capabilities/          window permissions
+    icons/                 bundle icons (copied from assets/icon)
+  ui/                      React UI (Vite)
+    src/main.tsx           entry point
+    src/App.tsx            root component
+    src/protocol.ts        caption and session protocol types used by the UI
+    src/CaptionList.tsx    caption list component
+    src/app/               shell, navigation, app state, error boundary, language sync
+    src/ipc/               contract types, transports (Tauri, mock), typed client, runtime guards
+    src/features/<name>/   one folder per screen or panel
+    src/shared/ui/         shared components (Banner, EmptyState, ErrorState, ...)
+    src/shared/useAsync.ts the one data-loading hook (loading, error, done)
+    src/shared/clock.tsx   clock context for components that show time
+    src/shared/useActionFailure.ts  turns a failed action into a banner
+    src/shared/format.ts   date and number formatting
+    src/shared/i18n.ts     t(key), language provider; messages.en.ts and messages.vi.ts hold the text
+    src/shared/useFocusTrap.ts  Tab wrap for dialogs and the settings sheet
+    src/shared/testing/    test helpers (renderApp.tsx); never imported by app code
+    e2e/                   Playwright journeys (one file per journey)
+assets/icon/               icon sources
+docs/                      reference files (routed from CLAUDE.md)
+  adr/                     one file per architecture decision
+  m0/                      measurement notes and candidate lists
+  wireframe/               user flows (the wireframe export is still to come)
+fixtures/
+  protocol/                journal replay files
+  ipc/                     IPC contract payloads read by Rust and UI tests
+scripts/check.sh           the gate (quick, full), the e2e run (e2e) and the dependency audit (supply)
+.claude/                   project hooks and their tests, review agents, skills, review-scope rule
+.gitlab-ci.yml, .gitlab/   GitLab pipeline, merge request and issue templates, code owners
+.github/                   GitHub CI workflow, templates and Dependabot; used after the move to GitHub
+root files                 LICENSE, NOTICE, SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, CHANGELOG,
+                           clippy.toml, rustfmt.toml, rust-toolchain.toml, .editorconfig, .gitattributes
+```
+
+## Where new code goes
+
+- **Logic** goes into the crate that owns it in `docs/architecture.md`. A new crate
+  only when no crate owns the topic; add it to the root `Cargo.toml` members and to
+  this file and `docs/architecture.md`.
+- **Tauri commands** go into `apps/desktop/src-tauri/src/commands/<group>.rs`. The
+  command calls a plain function, so tests need no Tauri runtime.
+- **A new screen** gets `apps/ui/src/features/<name>/` with its screen component,
+  its `index.ts`, and its tests.
+- **A shared component** goes into `apps/ui/src/shared/ui/` only when two features
+  use it.
+
+## Never in the repo
+
+Models, audio files, databases, `target/`, `node_modules/`, `apps/ui/dist/`,
+`apps/desktop/src-tauri/gen/`. The `.gitignore` covers them.

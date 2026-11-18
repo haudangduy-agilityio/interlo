@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a new advisory shows up without a change (scripts/check.sh supply).
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: dco
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # Every commit in the pull request needs a Signed-off-by trailer (D-57).
+      # Merge commits are skipped. The base branch name comes in through env,
+      # never inline in the script.
+      - name: Check Signed-off-by on every commit
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "origin/${BASE_REF}..HEAD"); do
+            if [ "$(git show -s --format=%B "$sha" | grep -c '^Signed-off-by: .\+ <.\+>$')" -eq 0 ]; then
+              echo "Missing Signed-off-by: $(git show -s --format='%h %s' "$sha")"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Fix with: git rebase --signoff origin/${BASE_REF}"
+            exit 1
+          fi
+          echo "All commits are signed off."
+
+  check:
+    name: check (macos-14)
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # rust-toolchain.toml pins the version and the clippy and rustfmt
+      # components. `rustup toolchain install` with no argument installs what
+      # that file names (rustup 1.28 and later); `rustup show` no longer does.
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Cache Rust build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm --prefix apps/ui ci --ignore-scripts
+
+      # Advisories in shipped dependencies block. Dev tooling advisories block too,
+      # except the ones accepted with a reason and an expiry date in
+      # scripts/audit-dev.mjs (today: picomatch, which has no patched release).
+      - name: Audit UI dependencies (shipped)
+        run: npm --prefix apps/ui audit --omit=dev --audit-level=high
+
+      - name: Audit UI dependencies (dev tooling)
+        run: node scripts/audit-dev.mjs apps/ui
+
+      # The gate is `scripts/check.sh full`. End-to-end tests are out of the
+      # gate for now; `scripts/check.sh e2e` runs them separately.
+      - name: Run the gate
+        run: scripts/check.sh full
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: |
+            apps/ui/playwright-report
+            apps/ui/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  supply:
+    name: supply (dependency audit)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm --prefix apps/ui ci --ignore-scripts
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      # Shipped dependencies and cargo-deny block; dev tooling advisories are reported.
+      - name: Run the dependency audit
+        run: scripts/check.sh supply

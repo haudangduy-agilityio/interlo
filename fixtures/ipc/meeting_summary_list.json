@@ -1,0 +1,6 @@
+[
+  { "id": "m-004", "title": "Design review", "startedAtMs": 1700259200000, "durationSec": 2400, "status": "failed" },
+  { "id": "m-003", "title": "Planning", "startedAtMs": 1700172800000, "durationSec": 120, "status": "interrupted" },
+  { "id": "m-002", "title": "Vendor call", "startedAtMs": 1700086400000, "durationSec": 900, "status": "generating" },
+  { "id": "m-001", "title": "Weekly sync", "startedAtMs": 1700000000000, "durationSec": 1820, "status": "ready" }
+]

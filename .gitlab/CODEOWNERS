@@ -1,0 +1,14 @@
+# Files that run code on a maintainer's machine or decide what the agent may do
+# need the maintainer's review before merge (review finding H2).
+# This file takes effect when the main branch is protected and code owner
+# approval is required (H-20).
+
+[Agent and build machinery]
+/.claude/ @hau.dangduy
+/scripts/ @hau.dangduy
+/.gitlab-ci.yml @hau.dangduy
+/.github/ @hau.dangduy
+/apps/ui/eslint.config.js @hau.dangduy
+/apps/desktop/src-tauri/build.rs @hau.dangduy
+/apps/desktop/src-tauri/capabilities/ @hau.dangduy
+/apps/desktop/src-tauri/tauri.conf.json @hau.dangduy

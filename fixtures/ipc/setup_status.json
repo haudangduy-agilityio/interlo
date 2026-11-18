@@ -1,0 +1,14 @@
+{
+  "items": [
+    { "id": "mic", "group": "devices", "state": "missing", "detail": "Microphone permission not granted" },
+    { "id": "capture", "group": "devices", "state": "error", "detail": "No capture route works" },
+    { "id": "vmic", "group": "virtualMicrophone", "state": "ok", "detail": "16-channel virtual device" },
+    { "id": "phones", "group": "devices", "state": "missing", "detail": "No headphones detected" },
+    { "id": "sr", "group": "models", "state": "ok", "detail": "Speech recognition model" },
+    { "id": "tr", "group": "models", "state": "ok", "detail": "Translation model" },
+    { "id": "enV", "group": "models", "state": "missing", "detail": "English voice model not downloaded" },
+    { "id": "viV", "group": "models", "state": "installing", "detail": "Vietnamese voice model" }
+  ],
+  "canStart": false,
+  "missingGroups": ["Microphone", "Meeting audio", "Models"]
+}

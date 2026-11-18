@@ -1,0 +1,22 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+audio-io = { path = "../audio-io" }
+engine-host = { path = "../engine-host" }
+meeting-core = { workspace = true }
+playback = { path = "../playback" }
+settings = { path = "../settings" }
+store = { path = "../store" }
+summary-jobs = { path = "../summary-jobs" }
+workspace-notes = { path = "../workspace-notes" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

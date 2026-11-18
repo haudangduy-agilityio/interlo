@@ -1,31 +1,28 @@
-# LiveMeetingCopilot - AI Assistant & Engineering Guidelines
+# Interlo
 
-## 1. Project Overview
-`LiveMeetingCopilot` is a high-performance, real-time AI live translation, meeting transcription, and automated notes copilot built with React 19, TypeScript, Electron, Node.js, and WebSocket Speech-to-Speech (S2S) technologies.
+Local macOS app for live two-way interpreting in meetings. The owner speaks
+Vietnamese and the meeting hears English; partners speak English and the owner
+hears Vietnamese in headphones. It also writes captions and a post-call summary,
+and has a daily workspace (notes, tasks, quick translate). Everything runs on the
+Mac. Rust core (Tauri 2) plus a React UI. MIT licence.
 
----
+Read only the files your task needs. Put a new rule in the file that owns its
+topic, not here.
 
-## 2. Directory Layout & Architecture Rules
-- **`src/components/interlo/`**: UI components.
-- **`src/lib/audio/`**: Audio DSP (downsampling, resampling, jitter buffer, same-language gate).
-- **`src/lib/realtime/`**: Realtime S2S client and audio pipeline.
-- **`src/lib/classic/`**: Classic (non-S2S) fallback pipeline.
-- **ZERO-CLUTTER RULE**: Never create ad-hoc directories or leave scratch files at the repo root.
-
----
-
-## 3. Key Engineering Principles
-1. **No Competitor References**: Always use generic functional terminology (`LiveMeetingCopilot`, `FloatingOverlay`, `DualPipeline`, `SameLanguageGate`). Never reference competitor trademarks.
-2. **Audio DSP Standards**:
-   - Audio input downsampling: 48kHz/44.1kHz Float32 to 16kHz/24kHz Int16 Mono (`StreamingPcmDownsampler`).
-   - Jitter buffer: 4ms underrun grace time, 150ms tail playback (`PcmPlaybackQueue`).
-   - Same-Language Gate: Suppresses translated speech when source language matches target language.
-   - Prompt Leak Guard: `isLikelyVocabularyPromptLeak` prevents STT echo of vocabulary lists.
-
----
-
-## 4. Development & Testing Commands
-```bash
-bun test src/lib/audio/__tests__/
-bun test src/lib/realtime/__tests__/
-```
+| When you | Read |
+|---|---|
+| Change anything | `docs/guardrails.md` |
+| Start or continue a task (spec, plan, code, verify, review, MR, release) | `docs/workflow.md` |
+| Decide where code goes | `docs/folder-structure.md` |
+| Need what a crate or screen owns, and must never do | `docs/architecture.md` |
+| Write code | `docs/coding-style.md`, `docs/naming-conventions.md` |
+| Add or upgrade a dependency | `docs/tech-stack.md` |
+| Change a command or an event between Rust and the UI | `docs/ipc-contract.md` |
+| Set up, build or run | `docs/development.md` |
+| Write tests | `docs/testing.md` |
+| Finish a change | `docs/definition-of-done.md` |
+| Commit | `docs/git.md` |
+| Need why a rule exists (decision IDs, planning pages) | `docs/decisions.md` |
+| Make a new architecture decision | write one file in `docs/adr/`, then add its line to `docs/decisions.md` |
+| Need the machine baseline or model candidates | `docs/m0/` |
+| Work on UI flows or UI states | `docs/wireframe/user-flow.md` |
