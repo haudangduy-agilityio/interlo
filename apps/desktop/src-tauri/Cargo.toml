@@ -1,0 +1,30 @@
+[package]
+name = "interlo-desktop"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "interlo_desktop"
+path = "src/lib.rs"
+
+[build-dependencies]
+tauri-build = "2"
+
+[features]
+# Sample data for tests, screenshots and demos. Off by default: a default build
+# answers NOT_IMPLEMENTED where a sample would stand in for real data.
+demo-data = []
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+meeting-core = { path = "../../../crates/meeting-core" }
+model-store = { path = "../../../crates/model-store" }
+workspace-notes = { path = "../../../crates/workspace-notes" }
+
+[lints]
+workspace = true

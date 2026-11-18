@@ -1,0 +1,16 @@
+# Weekly update pull requests for the three dependency sources (X-29).
+# Each update goes through the same gate as any other change.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/apps/ui"
+    schedule:
+      interval: "weekly"

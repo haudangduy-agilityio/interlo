@@ -1,0 +1,5 @@
+{
+  "mode": "both",
+  "meetingAppId": "sample-meeting-app",
+  "checks": { "headphonesConfirmed": true, "meetingMicConfirmed": true }
+}

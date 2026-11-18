@@ -1,0 +1,5 @@
+{
+  "code": "START_CHECK_FAILED",
+  "message": "Confirm before starting: headphones in use, meeting app microphone set to Interlo.",
+  "details": ["headphones", "meetingMic"]
+}

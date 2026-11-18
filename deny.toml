@@ -1,0 +1,52 @@
+# Dependency policy for `scripts/check.sh supply` (cargo-deny).
+#
+# Interlo is macOS only in v1 (ADR 0005), so only macOS targets are checked.
+# A licence that is not in the list below fails the check; adding one is a
+# reviewed change to this file. Models carry their own licences and are not
+# covered here: the model manager shows them (ADR 0011).
+
+[graph]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+[advisories]
+version = 2
+# A yanked crate fails the check. Add an `ignore` entry only with the advisory id,
+# the reason it cannot be reached, and an expiry date written in the reason text.
+# Only the maintainer may add one.
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Permissive licences, plus MPL-2.0 (file-level copyleft: using the crate as a
+# dependency does not change the licence of Interlo). Copyleft such as GPL, LGPL
+# and AGPL is not allowed; a crate that offers one of them only as an
+# alternative to a permissive licence still passes.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "0BSD",
+  "ISC",
+  "Zlib",
+  "Unlicense",
+  "CC0-1.0",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

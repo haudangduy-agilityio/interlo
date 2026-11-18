@@ -1,0 +1,57 @@
+Interlo
+Copyright (c) 2026 Interlo contributors
+The code of this project is licensed under the MIT License (see LICENSE).
+
+This file lists third-party components that Interlo depends on or downloads.
+Only licences that are already recorded in docs/tech-stack.md or
+docs/m0/candidates.md are written here. Where a licence or a source address is
+not recorded, this file says so and points to the record. Nothing here is a
+guess.
+
+Models
+------
+Models are not bundled with Interlo and are not in this repository. The owner
+downloads them from inside the app. Each model keeps its own licence.
+
+1. Silero VAD (speech gate, ONNX)
+   Licence: MIT. Source: see docs/m0/candidates.md.
+
+2. PhoWhisper (Vietnamese speech recognition; small, base as fallback)
+   Licence: BSD-3-Clause. Copyright 2024 VinAI.
+   Source: see docs/m0/candidates.md.
+
+3. opus-mt vi-en and en-vi (translation, Marian family)
+   Licence: Apache-2.0 (model card tag; the card has no licence text).
+   The models were trained on OPUS corpora that carry their own terms, and the
+   training data is listed as CC BY-NC-SA 4.0 in docs/tech-stack.md.
+   The data terms are still an open check (see docs/m0/candidates.md).
+   Source: see docs/m0/candidates.md.
+   Licence screen: the app shows this licence and a non-commercial flag before
+   download and asks you to accept (D-47).
+
+4. ZeroTTS (Vietnamese and English voices, ONNX)
+   Licence: MIT for the code and the weights. The codec decoder graphs are
+   Apache-2.0. Source: see docs/m0/candidates.md.
+   Language support: Vietnamese, with English words inside Vietnamese text
+   (project README and model card).
+   Licence screen: the app shows this licence and a non-commercial flag before
+   download and asks you to accept (D-47).
+
+The speaker model and the summary model are not chosen yet. They will be listed
+here when they are, with their licences.
+
+Libraries
+---------
+The libraries below are named in docs/tech-stack.md. That file does not record
+their licences. Each library carries its own licence file; Cargo.lock and
+apps/ui/package-lock.json pin the exact versions. A full licence list for the
+shipped build is still to be generated before a release (TODO).
+
+Rust: serde, serde_json, thiserror, rusqlite (bundled SQLite), tauri 2,
+tauri-build 2. Planned: cpal, rubato, ort (ONNX Runtime), tokio.
+
+UI: react, react-dom, vite, @vitejs/plugin-react, typescript, vitest, jsdom,
+@testing-library/react, @testing-library/user-event, @playwright/test, eslint,
+@eslint/js, typescript-eslint, eslint-plugin-react-hooks, prettier,
+@types/node, @types/react, @types/react-dom. Most of these are build and test
+tools and are not shipped in the app.

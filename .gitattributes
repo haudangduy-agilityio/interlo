@@ -1,0 +1,3 @@
+# Generated lockfiles stay out of review diffs.
+Cargo.lock -diff linguist-generated
+apps/ui/package-lock.json -diff linguist-generated
