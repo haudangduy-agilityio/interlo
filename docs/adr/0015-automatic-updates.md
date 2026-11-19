@@ -53,3 +53,9 @@ sent at any time.
 - Built at M4 with signing and notarization (M4-15, X-10).
 - Tests: an update with a wrong signature is refused; no update download starts
   while a meeting runs (`docs/testing.md`).
+
+## Amendment, 2026-11-19
+
+ADR 0022 replaces the Apple Developer ID certificate and notarization with a locally
+signed DMG. Where this ADR says "Developer ID certificate" or "notarized", read: not used.
+The updater key (owner task H-21) and the update rules are unchanged.

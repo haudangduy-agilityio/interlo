@@ -32,7 +32,7 @@ Ticket route: grill SPEC > SPEC gate > PLAN > TDD > verify > review > MR > accep
 | 7 | MR | MR description with the AC table and evidence | **Owner opens or approves the MR** |
 | 8 | Acceptance | `ACCEPTANCE.md`: each AC run on the MR head, without the developer's evidence | Every AC is ACCEPTED |
 | 9 | Merge | Merge commit | **Owner merges** |
-| 10 | Release | Tag, notarized build, release notes | **Owner names the tag** |
+| 10 | Release | Tag, signed DMG with checksum, release notes | **Owner names the tag** |
 
 ## Rules
 

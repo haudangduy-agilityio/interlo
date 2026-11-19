@@ -10,7 +10,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | Operating system | macOS 14.4 or later (Core Audio process tap needs 14.4) | Decided (D-41) |
 | Hardware | Apple silicon only in v1 | Decided (D-41) |
 | Windows, Linux | After v1 (phase P6) | Decided (D-41) |
-| Distribution | Release builds signed with a Developer ID certificate and notarized; local builds use a self-made certificate; signed automatic updates from GitHub Releases | Decided (D-40, D-61) |
+| Distribution | A DMG signed with a self-made certificate, not notarized, no store; an install guide in the README; signed automatic updates from GitHub Releases | Decided (ADR 0022, D-61) |
 | Licence | MIT for the code; models are not bundled | Decided (D-39) |
 
 ## Languages and tools

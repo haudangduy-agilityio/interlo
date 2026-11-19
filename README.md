@@ -21,6 +21,22 @@ meeting.
 - Apple silicon only in v1.
 - Windows and Linux come after v1.
 
+## Install
+
+There is no release yet. When there is one, you get a DMG file from the owner or from the
+GitHub Releases of this repository. Interlo is not in an app store and Apple has not
+checked it, so macOS warns you the first time you open it. Expect this.
+
+1. Open the DMG and drag Interlo to Applications.
+2. Open Interlo. macOS says it cannot check the app. Click Done.
+3. Open System Settings, then Privacy & Security. Scroll to the Security section and click
+   "Open Anyway" next to Interlo. Enter your password if macOS asks.
+4. Open Interlo again and click Open. After that it opens like any other app.
+5. Allow the microphone when Interlo asks.
+
+Check the file before you open it: `shasum -a 256 Interlo.dmg` must print the checksum
+that comes with the release. These steps may differ a little on other macOS versions.
+
 ## Build from source
 
 You need Rust 1.99.1 (see `rust-toolchain.toml`; it includes the `clippy` and
@@ -77,7 +93,7 @@ planned (M3-09).
 Interlo updates itself. It checks for a new version when it starts and every 24
 hours, and never while a meeting is running. It downloads the update in the
 background from the GitHub Releases of this repository, checks its signature
-(the update key is separate from the Apple certificate), and then shows
+(the update key is its own key; Interlo is not signed by Apple), and then shows
 "Restart to update". It never restarts during a meeting. Settings has a switch,
 "Update automatically", on by default. With the switch off, Interlo only tells
 you that a new version exists and downloads nothing. The check sends only the
