@@ -15,6 +15,9 @@ Log wins; fix this file.
 | Decision Log | https://claude.ai/artifact/QWFhFBeTu5SQKq7po9qrUo |
 | Gap Register | https://claude.ai/artifact/MhDAUjYCKPvCx6bC9HmMcb |
 | Wireframe | https://claude.ai/artifact/MgLQKCFQgTfwWRf8ZV7gFT |
+| Design System (tokens and components; see `design.md`) | https://claude.ai/artifact/CpPMyvnhc34epKE8QXDjBi |
+| Desktop App demo | https://claude.ai/artifact/7Fhv5F5UpXwm87w1VVig3w |
+| UI Foundations | https://claude.ai/artifact/Nif3R9Bghoeb4rfJv8H8Xp |
 
 These pages are owner-only links; contributors read the repository docs. The Decision Log content that binds code is mirrored in this file.
 

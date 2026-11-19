@@ -26,3 +26,4 @@ topic, not here.
 | Make a new architecture decision | write one file in `docs/adr/`, then add its line to `docs/decisions.md` |
 | Need the machine baseline or model candidates | `docs/m0/` |
 | Work on UI flows or UI states | `docs/wireframe/user-flow.md` |
+| Build, change or review any screen, component, style or UI text | `docs/design.md`, then `docs/reading-the-design-system.md` (read the design system files and cite them) |
