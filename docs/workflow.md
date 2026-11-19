@@ -24,8 +24,8 @@ Ticket route: grill SPEC > SPEC gate > PLAN > TDD > verify > review > MR > accep
 | # | Station | Output | Check before the next station |
 |---|---|---|---|
 | 1 | Grill the SPEC | `SPEC.md` with numbered acceptance criteria (AC-1, AC-2, ...) | Every AC is testable and names its UI state or rule |
-| 2 | SPEC gate | Quality-gate verdict | **Owner approves the SPEC** |
-| 3 | PLAN | `PLAN.md`: files in scope, tests per AC, risks | **Owner approves the PLAN** |
+| 2 | SPEC gate | Quality-gate verdict | **Owner approves the SPEC** (once per feature) |
+| 3 | PLAN | `PLAN.md`: files in scope, tests per AC, risks | **Owner approves the PLAN** (once per feature) |
 | 4 | TDD | Code and tests, RED then GREEN then REFACTOR per slice | `TDD-LOG.md` shows each RED and GREEN run |
 | 5 | Verify | `VERIFICATION.md`: `scripts/check.sh full` output (format, lint, unit, integration, build), plus the app run for any UI or IPC change | Every step passes on the current head; a failure goes back to station 4 until it passes |
 | 6 | Review | `REVIEWS.json`: findings with evidence and verdicts | No blocking finding open |
@@ -40,7 +40,12 @@ Ticket route: grill SPEC > SPEC gate > PLAN > TDD > verify > review > MR > accep
   acceptance failures go back to TDD. Never skip forward.
 - The same failure three times at one station stops the ticket. The owner decides
   whether the approach is wrong.
+- The owner approves the SPEC and the PLAN once per feature (D-171), not once per
+  task. Every task of that feature follows the approved SPEC and PLAN. A task that
+  does not fit them goes back to stations 1 to 3 for a new approval.
 - A SPEC or PLAN change after approval needs a new approval.
+- The owner answers open human gates (SPEC, PLAN, MR, merge) in one fixed review
+  slot each day. A gate that opens after the slot waits for the next slot.
 - A new dependency, a scope change or a file outside the PLAN pauses the ticket
   for the owner.
 - One implementer per ticket. Reviewers are read-only and independent of the
