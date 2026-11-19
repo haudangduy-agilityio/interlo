@@ -1,6 +1,6 @@
 # 0004. Developer ID signing and notarization for releases
 
-- Status: accepted
+- Status: superseded by ADR 0022 (2026-11-19)
 - Date: 2026-11-17
 - Decision ID: D-40
 

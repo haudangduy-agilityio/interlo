@@ -31,7 +31,7 @@ allows the Accessibility API that quick actions need (E2).
 - Tests use a fake client built by the policy test helpers.
 - Until part 2 is accepted, the operating system does not block the main app
   from the network. Only the type and the CI check enforce the gate.
-- Part 2 would add a second binary to build, sign and notarize (ADR 0004), and
+- Part 2 would add a second binary to build and sign (ADR 0022), and
   an IPC path between the app and the helper.
 - Status: the policy-owned client type is not built yet. `Provider` can no longer
   be built with a free `remote` field: use `Provider::local` or `Provider::remote`.

@@ -34,7 +34,7 @@ audio, and transcript text in logs while debug logs are off.
 
 Updates are downloaded from the GitHub Releases of this repository and are
 accepted only when their signature is valid. The updater uses its own signing
-key, separate from the Apple Developer ID certificate. The key is stored in the
+key; releases are not signed by Apple (ADR 0022). The key is stored in the
 macOS Keychain of the maintainer who signs releases. It is never in the
 repository or in CI. An update with a wrong signature is refused. A way to
 install an update that failed this check, or to run an update check during a
