@@ -33,8 +33,13 @@
 #     `main` would read, so this relies on the project setting "Use separate caches for
 #     protected branches" (on today). Keep that setting on and `main` protected.
 
+# The pipeline is OFF until the owner has a runner. While it is off, no pipeline is created, so
+# a merge request shows no stuck or red pipeline. To turn it on, add the CI/CD variable
+# INTERLO_CI=true (Settings, CI/CD, Variables), or delete the first rule below.
 workflow:
   rules:
+    - if: $INTERLO_CI != "true"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -45,7 +45,8 @@ tag, so any runner that takes untagged jobs runs them; on Linux the Tauri shell 
 left out. A weekly dependency audit (`supply-npm`, `supply-rust`) runs only from a pipeline
 schedule. It does not build the app, run the end-to-end journeys or check the sign-off.
 `.github/workflows/ci.yml` runs the full gate on a macOS runner after the move to GitHub
-(D-112). Neither runs until a runner exists for it.
+(D-112). Neither runs until a runner exists for it: the GitLab pipeline is off until the
+CI/CD variable `INTERLO_CI` is `true`.
 
 To run the app window after a UI build:
 
