@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CaptionList, formatMs } from "./CaptionList";
-import type { Caption } from "./protocol";
+import type { Caption } from "../../protocol";
 
 const base: Caption = {
   segmentId: "seg_1",

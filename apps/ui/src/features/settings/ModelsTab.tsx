@@ -1,13 +1,11 @@
-import { isActiveDownload } from "../../ipc/modelsProgress";
 import type { ModelInfo, ModelsProgressEvent, ModelState } from "../../ipc/types";
 import { formatBytes } from "../../shared/format";
 import { useT, type MessageKey } from "../../shared/i18n";
 import type { Async } from "../../shared/useAsync";
-import { DownloadProgress } from "../models";
+import { ModelDownloadControl } from "../models";
 import {
   ActionErrorBanner,
   AsyncContent,
-  Button,
   EmptyState,
   type ActionErrorBannerProps,
 } from "../../shared/ui";
@@ -38,30 +36,19 @@ const STATE_LABEL: Record<ModelState, MessageKey> = {
 
 function ModelRow({ model, progress, onDownload, onCancel }: RowHandlers & { model: ModelInfo }) {
   const t = useT();
-  const event = progress[model.id];
-  // The list can say "downloading" before the first event, so it counts too.
-  const active = model.state !== "ok" && (isActiveDownload(event) || model.state === "downloading");
-  const canDownload = !active && (model.state === "missing" || model.state === "error");
   return (
     <li className="list__row">
       <span>{model.name}</span>
       <span className="muted">{formatBytes(model.sizeBytes)}</span>
       <span className={`badge badge--${model.state}`}>{t(STATE_LABEL[model.state])}</span>
-      {canDownload ? (
-        <Button
-          aria-label={t("setup.downloadNamed", { name: model.name })}
-          onClick={() => onDownload(model.id)}
-        >
-          {t("common.download")}
-        </Button>
-      ) : null}
-      {active ? (
-        <DownloadProgress
-          label={model.name}
-          event={isActiveDownload(event) ? event : undefined}
-          onCancel={() => onCancel(model.id)}
-        />
-      ) : null}
+      <ModelDownloadControl
+        id={model.id}
+        label={model.name}
+        state={model.state}
+        event={progress[model.id]}
+        onDownload={onDownload}
+        onCancel={onCancel}
+      />
     </li>
   );
 }

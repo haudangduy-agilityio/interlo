@@ -24,6 +24,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 meeting-core = { path = "../../../crates/meeting-core" }
 model-store = { path = "../../../crates/model-store" }
+playback = { path = "../../../crates/playback" }
 workspace-notes = { path = "../../../crates/workspace-notes" }
 
 [lints]

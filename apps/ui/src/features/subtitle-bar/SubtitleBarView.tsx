@@ -1,6 +1,6 @@
 import { latestIncomingCaption, type SessionState } from "../../ipc/meetingSession";
 import { useT } from "../../shared/i18n";
-import { Banner, LoadingState } from "../../shared/ui";
+import { SessionBanner, StartingNotice } from "../live";
 
 /** Floating bar with the partner's latest caption line. Outgoing lines never show here. */
 export function SubtitleBarView({ session }: { session: SessionState }) {
@@ -8,8 +8,8 @@ export function SubtitleBarView({ session }: { session: SessionState }) {
   const last = latestIncomingCaption(session.captions);
   return (
     <div className="surface subtitle-bar" aria-label={t("subtitle.region")} role="region">
-      {session.banner ? <Banner kind={session.banner.kind}>{session.banner.message}</Banner> : null}
-      {session.status === "starting" ? <LoadingState label={t("live.starting")} /> : null}
+      <SessionBanner session={session} />
+      <StartingNotice session={session} />
       {session.status === "idle" ? <p className="muted">{t("subtitle.idle")}</p> : null}
       {session.status === "running" && !last ? (
         <p className="muted">{t("captions.waiting")}</p>

@@ -13,6 +13,11 @@ use thiserror::Error;
 
 pub const DAY_MS: u64 = 86_400_000;
 
+/// Longest accepted note text, in characters after trimming.
+pub const MAX_NOTE_TEXT_CHARS: usize = 5_000;
+/// Longest accepted tag, in characters after normalizing.
+pub const MAX_TAG_CHARS: usize = 64;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum NotesError {
     #[error("no draft with id {0}")]
@@ -21,6 +26,12 @@ pub enum NotesError {
     DraftNotPending(String),
     #[error("{0:?} is not a valid tag")]
     InvalidTag(String),
+    #[error("note text must not be empty")]
+    EmptyText,
+    #[error("note text must be at most {MAX_NOTE_TEXT_CHARS} characters")]
+    TextTooLong,
+    #[error("a tag must be at most {MAX_TAG_CHARS} characters")]
+    TagTooLong,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +44,42 @@ pub struct Note {
 }
 
 impl Note {
+    /// Builds a note from what the owner typed. The text is trimmed; blank text
+    /// and text over `MAX_NOTE_TEXT_CHARS` are refused. No tag, a blank tag or a
+    /// lone `#` mean "no tag". Any other tag is normalized with `normalize_tag`;
+    /// one with inner whitespace or over `MAX_TAG_CHARS` is refused, so input is
+    /// never dropped silently.
+    pub fn from_user_input(
+        id: impl Into<String>,
+        text: &str,
+        tag: Option<&str>,
+        created_ms: u64,
+    ) -> Result<Self, NotesError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(NotesError::EmptyText);
+        }
+        if text.chars().count() > MAX_NOTE_TEXT_CHARS {
+            return Err(NotesError::TextTooLong);
+        }
+        let tag = match tag {
+            Some(raw) if !raw.trim().trim_start_matches('#').trim().is_empty() => {
+                let tag = normalize_tag(raw).ok_or_else(|| NotesError::InvalidTag(raw.into()))?;
+                if tag.chars().count() > MAX_TAG_CHARS {
+                    return Err(NotesError::TagTooLong);
+                }
+                Some(tag)
+            }
+            _ => None,
+        };
+        Ok(Self {
+            id: id.into(),
+            text: text.to_string(),
+            tag,
+            created_ms,
+        })
+    }
+
     /// Builds a note. A tag is normalized with `normalize_tag`; a tag that
     /// normalizes to nothing is an error, not a silent drop.
     pub fn new(
@@ -641,5 +688,66 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn user_input_is_trimmed_and_checked() {
+        let n = Note::from_user_input("n1", "  hello ", Some("  #Work "), 5).unwrap();
+        assert_eq!(
+            (n.text.as_str(), n.tag.as_deref(), n.created_ms),
+            ("hello", Some("work"), 5)
+        );
+        for blank in ["", "   ", "\n\t"] {
+            assert_eq!(
+                Note::from_user_input("n", blank, None, 1),
+                Err(NotesError::EmptyText)
+            );
+        }
+    }
+
+    #[test]
+    fn user_input_text_limit_counts_characters_not_bytes() {
+        assert!(Note::from_user_input("n", &"a".repeat(MAX_NOTE_TEXT_CHARS), None, 1).is_ok());
+        assert_eq!(
+            Note::from_user_input("n", &"a".repeat(MAX_NOTE_TEXT_CHARS + 1), None, 1),
+            Err(NotesError::TextTooLong)
+        );
+        assert!(
+            Note::from_user_input("n", &"\u{1F600}".repeat(MAX_NOTE_TEXT_CHARS), None, 1).is_ok()
+        );
+        assert!(
+            Note::from_user_input("n", &"\u{1F600}".repeat(MAX_NOTE_TEXT_CHARS + 1), None, 1)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn user_input_tag_rules() {
+        for none in [None, Some(""), Some(" "), Some("#"), Some("###")] {
+            assert_eq!(
+                Note::from_user_input("n", "x", none, 1).unwrap().tag,
+                None,
+                "{none:?}"
+            );
+        }
+        assert_eq!(
+            Note::from_user_input("n", "x", Some("##Two"), 1)
+                .unwrap()
+                .tag
+                .as_deref(),
+            Some("two")
+        );
+        for bad in ["two words", "a\tb", "# a b"] {
+            assert_eq!(
+                Note::from_user_input("n", "x", Some(bad), 1),
+                Err(NotesError::InvalidTag(bad.into())),
+                "tag {bad:?}"
+            );
+        }
+        assert!(Note::from_user_input("n", "x", Some(&"a".repeat(MAX_TAG_CHARS)), 1).is_ok());
+        assert_eq!(
+            Note::from_user_input("n", "x", Some(&"a".repeat(MAX_TAG_CHARS + 1)), 1),
+            Err(NotesError::TagTooLong)
+        );
     }
 }

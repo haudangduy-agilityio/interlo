@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CaptionList } from "../../CaptionList";
+import { CaptionList } from "./CaptionList";
 import { RUN_STATE_KEY } from "../../ipc/labels";
 import { isPaused, type SessionState } from "../../ipc/meetingSession";
 import type { Direction, MeetingMode } from "../../ipc/types";
@@ -17,6 +17,7 @@ import {
 } from "../../shared/ui";
 import { MODE_OPTIONS } from "../start";
 import { MeetingReminder } from "./MeetingReminder";
+import { SessionBanner } from "./SessionNotices";
 import { MuteControls } from "./MuteControls";
 
 export interface LiveViewProps {
@@ -126,18 +127,7 @@ export function LiveView(props: LiveViewProps) {
     <Page title={t("nav.live")}>
       {error ? <ActionErrorBanner {...error} /> : null}
       {isPaused(session) ? <Banner kind="warning">{t("live.paused")}</Banner> : null}
-      {session.banner ? (
-        <Banner
-          kind={session.banner.kind}
-          actions={
-            <Button variant="ghost" aria-label={t("live.dismissMessage")} onClick={onDismissBanner}>
-              ×
-            </Button>
-          }
-        >
-          {session.banner.message}
-        </Banner>
-      ) : null}
+      <SessionBanner session={session} onDismiss={onDismissBanner} />
       {session.status === "running" && session.startedAtMs !== null ? (
         <MeetingReminder startedAtMs={session.startedAtMs} />
       ) : null}
