@@ -1,9 +1,37 @@
-# GitLab pipeline for the private development project (D-112, X-55).
-# It runs the same gate as .github/workflows/ci.yml: scripts/check.sh full.
+# GitLab pipeline for the private development project (D-112, X-55): lint and test, plus
+# the dependency audit on a schedule.
 #
-# TODO(owner): both jobs need a runner. Set `tags` to the tag of the macOS
-# runner on the Mac mini (D-143). Signing keys and certificates are never on
-# the runner. Until a runner with that tag exists, the jobs stay pending.
+# Two jobs run in parallel on every merge request and on `main`:
+#   rust  format, clippy and unit and integration tests
+#   ui    lint, format, typecheck and unit tests
+# Two more jobs run only from a pipeline schedule, on the default branch:
+#   supply-npm   npm audit of the shipped and the dev dependencies
+#   supply-rust  cargo deny: advisories, licences, sources
+# Nothing else runs here: no build, no end-to-end journeys, no DCO check. The author runs
+# the full gate (`scripts/check.sh full` and `scripts/check.sh e2e`) on the Mac before the
+# merge request and pastes the real output in the description, section Validation.
+#
+# The jobs have no runner tag, so any runner that takes untagged jobs runs them. SECURITY:
+# a merge request runs code from the branch, including code written by an assistant, so the
+# runner must isolate each job: a Docker executor (the image below is used), or a disposable
+# VM on macOS. NEVER register a runner with the shell executor on a personal machine for
+# these jobs: it would run merge request code with the owner's files and Keychain.
+# On Linux the Tauri shell crate is left out, because it needs desktop system libraries; on a
+# macOS VM the whole workspace is checked.
+# TODO(owner): if the instance runner needs a tag, add `tags: [<tag>]` under `default`.
+#
+# Why a merge request pipeline is stable:
+#   - Every job runs on every merge request. There is no `changes:` filter, so there is
+#     never a missing or skipped required job.
+#   - Images are pinned to exact versions, and the jobs use `--locked` and `npm ci`, so the
+#     same commit gives the same result.
+#   - A job is retried once only when the runner or the scheduler failed, never when a test
+#     failed or timed out, so a flaky or hung test is not hidden.
+#   - A new push cancels the older pipeline of the same merge request (jobs are
+#     `interruptible`; the project setting "auto-cancel redundant pipelines" is on).
+#   - Caches are keyed by the lock files. A merge request pipeline can write a cache that
+#     `main` would read, so this relies on the project setting "Use separate caches for
+#     protected branches" (on today). Keep that setting on and `main` protected.
 
 workflow:
   rules:
@@ -11,62 +39,86 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-variables:
-  GIT_DEPTH: "0"
-
 stages: [check]
 
-dco:
-  stage: check
-  tags: [macos] # TODO(owner): runner tag
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-  script:
-    # Every commit in the merge request needs a Signed-off-by trailer (D-57).
-    # Merge commits are skipped.
-    - |
-      missing=0
-      for sha in $(git rev-list --no-merges "${CI_MERGE_REQUEST_DIFF_BASE_SHA}..HEAD"); do
-        if [ "$(git show -s --format=%B "$sha" | grep -c '^Signed-off-by: .\+ <.\+>$')" -eq 0 ]; then
-          echo "Missing Signed-off-by: $(git show -s --format='%h %s' "$sha")"
-          missing=1
-        fi
-      done
-      if [ "$missing" -ne 0 ]; then
-        echo "Fix with: git rebase --signoff ${CI_MERGE_REQUEST_DIFF_BASE_SHA}"
-        exit 1
-      fi
-      echo "All commits are signed off."
+default:
+  interruptible: true
+  retry:
+    max: 1
+    when: [runner_system_failure, scheduler_failure]
+  # tags: [docker] # TODO(owner): the runner tag, if the instance needs one
 
-check:
+variables:
+  GIT_DEPTH: "20"
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo-home"
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  # Match rust-toolchain.toml and `node --version` on the owner's Mac. Change together.
+  RUST_IMAGE: "rust:1.99.1-bookworm"
+  NODE_IMAGE: "node:26.5.0-bookworm"
+
+rust:
   stage: check
-  tags: [macos] # TODO(owner): runner tag
-  timeout: 60 minutes
+  image: $RUST_IMAGE
+  timeout: 25 minutes
   rules:
-    - if: $CI_PIPELINE_SOURCE != "schedule"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  cache:
+    key:
+      files: [Cargo.lock]
+      prefix: rust
+    paths: [.cargo-home/registry, .cargo-home/git, target]
   script:
-    - rustup toolchain install
-    - rustup show
+    - rustup component add clippy rustfmt
+    # The Tauri shell needs desktop system libraries on Linux; leave it out there.
+    - EXCL=""; if [ "$(uname -s)" = "Linux" ]; then EXCL="--exclude interlo-desktop"; fi
+    - cargo fmt --all --check
+    - cargo clippy --workspace $EXCL --all-targets --locked -- -D warnings
+    - cargo test --workspace $EXCL --locked
+
+ui:
+  stage: check
+  image: $NODE_IMAGE
+  timeout: 15 minutes
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  cache:
+    key:
+      files: [apps/ui/package-lock.json]
+      prefix: npm
+    paths: [.npm]
+  script:
     - npm --prefix apps/ui ci --ignore-scripts
-    - scripts/check.sh full
-  artifacts:
-    when: on_failure
-    expire_in: 7 days
-    paths:
-      - apps/ui/playwright-report
-      - apps/ui/test-results
+    - npm --prefix apps/ui run lint
+    - npm --prefix apps/ui run format:check
+    - npm --prefix apps/ui run typecheck
+    - npm --prefix apps/ui test
 
-# Weekly dependency audit. TODO(owner): create a pipeline schedule (CI/CD >
-# Schedules) that runs weekly on the default branch, so a new advisory shows up
-# without a change.
-supply:
+# Weekly dependency audit: a new advisory shows up without a change. It runs only from a
+# pipeline schedule (CI/CD, Schedules), on the default branch, so it never runs branch code.
+# TODO(owner): create the weekly pipeline schedule on the default branch.
+supply-npm:
   stage: check
-  tags: [macos] # TODO(owner): runner tag
+  image: $NODE_IMAGE
+  timeout: 10 minutes
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - npm --prefix apps/ui ci --ignore-scripts
+    - npm --prefix apps/ui audit --omit=dev --audit-level=high
+    - node scripts/audit-dev.mjs apps/ui
+
+supply-rust:
+  stage: check
+  image: $RUST_IMAGE
   timeout: 30 minutes
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
-    - rustup toolchain install
-    - npm --prefix apps/ui ci --ignore-scripts
-    - cargo install cargo-deny --locked
-    - scripts/check.sh supply
+    - cargo install cargo-deny --locked --version 0.20.2
+    - cargo deny check
