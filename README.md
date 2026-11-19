@@ -34,10 +34,18 @@ scripts/check.sh e2e     # end-to-end journeys, out of the gate for now
 scripts/check.sh supply  # dependency audit; needs cargo-deny; runs weekly in CI, not in the gate
 ```
 
-`scripts/check.sh` is the same gate that CI runs: `.gitlab-ci.yml` on GitLab and
-`.github/workflows/ci.yml` after the move to GitHub (D-112). Neither runs until a
-runner exists for it. It stops at the first failing
-step and never reports a pass when a tool or a script is missing.
+`scripts/check.sh` is the gate on your Mac. It stops at the first failing step and
+never reports a pass when a tool or a script is missing.
+
+Run `scripts/check.sh full` and `scripts/check.sh e2e` on your Mac before you open a
+merge request, and paste their real output in the description (section Validation).
+On GitLab, `.gitlab-ci.yml` runs only lint and tests, in two parallel jobs: `rust`
+(format, clippy, tests) and `ui` (lint, format, typecheck, tests). The jobs have no runner
+tag, so any runner that takes untagged jobs runs them; on Linux the Tauri shell crate is
+left out. A weekly dependency audit (`supply-npm`, `supply-rust`) runs only from a pipeline
+schedule. It does not build the app, run the end-to-end journeys or check the sign-off.
+`.github/workflows/ci.yml` runs the full gate on a macOS runner after the move to GitHub
+(D-112). Neither runs until a runner exists for it.
 
 To run the app window after a UI build:
 

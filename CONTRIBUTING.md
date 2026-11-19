@@ -21,7 +21,8 @@ Thank you for helping. Keep changes small and tested.
    the task ID when there is one, for example
    `M1-08: add playback to the virtual microphone`.
 6. Sign off every commit (`git commit -s`). A commit without `Signed-off-by`
-   fails the DCO check (D-57). The sign-off says you have the right to submit
+   fails the DCO check of the GitHub workflow (D-57); the GitLab pipeline does not check it,
+   so the owner checks it in review. The sign-off says you have the right to submit
    the change under the project licence. There is no CLA.
 7. The `main` branch is protected. A change merges only with the required CI
    check passing and at least one review.
