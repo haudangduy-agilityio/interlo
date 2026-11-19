@@ -43,6 +43,9 @@ change back to the gate.
 - [ ] No guardrail in `docs/guardrails.md` is broken.
 - [ ] A screen change covers loading, empty, error and done states, or the
       report says which state it skips and why.
+- [ ] A UI change names the design reference it followed (the format is in
+      `docs/reading-the-design-system.md`) and uses tokens only: no literal colour,
+      radius, shadow or type size.
 - [ ] A change to a command or an event updates `docs/ipc-contract.md`, the Rust
       DTOs, `apps/ui/src/ipc/types.ts` and `fixtures/ipc/` together.
 - [ ] A fact in `docs/` that the change touched is updated.
