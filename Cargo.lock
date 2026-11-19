@@ -1615,6 +1615,7 @@ version = "0.1.0"
 dependencies = [
  "meeting-core",
  "model-store",
+ "playback",
  "serde",
  "serde_json",
  "tauri",

@@ -1,8 +1,8 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
-import { INCOMING_SOURCE_ID, OUTGOING_SOURCE_ID } from "./ipc/meetingSession";
-import type { Caption } from "./protocol";
-import { useT, type MessageKey } from "./shared/i18n";
-import { Button } from "./shared/ui";
+import { INCOMING_SOURCE_ID, OUTGOING_SOURCE_ID } from "../../ipc/meetingSession";
+import type { Caption } from "../../protocol";
+import { useT, type MessageKey } from "../../shared/i18n";
+import { Button } from "../../shared/ui";
 
 const STATUS_KEY: Record<string, MessageKey> = {
   partial: "caption.status.partial",

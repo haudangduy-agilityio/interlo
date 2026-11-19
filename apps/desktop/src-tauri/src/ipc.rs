@@ -269,11 +269,33 @@ pub enum MeetingMode {
     Both,
 }
 
+/// The wire form of `playback::Direction`, the one definition of the concept:
+/// `In` is the partner's line (`Incoming`) and `Out` is the owner's (`Outgoing`).
+/// The names `"in"` and `"out"` are part of the IPC contract; the conversions
+/// below keep the two types from drifting apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
     Out,
     In,
+}
+
+impl From<playback::Direction> for Direction {
+    fn from(d: playback::Direction) -> Self {
+        match d {
+            playback::Direction::Incoming => Self::In,
+            playback::Direction::Outgoing => Self::Out,
+        }
+    }
+}
+
+impl From<Direction> for playback::Direction {
+    fn from(d: Direction) -> Self {
+        match d {
+            Direction::In => Self::Incoming,
+            Direction::Out => Self::Outgoing,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +428,18 @@ mod tests {
     fn direction_in_serializes_as_in() {
         assert_eq!(serde_json::to_value(Direction::In).unwrap(), "in");
         assert_eq!(serde_json::to_value(Direction::Out).unwrap(), "out");
+    }
+
+    #[test]
+    fn direction_converts_to_and_from_the_playback_type() {
+        use playback::Direction as Domain;
+        for (wire, domain) in [
+            (Direction::In, Domain::Incoming),
+            (Direction::Out, Domain::Outgoing),
+        ] {
+            assert_eq!(Direction::from(domain), wire);
+            assert_eq!(Domain::from(wire), domain);
+        }
     }
 
     #[test]

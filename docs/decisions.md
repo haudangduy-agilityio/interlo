@@ -43,6 +43,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | [0017](adr/0017-wireframe-is-final-ui-spec.md) | The wireframe is the final UI spec (accepted, D-62) |
 | [0018](adr/0018-updater-never-downgrades.md) | The updater never installs a lower version (accepted, D-79) |
 | [0019](adr/0019-additive-migrations-one-version-back.md) | Database migrations are additive and the previous version can read them (accepted, D-80) |
+| [0020](adr/0020-ipc-types-stay-hand-written.md) | IPC types stay hand-written; the fixtures keep both sides in step (accepted) |
 
 ## Scope and release
 

@@ -1,10 +1,9 @@
 import { GROUP_LABEL_KEY, GROUP_ORDER, SETUP_ITEM_LABEL_KEY, setupFixKey } from "../../ipc/labels";
-import { isActiveDownload } from "../../ipc/modelsProgress";
 import type { ModelsProgressEvent, SetupItem, SetupItemState, SetupStatus } from "../../ipc/types";
 import { useState } from "react";
 import { useT, type MessageKey } from "../../shared/i18n";
 import type { Async } from "../../shared/useAsync";
-import { DownloadProgress } from "../models";
+import { ModelDownloadControl } from "../models";
 import {
   ActionErrorBanner,
   AsyncContent,
@@ -63,32 +62,20 @@ function ItemRow({ item, progress, onDownload, onCancel }: ItemRowProps) {
   const t = useT();
   const label = t(SETUP_ITEM_LABEL_KEY[item.id]);
   const notReady = item.state === "missing" || item.state === "error";
-  const event = progress[item.id];
-  // The list can say "installing" before the first event, so it counts too.
-  const downloading =
-    item.group === "models" &&
-    item.state !== "ok" &&
-    (isActiveDownload(event) || item.state === "installing");
-  const canDownload = item.group === "models" && notReady && !downloading;
   const needsSteps = item.id === "vmic" && notReady;
   return (
     <li className="list__row">
       <span>{label}</span>
       <span className="muted">{item.detail}</span>
       <span className={`badge badge--${item.state}`}>{t(STATE_LABEL[item.state])}</span>
-      {canDownload ? (
-        <Button
-          aria-label={t("setup.downloadNamed", { name: label })}
-          onClick={() => onDownload(item.id)}
-        >
-          {t("common.download")}
-        </Button>
-      ) : null}
-      {downloading ? (
-        <DownloadProgress
+      {item.group === "models" ? (
+        <ModelDownloadControl
+          id={item.id}
           label={label}
-          event={isActiveDownload(event) ? event : undefined}
-          onCancel={() => onCancel(item.id)}
+          state={item.state}
+          event={progress[item.id]}
+          onDownload={onDownload}
+          onCancel={onCancel}
         />
       ) : null}
       {needsSteps ? (

@@ -1,29 +1,35 @@
 use crate::clock::{now_ms, unique_id};
-use workspace_notes::normalize_tag;
+use workspace_notes::NotesError;
 
 use crate::ipc::{AddNoteArgs, IpcError, IpcResult, Note};
 
-/// Longest accepted note text, in characters after trimming.
-pub const MAX_NOTE_TEXT_CHARS: usize = 5_000;
-/// Longest accepted tag, in characters after normalizing.
-pub const MAX_TAG_CHARS: usize = 64;
+pub use workspace_notes::{MAX_NOTE_TEXT_CHARS, MAX_TAG_CHARS};
 
-/// No tag, a blank tag or a lone `#` mean "no tag". A tag with inner whitespace
-/// or over `MAX_TAG_CHARS` is refused, so user input is never dropped silently.
-fn parse_tag(raw: Option<String>) -> IpcResult<Option<String>> {
-    let Some(raw) = raw else { return Ok(None) };
-    if raw.trim().trim_start_matches('#').trim().is_empty() {
-        return Ok(None);
+impl From<workspace_notes::Note> for Note {
+    fn from(n: workspace_notes::Note) -> Self {
+        Self {
+            id: n.id,
+            text: n.text,
+            tag: n.tag,
+            created_at_ms: n.created_ms,
+        }
     }
-    let Some(tag) = normalize_tag(&raw) else {
-        return Err(IpcError::invalid_input("Tag must be a single word."));
-    };
-    if tag.chars().count() > MAX_TAG_CHARS {
-        return Err(IpcError::invalid_input(format!(
-            "Tag must be at most {MAX_TAG_CHARS} characters."
-        )));
-    }
-    Ok(Some(tag))
+}
+
+/// The rules live in `workspace_notes::Note::from_user_input`; this maps a refusal to
+/// the message the owner sees.
+fn invalid_note(err: NotesError) -> IpcError {
+    IpcError::invalid_input(match err {
+        NotesError::EmptyText => "Note text must not be empty.".to_string(),
+        NotesError::TextTooLong => {
+            format!("Note text must be at most {MAX_NOTE_TEXT_CHARS} characters.")
+        }
+        NotesError::TagTooLong => format!("Tag must be at most {MAX_TAG_CHARS} characters."),
+        NotesError::InvalidTag(_) => "Tag must be a single word.".to_string(),
+        // `from_user_input` never returns these. Listing them keeps a new variant a compile
+        // error here instead of a wrong message.
+        other @ (NotesError::UnknownDraft(_) | NotesError::DraftNotPending(_)) => other.to_string(),
+    })
 }
 
 /// Sample rows, newest first. Tests and a `demo-data` build only.
@@ -54,22 +60,9 @@ pub fn newest_first(mut rows: Vec<Note>) -> Vec<Note> {
 /// Build a note from user input. Blank text, text over `MAX_NOTE_TEXT_CHARS`
 /// and a bad tag are refused with `INVALID_INPUT`.
 pub fn make_note(text: &str, tag: Option<String>, now_ms: u64) -> IpcResult<Note> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err(IpcError::invalid_input("Note text must not be empty."));
-    }
-    if text.chars().count() > MAX_NOTE_TEXT_CHARS {
-        return Err(IpcError::invalid_input(format!(
-            "Note text must be at most {MAX_NOTE_TEXT_CHARS} characters."
-        )));
-    }
-    let tag = parse_tag(tag)?;
-    Ok(Note {
-        id: unique_id("note", now_ms),
-        text: text.to_string(),
-        tag,
-        created_at_ms: now_ms,
-    })
+    workspace_notes::Note::from_user_input(unique_id("note", now_ms), text, tag.as_deref(), now_ms)
+        .map(Note::from)
+        .map_err(invalid_note)
 }
 
 /// The notes the owner sees. There is no note store yet, so a default build
@@ -117,10 +110,34 @@ mod tests {
     use crate::ipc::ErrorCode;
 
     #[test]
-    fn the_tag_rule_is_the_one_in_workspace_notes_not_a_copy() {
+    fn the_note_rules_are_the_ones_in_workspace_notes_not_a_copy() {
         let source = include_str!("notes.rs");
         assert!(!source.contains(concat!("fn normalize_", "tag(")));
-        assert!(source.contains("use workspace_notes::normalize_tag;"));
+        assert!(!source.contains(concat!("chars().", "count()")));
+        assert!(source.contains("workspace_notes::Note::from_user_input"));
+    }
+
+    #[test]
+    fn each_refusal_has_its_own_message() {
+        let msg = |text: &str, tag: Option<&str>| {
+            make_note(text, tag.map(String::from), 1)
+                .unwrap_err()
+                .message
+        };
+        assert_eq!(msg(" ", None), "Note text must not be empty.");
+        assert_eq!(
+            msg(&"a".repeat(MAX_NOTE_TEXT_CHARS + 1), None),
+            format!("Note text must be at most {MAX_NOTE_TEXT_CHARS} characters.")
+        );
+        assert_eq!(msg("x", Some("two words")), "Tag must be a single word.");
+        assert_eq!(
+            msg("x", Some(&"a".repeat(MAX_TAG_CHARS + 1))),
+            format!("Tag must be at most {MAX_TAG_CHARS} characters.")
+        );
+        assert_eq!(
+            invalid_note(NotesError::UnknownDraft("d1".into())).message,
+            "no draft with id d1"
+        );
     }
 
     #[test]

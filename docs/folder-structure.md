@@ -40,10 +40,11 @@ apps/
     src/main.tsx           entry point
     src/App.tsx            root component
     src/protocol.ts        caption and session protocol types used by the UI
-    src/CaptionList.tsx    caption list component
     src/app/               shell, navigation, app state, error boundary, language sync
     src/ipc/               contract types, transports (Tauri, mock), typed client, runtime guards
     src/features/<name>/   one folder per screen or panel
+      live/                  also holds CaptionList and the session notices (SessionBanner, StartingNotice) that the subtitle bar and compact panel reuse
+      models/                also holds DownloadProgress and ModelDownloadControl, the Download or progress control that the Models tab and the setup list share
     src/shared/ui/         shared components (Banner, EmptyState, ErrorState, ...)
     src/shared/useAsync.ts the one data-loading hook (loading, error, done)
     src/shared/clock.tsx   clock context for components that show time

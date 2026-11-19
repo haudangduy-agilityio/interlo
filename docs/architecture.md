@@ -19,6 +19,9 @@ engine-host --> playback (queue, mixer) --> audio-io --> virtual microphone (16c
 meeting-core --(events)--> apps/desktop (Tauri bridge) --(channels)--> apps/ui
 ```
 
+`apps/desktop` also depends on `playback`, only for `playback::Direction`: the
+wire type `ipc::Direction` converts to and from it (ADR 0020).
+
 ## Crates
 
 | Crate | Owns | Threads | Must never |
