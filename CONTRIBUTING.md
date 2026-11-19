@@ -31,8 +31,6 @@ Thank you for helping. Keep changes small and tested.
    maintainer reviews it by hand before running an agent on that branch (see
    `.gitlab/CODEOWNERS`).
 
-Everyone who takes part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
-
 Do not add a dependency, a crate or a file outside the agreed scope without
 asking first. Never commit models, audio files or databases.
 

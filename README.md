@@ -98,5 +98,5 @@ Reference files are in [docs/](docs/). Start with
 [docs/development.md](docs/development.md) to set up and
 [docs/architecture.md](docs/architecture.md) to see what each crate owns.
 Architecture decisions are recorded in [docs/adr/](docs/adr/). To contribute,
-read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). To report a vulnerability, read
+read [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, read
 [SECURITY.md](SECURITY.md).

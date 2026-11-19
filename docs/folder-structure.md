@@ -65,7 +65,7 @@ scripts/check.sh           the gate (quick, full), the e2e run (e2e) and the dep
 .claude/                   project hooks and their tests, review agents, skills, review-scope rule
 .gitlab-ci.yml, .gitlab/   GitLab pipeline, merge request and issue templates, code owners
 .github/                   GitHub CI workflow, templates and Dependabot; used after the move to GitHub
-root files                 LICENSE, NOTICE, SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, CHANGELOG,
+root files                 LICENSE, NOTICE, SECURITY, CONTRIBUTING, CHANGELOG,
                            clippy.toml, rustfmt.toml, rust-toolchain.toml, .editorconfig, .gitattributes
 ```
 

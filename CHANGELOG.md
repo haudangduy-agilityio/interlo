@@ -17,7 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Quick actions paste only after Enter.
 - Deleting a meeting deletes notes created in it.
 - Licence screen before model download (planned).
-- DCO sign-off for every commit, a `dco` CI job and a code of conduct (Contributor Covenant 2.1).
+- DCO sign-off for every commit and a `dco` CI job.
 - Model manager design: pinned URL and checksum manifest, resume, progress event (ADR 0012).
 - Database and time rules: journal `user_version`, UTC milliseconds (ADR 0013).
 
