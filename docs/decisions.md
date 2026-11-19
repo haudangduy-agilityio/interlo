@@ -40,7 +40,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | [0011](adr/0011-models-with-non-commercial-data-in-default-list.md) | Models trained on non-commercial data stay in the default list (D-47) |
 | [0012](adr/0012-model-manager.md) | Model manager: pinned URL and SHA-256 manifest, models from their own public host, no Interlo server (accepted, D-60) |
 | [0013](adr/0013-database-and-time-rules.md) | Database and time rules: journal `user_version`, UTC milliseconds, schema free until the first public tag (accepted, D-59) |
-| [0014](adr/0014-contribution-policy.md) | Contribution policy: DCO sign-off, no CLA, Contributor Covenant 2.1, protected main (accepted, D-57) |
+| [0014](adr/0014-contribution-policy.md) | Contribution policy: DCO sign-off, no CLA, protected main (accepted, D-57; code of conduct removed 2026-11-19) |
 | [0015](adr/0015-automatic-updates.md) | Automatic updates: checked outside meetings, signed with its own key, from GitHub Releases (accepted, D-61) |
 | [0016](adr/0016-driver-installer.md) | Driver installer: one press, pinned URL and SHA-256, never bundled, administrator prompt (accepted, D-69) |
 | [0017](adr/0017-wireframe-is-final-ui-spec.md) | The wireframe is the final UI spec (accepted, D-62) |
@@ -59,7 +59,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | D-43 | Daily workspace (E1) and quick actions (E2) ship in v1, after the MVP gate, in the same app as modules. |
 | D-47 | Models trained on non-commercial data stay in the default list. The model manager shows each licence and its non-commercial flag; the owner accepts before the download. README and NOTICE say so. |
 | D-56 | The README and every other repository text, UI text, code, test and fixture name only Interlo. Libraries and models are named only in `docs/tech-stack.md` and `NOTICE` as dependency attribution. The UI uses generic labels for meeting apps. Guardrail 3 stays as written. |
-| D-57 | Contribution policy: DCO sign-off (`Signed-off-by`), no CLA; Contributor Covenant 2.1; main branch protected with the required CI check and one review (owner action H-20). Task X-12 adds the files and the DCO check. See ADR 0014. |
+| D-57 | Contribution policy: DCO sign-off (`Signed-off-by`), no CLA; main branch protected with the required CI check and one review (owner action H-20). Task X-12 adds the files and the DCO check. The code of conduct was removed on the owner's request (2026-11-19). See ADR 0014. |
 | D-58 | Nothing is sent automatically. "Export diagnostics" writes a redacted file (timings, event names, error codes; no transcript text) that the user attaches to an issue by hand. The update half of this decision is superseded by D-61 (automatic updates, ADR 0015); the diagnostics half stays. |
 | D-54 | The README keeps the sentence "You must follow the recording laws where you live." There is no consent notice in the app (M-Q11). |
 | D-55 | Default hotkey for mute my voice is Ctrl+Option+M (a single modifier with M types a character on some layouts). Every default hotkey uses Control plus Option (see Hotkeys below). Note (D-62 round): Ctrl+Option+M now mutes both directions; the start-meeting key is removed. |
