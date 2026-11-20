@@ -3,8 +3,8 @@
 //! unwinding kept so a panic in one engine thread does not abort the app
 //! (D-135, FR-11). The file is read as text: the test adds no TOML crate.
 
-// Test helpers outside #[test] functions may expect.
-#![allow(clippy::expect_used)]
+// Test helpers outside #[test] functions may unwrap and expect.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
 use std::path::PathBuf;
