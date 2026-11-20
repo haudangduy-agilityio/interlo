@@ -21,7 +21,7 @@
 # Exit codes: 0 pass, 1 fail, 3 BLOCKED (a tool, a permission or an identity is
 # missing; the environment does not provide it). A blocked step is never a pass.
 # Written for bash 3.2 (the macOS default): no associative arrays, no mapfile.
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${APP_CHECK_DIR:-$ROOT/target/app-check}"
@@ -410,6 +410,10 @@ idle_launch() {
     sleep_until_ms "$tick"
     t="$(now_ms)"
     [ $((t - tick)) -le 1000 ] || late=$((late + 1))
+    if [ "$(app_pid)" != "$pid" ]; then
+      echo "sample $i t=$((t - t0))ms $(iso): the app process $pid is gone (it exited or was closed during the run)" >>"$slog"
+      fail "launch $n, sample $i: the app process $pid ended during the idle period (not a socket violation; nothing was written as a pass)"
+    fi
     pids="$(all_pids "$pid")"
     raw="$(lsof_raw "$pids")"
     {
@@ -443,7 +447,7 @@ idle_launch() {
   t0="$(now_ms)"
   for i in $(seq 1 "$RSS_SAMPLES"); do
     sleep_until_ms $((t0 + (i - 1) * 1000))
-    echo "t=$(($(now_ms) - t0))ms $(iso) pid=$pid rss_kb=$(ps -o rss= -p "$pid" | tr -d ' ')" >>"$rlog"
+    echo "t=$(($(now_ms) - t0))ms $(iso) pid=$pid rss_kb=$(ps -o rss= -p "$pid" | tr -d ' ' || true)" >>"$rlog"
   done
   assert_rss_file "$rlog" || {
     stop_app
