@@ -6,19 +6,19 @@ import { renderApp } from "../shared/testing/renderApp";
 describe("settings sheet focus", () => {
   it("marks the page behind it inert while open, and clears that on close", async () => {
     const { user } = renderApp();
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    const main = screen.getByRole("main");
-    expect(nav.hasAttribute("inert")).toBe(false);
+    const side = screen.getByRole("navigation", { name: "Main" }).closest("aside") as HTMLElement;
+    const page = screen.getByRole("main").parentElement as HTMLElement;
+    expect(side.hasAttribute("inert")).toBe(false);
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
     const dialog = await screen.findByRole("dialog", { name: "Settings" });
-    expect(nav.hasAttribute("inert")).toBe(true);
-    expect(main.hasAttribute("inert")).toBe(true);
+    expect(side.hasAttribute("inert")).toBe(true);
+    expect(page.hasAttribute("inert")).toBe(true);
     expect(dialog.closest("[inert]")).toBeNull();
 
     await user.click(within(dialog).getByRole("button", { name: "Close settings" }));
-    expect(nav.hasAttribute("inert")).toBe(false);
-    expect(main.hasAttribute("inert")).toBe(false);
+    expect(side.hasAttribute("inert")).toBe(false);
+    expect(page.hasAttribute("inert")).toBe(false);
   });
 
   it("Tab wraps inside the sheet and never reaches the page behind", async () => {

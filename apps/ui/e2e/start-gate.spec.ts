@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/** The Start button of the Live screen. The top bar has a Start button with the same name. */
+const liveStart = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: "Start meeting" });
+
 /** Fill the "Before you start" panel so every per-meeting check passes, then confirm. */
 async function confirmPanel(page: Page) {
   const panel = page.getByRole("region", { name: "Before you start" });
@@ -16,7 +20,7 @@ test("a missing model blocks Start until it is downloaded, then the meeting runs
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Live meeting" }).click();
-  await page.getByRole("button", { name: "Start meeting" }).click();
+  await liveStart(page).click();
   await confirmPanel(page);
 
   await expect(page.getByText("Finish setup first. Not turned on yet: Models.")).toBeVisible();
@@ -31,7 +35,7 @@ test("a missing model blocks Start until it is downloaded, then the meeting runs
   await expect(page.getByText("Setup is complete.")).toBeVisible();
 
   await page.getByRole("button", { name: "Live meeting" }).click();
-  await page.getByRole("button", { name: "Start meeting" }).click();
+  await liveStart(page).click();
   await confirmPanel(page);
   await expect(page.getByText("Meeting running.")).toBeVisible();
 
@@ -41,7 +45,7 @@ test("a missing model blocks Start until it is downloaded, then the meeting runs
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Stop meeting" }).click();
-  await expect(page.getByRole("button", { name: "Start meeting" })).toBeVisible();
+  await expect(liveStart(page)).toBeVisible();
 
   await page.getByRole("button", { name: "Meetings" }).click();
   await expect(
@@ -63,7 +67,7 @@ test("Start refuses until the per-meeting checks are done, and keeps the panel o
   await sheet.getByRole("button", { name: "Close settings" }).click();
 
   await page.getByRole("button", { name: "Live meeting" }).click();
-  await page.getByRole("button", { name: "Start meeting" }).click();
+  await liveStart(page).click();
   const panel = page.getByRole("region", { name: "Before you start" });
   await panel.getByRole("button", { name: "Start now" }).click();
 

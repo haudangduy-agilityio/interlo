@@ -1,57 +1,29 @@
-import { useEffect, useState } from "react";
 import { useAppState } from "../../app/AppState";
 import { useClient } from "../../ipc/ClientProvider";
-import { useSession } from "../../ipc/SessionProvider";
-import type { MeetingMode } from "../../ipc/types";
+import { useClock } from "../../shared/clock";
 import { useAsync } from "../../shared/useAsync";
-import { StartPanel, toStartArgs, useStartForm } from "../start";
+import { useStart } from "../start";
 import { HomeView } from "./HomeView";
 
 export function HomeScreen() {
   const client = useClient();
+  const clock = useClock();
   const { dispatch } = useAppState();
-  const { session, start, clearStartFailure } = useSession();
-  const setup = useAsync(() => client.checkSetup(), [client]);
+  const { requestStart } = useStart();
   const meetings = useAsync(() => client.listMeetings(), [client]);
-  const startForm = useStartForm();
-  const [mode, setMode] = useState<MeetingMode>("both");
-
-  // A failed start belongs to this visit. Leaving the screen forgets it.
-  useEffect(() => clearStartFailure, [clearStartFailure]);
-
-  const confirmStart = async () => {
-    const outcome = await start(toStartArgs(mode, startForm.form));
-    if (outcome.kind === "started") dispatch({ type: "navigate", screen: "live" });
-  };
+  const notes = useAsync(() => client.listNotes(), [client]);
 
   return (
     <HomeView
-      setup={setup.state}
+      nowMs={clock.now()}
       meetings={meetings.state}
-      onRetrySetup={setup.reload}
+      notes={notes.state}
       onRetryMeetings={meetings.reload}
-      onStartMeeting={startForm.begin}
-      onGoToLive={() => dispatch({ type: "navigate", screen: "live" })}
-      startPanel={
-        startForm.open ? (
-          <StartPanel
-            form={startForm.form}
-            onChange={startForm.change}
-            failure={session.startFailure}
-            busy={session.status === "starting"}
-            mode={mode}
-            onModeChange={setMode}
-            onConfirm={() => void confirmStart()}
-            onCancel={() => {
-              clearStartFailure();
-              startForm.close();
-            }}
-          />
-        ) : null
-      }
-      onOpenSetup={() => dispatch({ type: "navigate", screen: "setup" })}
+      onRetryNotes={notes.reload}
+      onStartMeeting={() => void requestStart()}
       onOpenMeeting={(meetingId) => dispatch({ type: "openMeeting", meetingId })}
       onSeeAllMeetings={() => dispatch({ type: "navigate", screen: "meetings" })}
+      onOpenWorkspace={() => dispatch({ type: "navigate", screen: "workspace" })}
     />
   );
 }

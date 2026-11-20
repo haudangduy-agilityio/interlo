@@ -15,13 +15,22 @@ const PANEL = "Before you start";
 const HEADPHONES = "I use headphones";
 const MEETING_MIC = "My meeting app microphone is set to Interlo";
 
+/** The Start button of the Live screen itself. The top bar has one with the same name. */
+const liveStart = () =>
+  within(screen.getByRole("main")).findByRole("button", { name: "Start meeting" });
+/** The Start button of the top bar. */
+const topBarStart = () =>
+  within(screen.getByRole("toolbar", { name: "Meeting controls" })).findByRole("button", {
+    name: "Start meeting",
+  });
+
 function startCalls(invoke: { mock: { calls: unknown[][] } }) {
   return invoke.mock.calls.filter(([cmd]) => cmd === "start_meeting").map(([, args]) => args);
 }
 
 async function openPanelOnLive(options: RenderAppOptions = {}) {
   const app = renderApp({ screen: "live", ...options });
-  await app.user.click(await screen.findByRole("button", { name: "Start meeting" }));
+  await app.user.click(await liveStart());
   const panel = await screen.findByRole("region", { name: PANEL });
   return { ...app, panel };
 }
@@ -84,7 +93,7 @@ describe("Before you start panel on Live", () => {
 
     await user.click(within(panel).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("region", { name: PANEL })).toBeNull();
-    expect(screen.getByRole("button", { name: "Start meeting" })).toBeTruthy();
+    expect(await liveStart()).toBeTruthy();
   });
 
   it("START_CHECK_FAILED shows the failed checks as fix steps and keeps the panel and choices", async () => {
@@ -139,13 +148,13 @@ describe("Before you start panel on Live", () => {
   });
 });
 
-describe("Before you start panel on Home", () => {
-  it("opens from Home with its own mode choice, and a started meeting opens Live", async () => {
+describe("Before you start dialog from Home and the top bar", () => {
+  it("opens from the top bar with its own mode choice, and a started meeting opens Live", async () => {
     const { user, transport } = renderApp({ screen: "home", ...ready() });
     const invoke = vi.spyOn(transport, "invoke");
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await topBarStart());
 
-    const panel = await screen.findByRole("region", { name: PANEL });
+    const panel = await screen.findByRole("dialog", { name: PANEL });
     await user.selectOptions(within(panel).getByRole("combobox", { name: "Mode" }), "speak");
     await user.selectOptions(
       within(panel).getByRole("combobox", { name: "Meeting app" }),
@@ -165,22 +174,44 @@ describe("Before you start panel on Home", () => {
     ]);
   });
 
-  it("shows START_CHECK_FAILED inside the panel on Home and stays on Home", async () => {
+  it("opens from Today's meetings with the same dialog", async () => {
     const { user } = renderApp({ screen: "home", ...ready() });
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
-    const panel = await screen.findByRole("region", { name: PANEL });
-    await user.click(within(panel).getByRole("button", { name: "Start now" }));
-
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getAllByRole("listitem")).toHaveLength(3);
-    expect(screen.getByRole("heading", { name: "Home" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: PANEL })).toBeTruthy();
+    const card = await screen.findByRole("region", { name: "Today's meetings" });
+    await user.click(within(card).getByRole("button", { name: "Start meeting" }));
+    expect(await screen.findByRole("dialog", { name: PANEL })).toBeTruthy();
   });
 
-  it("has no Start button while setup is not ready", async () => {
-    renderApp({ screen: "home" });
-    await screen.findByRole("button", { name: "Open Setup" });
-    expect(screen.queryByRole("button", { name: "Start meeting" })).toBeNull();
+  it("shows START_CHECK_FAILED inside the dialog and stays on Home", async () => {
+    const { user } = renderApp({ screen: "home", ...ready() });
+    await user.click(await topBarStart());
+    const panel = await screen.findByRole("dialog", { name: PANEL });
+    await user.click(within(panel).getByRole("button", { name: "Start now" }));
+
+    const alert = await within(panel).findByRole("alert");
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByRole("heading", { name: "Today", level: 1 })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: PANEL })).toBeTruthy();
+  });
+
+  it("forgets a refused start when the dialog is cancelled", async () => {
+    const { user } = renderApp({ screen: "home", ...ready() });
+    await user.click(await topBarStart());
+    const panel = await screen.findByRole("dialog", { name: PANEL });
+    await user.click(within(panel).getByRole("button", { name: "Start now" }));
+    await within(panel).findByRole("alert");
+    await user.click(within(panel).getByRole("button", { name: "Cancel" }));
+
+    await user.click(await topBarStart());
+    const again = await screen.findByRole("dialog", { name: PANEL });
+    expect(within(again).queryByRole("alert")).toBeNull();
+  });
+
+  it("opens Setup with a toast instead of a dialog while setup is not ready", async () => {
+    const { user } = renderApp({ screen: "home" });
+    await screen.findByText("Some setup items are missing.");
+    await user.click(await topBarStart());
+    expect(await screen.findByRole("heading", { name: "Setup", level: 1 })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: PANEL })).toBeNull();
   });
 });
 
@@ -191,7 +222,7 @@ describe("10-minute reminder on Live", () => {
   async function runMeeting() {
     const clock = createManualClock(Date.UTC(2026, 10, 17, 9, 0, 0));
     const app = renderApp({ screen: "live", clock, ...ready() });
-    await app.user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await app.user.click(await liveStart());
     const panel = await screen.findByRole("region", { name: PANEL });
     await app.user.selectOptions(
       within(panel).getByRole("combobox", { name: "Meeting app" }),
@@ -235,7 +266,7 @@ describe("10-minute reminder on Live", () => {
     expect(screen.getByText(REMINDER)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Stop meeting" }));
-    await screen.findByRole("button", { name: "Start meeting" });
+    await liveStart();
     expect(screen.queryByText(REMINDER)).toBeNull();
   });
 });

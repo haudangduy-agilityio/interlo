@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { acceptLicenceAndDownload, confirmStartPanel } from "../shared/testing/flows";
+import {
+  acceptLicenceAndDownload,
+  confirmStartPanel,
+  liveStartButton,
+} from "../shared/testing/flows";
 import { renderApp } from "../shared/testing/renderApp";
 
 const NOT_BUILT = { code: "NOT_IMPLEMENTED", message: "Model download is not built yet." } as const;
@@ -101,7 +105,7 @@ describe("failures stay on the page", () => {
 describe("Live start banner", () => {
   it("clears the setup message once setup is ready and the user comes back", async () => {
     const { user } = renderApp({ screen: "live" });
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await liveStartButton());
     await confirmStartPanel(user);
     expect(await screen.findByText(/^Finish setup first/)).toBeTruthy();
 
@@ -111,25 +115,25 @@ describe("Live start banner", () => {
     expect(await screen.findByText("Setup is complete.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Live meeting" }));
 
-    await screen.findByRole("button", { name: "Start meeting" });
+    await liveStartButton();
     expect(screen.queryByText(/^Finish setup first/)).toBeNull();
   });
 
   it("clears the setup message when the user leaves the screen and returns", async () => {
     const { user } = renderApp({ screen: "live" });
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await liveStartButton());
     await confirmStartPanel(user);
     expect(await screen.findByText(/^Finish setup first/)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Home" }));
+    await user.click(screen.getByRole("button", { name: "Today" }));
     await user.click(screen.getByRole("button", { name: "Live meeting" }));
-    await screen.findByRole("button", { name: "Start meeting" });
+    await liveStartButton();
     expect(screen.queryByText(/^Finish setup first/)).toBeNull();
   });
 
   it("clears the setup message when a model is downloaded in Settings and the sheet closes", async () => {
     const { user } = renderApp({ screen: "live" });
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await liveStartButton());
     await confirmStartPanel(user);
     expect(await screen.findByText(/^Finish setup first/)).toBeTruthy();
 
@@ -140,7 +144,7 @@ describe("Live start banner", () => {
     await acceptLicenceAndDownload(user);
     await user.click(within(dialog).getByRole("button", { name: "Close settings" }));
 
-    await screen.findByRole("button", { name: "Start meeting" });
+    await liveStartButton();
     await waitFor(() => expect(screen.queryByText(/^Finish setup first/)).toBeNull());
   });
 });
