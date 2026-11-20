@@ -77,7 +77,6 @@ export function SidebarView(props: SidebarViewProps) {
         Interlo
       </div>
       <button type="button" className="sb__search" {...search.attrs}>
-        <Icon name="search" size={15} />
         <span>{t("shell.search")}</span>
         <KeyCap size="sm">⌘K</KeyCap>
       </button>

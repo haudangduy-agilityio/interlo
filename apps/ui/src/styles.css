@@ -39,6 +39,9 @@ button {
   outline: 2px solid var(--acc);
   outline-offset: 2px;
 }
+a {
+  color: var(--acc);
+}
 .muted {
   color: var(--mute);
 }
@@ -359,8 +362,7 @@ button {
 }
 .page__head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: 12px;
   flex-wrap: wrap;
 }
