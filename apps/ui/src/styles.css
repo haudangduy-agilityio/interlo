@@ -283,6 +283,9 @@ a {
   border-top: 1px solid var(--line);
   margin: 4px 0;
 }
+/* Below 760 px the sidebar becomes a wrapping header: brand and search on the first row, the
+   navigation on the next, then the Local-only card and Settings. Nothing scrolls sideways and
+   Settings stays reachable. */
 @media (max-width: 760px) {
   .app {
     grid-template-columns: 1fr;
@@ -292,15 +295,44 @@ a {
   }
   .sb {
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
+  .sb__search {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+  .sb__search span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .nav {
+    flex: 1 1 100%;
     flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .nav__item {
+    white-space: nowrap;
   }
   .sb__foot {
-    display: none;
+    flex: 1 1 100%;
+    margin-top: 0;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .top {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+  .view {
+    padding: 14px 14px 32px;
   }
 }
 

@@ -33,3 +33,38 @@ for (const size of [
     }
   });
 }
+
+// Real-window finding (M1-51, part B): below 760 px the sidebar became a row that clipped its
+// entries, hid Settings, and the top bar ran out of the window. At every width below 960 px
+// nothing may scroll sideways, every control must be inside the window, and Settings must stay
+// reachable.
+for (const width of [900, 760, 480, 360]) {
+  test(`the shell has no clipped or hidden control at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Today", level: 1 })).toBeVisible();
+
+    const page_ = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      sidebarOverflow: (() => {
+        const sb = document.querySelector<HTMLElement>(".sb");
+        return sb ? sb.scrollWidth - sb.clientWidth : -1;
+      })(),
+      outside: [
+        ...document.querySelectorAll<HTMLElement>(
+          ".sb button, .sb a, [role=toolbar] button, [role=toolbar] a",
+        ),
+      ]
+        .filter((el) => el.getBoundingClientRect().width > 0)
+        .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 0.5)
+        .map((el) => el.textContent?.trim() || el.getAttribute("aria-label") || el.tagName),
+    }));
+    expect(page_.overflow, "page scrolls sideways").toBeLessThanOrEqual(0);
+    expect(page_.sidebarOverflow, "sidebar scrolls sideways").toBeLessThanOrEqual(0);
+    expect(page_.outside, "controls outside the window").toEqual([]);
+    await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Setup" }),
+    ).toBeVisible();
+  });
+}
