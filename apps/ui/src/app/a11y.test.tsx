@@ -40,6 +40,12 @@ describe("shell accessibility (AC-27)", () => {
     }
   });
 
+  it("takes over the look of a select, so WebKit honours its padding", () => {
+    const rule = /\.field select \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("appearance: none");
+    expect(rule).toContain("padding-right");
+  });
+
   it("draws the focus ring as a solid 2 px accent ring with a 2 px offset", () => {
     const rule = /:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(rule.replace(/\s+/g, " ")).toContain("outline: 2px solid var(--acc)");

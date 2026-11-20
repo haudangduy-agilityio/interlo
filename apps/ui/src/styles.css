@@ -465,6 +465,21 @@ a {
   min-width: 0;
   font-weight: 400;
 }
+/* WebKit draws a select with the system look and ignores the padding. Take the look over, and
+   draw the chevron with two token-coloured gradients. */
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--mute) 50%),
+    linear-gradient(135deg, var(--mute) 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
 .list {
   list-style: none;
   margin: 0;
