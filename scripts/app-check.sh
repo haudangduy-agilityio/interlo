@@ -9,6 +9,9 @@
 #   scripts/app-check.sh bundle          build the .app, sign it, verify the signature
 #   scripts/app-check.sh window          title, size and first frame within 60 s
 #   scripts/app-check.sh idle            three launches: sockets for 60 s, memory samples
+#   scripts/app-check.sh telex           types a sentence into the note field through the built-in Vietnamese (Telex)
+#                                        input source with synthetic key events (changes the input source and the clipboard
+#                                        for about a minute and needs the window in front)
 #   scripts/app-check.sh controls        negative controls: each check must be able to fail
 #   scripts/app-check.sh evidence        SUMMARY.md and SHA256SUMS
 #   scripts/app-check.sh override-guard  refuses an environment that overrides the release profile
@@ -21,7 +24,7 @@
 # Exit codes: 0 pass, 1 fail, 3 BLOCKED (a tool, a permission or an identity is
 # missing; the environment does not provide it). A blocked step is never a pass.
 # Written for bash 3.2 (the macOS default): no associative arrays, no mapfile.
-set -Eeuo pipefail
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${APP_CHECK_DIR:-$ROOT/target/app-check}"
@@ -31,6 +34,15 @@ BIN="$APP/Contents/MacOS/interlo-desktop"
 IDENTITY="${APP_CHECK_IDENTITY:-Interlo Local Signing}"
 HELPER_SRC="$ROOT/scripts/app-check/window-info.swift"
 HELPER="$OUT/window-info"
+INPUT_SOURCE="$OUT/input-source"
+DRIVE="$OUT/app-drive"
+TELEX_SOURCE="com.apple.inputmethod.VietnameseIM.VietnameseTelex"
+SENTENCE="Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé."
+# The Telex spelling of the sentence, and the same keys with one wrong tone key (s, not f, after "minh").
+TELEX_KEYS="Hoom nay minhf ranhr, cungx gawpj nhau owr quans banj nhes."
+TELEX_KEYS_WRONG_TONE="Hoom nay minhs ranhr, cungx gawpj nhau owr quans banj nhes."
+KEY_DELAY_MS=120
+TYPING_ATTEMPTS=5
 TAURI_MANIFEST="apps/desktop/src-tauri/Cargo.toml"
 SELF="$ROOT/scripts/app-check.sh"
 
@@ -145,13 +157,30 @@ assert_rss_file() { # file
   return 0
 }
 
+# Compares two UTF-8 files after Unicode normalisation to NFC. Prints a diff of the
+# normalised texts when they differ and returns 1; prints nothing and returns 0 when equal.
+nfc_diff() { # file_a file_b
+  local a b rc=0
+  a="$(mktemp "${TMPDIR:-/tmp}/nfc-aXXXXXX")"
+  b="$(mktemp "${TMPDIR:-/tmp}/nfc-bXXXXXX")"
+  python3 -I -c 'import sys, unicodedata
+data = open(sys.argv[1], encoding="utf-8").read()
+open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFC", data))' "$1" "$a"
+  python3 -I -c 'import sys, unicodedata
+data = open(sys.argv[1], encoding="utf-8").read()
+open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFC", data))' "$2" "$b"
+  diff "$a" "$b" || rc=$?
+  rm -f "$a" "$b"
+  return "$rc"
+}
+
 rss_values() { sed -n 's/.*rss_kb=\([0-9][0-9]*\)$/\1/p' "$1"; }
 
 # ------------------------------------------------------------------ process helpers
 
 # Pid of the process whose command is exactly the app binary.
 app_pid() {
-  ps -axo pid=,command= | awk -v b="$BIN" '{ pid = $1; $1 = ""; sub(/^ /, ""); if ($0 == b) { print pid; exit } }'
+  ps -axo pid=,command= | awk -v b="$BIN" '{ pid = $1; $1 = ""; sub(/^ /, ""); if ($0 == b) print pid }' | sed -n 1p
 }
 
 stop_app() {
@@ -241,6 +270,10 @@ step_prereq() {
   find "$EVID" -type f -delete
   mkdir -p "$EVID/shots"
   swiftc -O -o "$HELPER" "$HELPER_SRC" || blocked "the window helper did not compile (is the Xcode command line tools install complete?)"
+  swiftc -O -o "$INPUT_SOURCE" "$ROOT/scripts/app-check/input-source.swift" || blocked "the input source tool did not compile"
+  swiftc -O -o "$DRIVE" "$ROOT/scripts/app-check/app-drive.swift" || blocked "the app driver did not compile"
+  "$DRIVE" trusted >/dev/null || blocked "Accessibility is not granted to the app that runs this script (AXIsProcessTrusted() is false)"
+  "$INPUT_SOURCE" list | grep -q "^$TELEX_SOURCE" || blocked "the input source $TELEX_SOURCE is not enabled (System Settings, Keyboard, Input Sources)"
   # A denied Screen Recording permission makes screencapture fail and hides window titles.
   screencapture -x -R 0,0,16,16 "$OUT/probe.png" 2>/dev/null ||
     blocked "screencapture failed: grant Screen Recording to the app that runs this script (System Settings, Privacy and Security)"
@@ -482,6 +515,181 @@ step_idle() {
   cat "$EVID/03-limits.txt"
 }
 
+# -------------------------------------------------------------- Telex typing
+
+# Presses the named element, waiting up to 15 s for the page to show it.
+press_when_ready() { # pid text
+  local i rc=1
+  for i in $(seq 1 30); do
+    rc=0
+    "$DRIVE" press "$1" "$2" || rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    sleep 0.5
+  done
+  return "$rc"
+}
+
+# Types KEYS into the note field with synthetic key events, retrying when another
+# app takes the front during the typing (exit 4 of app-drive: nothing was sent to
+# the wrong app). Returns 0 when the keys were typed, 3 when the app could not be
+# held in front.
+type_into_field() { # pid keys log
+  local pid="$1" keys="$2" log="$3" attempt rc
+  for attempt in $(seq 1 "$TYPING_ATTEMPTS"); do
+    rc=0
+    {
+      echo "attempt $attempt ($(iso))"
+      "$DRIVE" raise "$pid" bounce &&
+        press_when_ready "$pid" Workspace && sleep 0.5 &&
+        press_when_ready "$pid" Notes && sleep 0.5 &&
+        "$DRIVE" focus-text "$pid" &&
+        "$DRIVE" chord "$pid" select-all &&
+        "$DRIVE" chord "$pid" delete &&
+        "$DRIVE" keys "$pid" "$KEY_DELAY_MS" "$keys"
+    } >>"$log" 2>&1 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      sleep 0.7
+      echo "  field after typing (read with the Accessibility API): [$("$DRIVE" read-text "$pid")]" >>"$log"
+      return 0
+    fi
+    echo "  attempt $attempt stopped with exit $rc (4 means another app was in front; nothing was sent to it)" >>"$log"
+    [ "$rc" -eq 4 ] || return 1
+    sleep 1
+  done
+  return 3
+}
+
+# Copies the field with Cmd+A, Cmd+C into the given file. The clipboard holds a
+# marker first, so a copy that did not happen shows the marker, not an old text.
+copy_field() { # pid out_file log
+  local pid="$1" outfile="$2" log="$3" attempt rc
+  export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+  for attempt in $(seq 1 "$TYPING_ATTEMPTS"); do
+    printf '%s' "app-check-clipboard-marker" | pbcopy
+    rc=0
+    { "$DRIVE" raise "$pid" && "$DRIVE" chord "$pid" select-all && "$DRIVE" chord "$pid" copy; } >>"$log" 2>&1 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      pbpaste >"$outfile"
+      return 0
+    fi
+    [ "$rc" -eq 4 ] || return 1
+    sleep 1
+  done
+  return 3
+}
+
+step_telex() {
+  export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+  local log="$EVID/07-telex-typing.log" pid orig_source saved_clip="$OUT/clipboard.saved" rc info id shot
+  local field="$EVID/07-field.txt" sentence="$EVID/07-sentence.txt" wrong="$EVID/07-field-wrong-tone.txt" outp
+  echo "NOTICE: the next step changes your input source and your clipboard for about a minute, brings the Interlo window to the front and types with synthetic key events. Do not use the keyboard or the mouse until it ends."
+  pid="$(launch_app)"
+  orig_source="$("$INPUT_SOURCE" current)"
+  pbpaste >"$saved_clip" || true
+  restore_state() {
+    "$INPUT_SOURCE" select "$orig_source" >/dev/null 2>&1 || true
+    pbcopy <"$saved_clip" || true
+    stop_app
+  }
+  trap restore_state EXIT INT TERM
+  {
+    echo "# Typing check (AC-9, AC-10): the sentence is typed with synthetic key events through the built-in Vietnamese (Telex) input source ($(iso))"
+    echo "# Nothing is set into the field directly: the keys below go through the system input method into the web view."
+    echo "app pid: $pid; input source before: $orig_source; clipboard saved: $(wc -c <"$saved_clip" | tr -d ' ') bytes (text only, not written here)"
+    echo "sentence: $SENTENCE"
+    echo "keys sent (key delay ${KEY_DELAY_MS} ms): $TELEX_KEYS"
+  } >"$log"
+  # Wait for the window before anything is sent.
+  local i
+  for i in $(seq 1 600); do
+    info="$("$HELPER" "$pid" | sed -n 1p)"
+    [ -z "$info" ] || break
+    sleep 0.1
+  done
+  [ -n "$info" ] || fail "the app showed no window"
+  id="$(echo "$info" | cut -f1)"
+  sleep 2
+  "$INPUT_SOURCE" select "$TELEX_SOURCE" >>"$log" 2>&1 || blocked "the input source $TELEX_SOURCE could not be selected"
+  echo "input source selected: $("$INPUT_SOURCE" current)" >>"$log"
+
+  # 1. The sentence.
+  rc=0
+  type_into_field "$pid" "$TELEX_KEYS" "$log" || rc=$?
+  [ "$rc" -ne 3 ] || blocked "another app kept the front during $TYPING_ATTEMPTS attempts; nothing was sent to it (see 07-telex-typing.log)"
+  [ "$rc" -eq 0 ] || fail "typing stopped (see 07-telex-typing.log)"
+  shot="$EVID/shots/telex-typed-win${id}-epoch$(date +%s).png"
+  screencapture -x -o -l "$id" "$shot" || true
+  rc=0
+  copy_field "$pid" "$field" "$log" || rc=$?
+  [ "$rc" -ne 3 ] || blocked "another app kept the front during the copy"
+  [ "$rc" -eq 0 ] || fail "the copy failed (see 07-telex-typing.log)"
+  printf '%s' "$SENTENCE" >"$sentence"
+  {
+    echo "\$ pbpaste > 07-field.txt"
+    echo "field.txt:    $(xxd -p "$field" | tr -d '\n' | cut -c1-200)"
+    echo "sentence.txt: $(xxd -p "$sentence" | tr -d '\n' | cut -c1-200)"
+    echo "\$ diff 07-field.txt 07-sentence.txt"
+  } >>"$log"
+  rc=0
+  outp="$(diff "$field" "$sentence")" || rc=$?
+  echo "$outp" >>"$log"
+  echo "raw diff exit: $rc" >>"$log"
+  echo "\$ diff (both files normalised to NFC with python unicodedata)" >>"$log"
+  rc=0
+  outp="$(nfc_diff "$field" "$sentence")" || rc=$?
+  echo "$outp" >>"$log"
+  echo "NFC diff exit: $rc" >>"$log"
+  if [ "$rc" -ne 0 ]; then
+    echo "RESULT: NO (AC-10): the field text differs from the sentence; see the diff above" >>"$log"
+    grep -E '^(field after typing|RESULT)' "$log"
+    fail "AC-9: the text copied from the field is not the sentence (AC-10: result NO)"
+  fi
+  echo "RESULT: PASS (AC-9): the text copied from the note field equals the sentence, the diff printed nothing" >>"$log"
+
+  # 2. The negative control: one wrong tone key must make the diff report the difference.
+  {
+    echo
+    echo "# Negative control: the same keys with one wrong tone key (s after minh, not f)"
+    echo "keys sent: $TELEX_KEYS_WRONG_TONE"
+  } >>"$log"
+  rc=0
+  type_into_field "$pid" "$TELEX_KEYS_WRONG_TONE" "$log" || rc=$?
+  [ "$rc" -ne 3 ] || blocked "another app kept the front during the negative control"
+  [ "$rc" -eq 0 ] || fail "typing the negative control stopped (see 07-telex-typing.log)"
+  rc=0
+  copy_field "$pid" "$wrong" "$log" || rc=$?
+  [ "$rc" -eq 0 ] || fail "the copy of the negative control failed"
+  rc=0
+  outp="$(nfc_diff "$wrong" "$sentence")" || rc=$?
+  {
+    echo "\$ diff (NFC) 07-field-wrong-tone.txt 07-sentence.txt"
+    echo "$outp"
+    echo "NFC diff exit: $rc"
+  } >>"$log"
+  if [ "$rc" -eq 0 ]; then
+    echo "RESULT: the negative control was NOT detected: the diff printed nothing for a wrong tone" >>"$log"
+    fail "the negative control (a wrong tone key) was not detected"
+  fi
+  echo "RESULT: the negative control was detected: the diff reports the wrong tone (exit $rc)" >>"$log"
+
+  # 3. Put the input source and the clipboard back, then check that they are back.
+  restore_state
+  trap - EXIT INT TERM
+  {
+    echo
+    echo "# Restore"
+    echo "input source after: $("$INPUT_SOURCE" current) (before: $orig_source)"
+    if [ "$("$INPUT_SOURCE" current)" = "$orig_source" ] && [ "$(pbpaste | shasum -a 256 | cut -d' ' -f1)" = "$(shasum -a 256 <"$saved_clip" | cut -d' ' -f1)" ]; then
+      echo "RESULT: the input source and the clipboard text are back as before"
+    else
+      echo "RESULT: WRONG: the input source or the clipboard was not restored"
+    fi
+  } >>"$log"
+  grep -E '^(field after typing|raw diff|NFC diff|RESULT|  field after)' "$log"
+  grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored"
+  echo "typing check: PASS; the screenshot of the typed field is in ${EVID#"$ROOT"/}/shots/"
+}
+
 # ------------------------------------------------------------ negative controls
 
 # control <name> <expected: refuse|accept> <exit code> <output>: records and checks one control.
@@ -667,7 +875,7 @@ step_evidence() {
     echo
     echo "## Quoted result lines"
     echo
-    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt; do
+    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
       echo "- \`$f\`:"
       grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true
     done
@@ -697,10 +905,11 @@ main() {
     bundle) step_bundle ;;
     window) step_window ;;
     idle) step_idle ;;
+    telex) step_telex ;;
     controls) step_controls ;;
     evidence) step_evidence ;;
     *)
-      echo "usage: scripts/app-check.sh prereq|build-proof|bundle|window|idle|controls|evidence|override-guard" >&2
+      echo "usage: scripts/app-check.sh prereq|build-proof|bundle|window|idle|telex|controls|evidence|override-guard" >&2
       exit 64
       ;;
   esac

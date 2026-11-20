@@ -93,6 +93,22 @@ expect_equal "memory readings are read back" "1 2 3 4 5" "$(rss_values "$RSS_DIR
 rm -f "$RSS_DIR/ok.txt" "$RSS_DIR/short.txt"
 rmdir "$RSS_DIR"
 
+# The typing check compares in Unicode form NFC.
+NFC_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-nfcXXXXXX")"
+printf '%s' "Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé." >"$NFC_DIR/sentence.txt"
+cp "$NFC_DIR/sentence.txt" "$NFC_DIR/same.txt"
+printf '%s' "Hôm nay mính rảnh, cũng gặp nhau ở quán bạn nhé." >"$NFC_DIR/wrong-tone.txt"
+python3 -I -c 'import sys, unicodedata
+text = open(sys.argv[1], encoding="utf-8").read()
+open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFD", text))' "$NFC_DIR/sentence.txt" "$NFC_DIR/decomposed.txt"
+expect_status "the same text" 0 "$(status_of nfc_diff "$NFC_DIR/same.txt" "$NFC_DIR/sentence.txt")"
+expect_status "the same text in decomposed form equals it in NFC" 0 "$(status_of nfc_diff "$NFC_DIR/decomposed.txt" "$NFC_DIR/sentence.txt")"
+expect_equal "the decomposed file is a different byte sequence" "differ" "$(cmp -s "$NFC_DIR/decomposed.txt" "$NFC_DIR/sentence.txt" && echo same || echo differ)"
+expect_status "a wrong tone" 1 "$(status_of nfc_diff "$NFC_DIR/wrong-tone.txt" "$NFC_DIR/sentence.txt")"
+expect_flagged "the diff names the wrong tone" "$(nfc_diff "$NFC_DIR/wrong-tone.txt" "$NFC_DIR/sentence.txt" || true)" 'mính'
+rm -f "$NFC_DIR"/*.txt
+rmdir "$NFC_DIR"
+
 if [ "$FAILURES" -ne 0 ]; then
   echo "$FAILURES failed"
   exit 1

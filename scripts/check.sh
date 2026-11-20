@@ -191,6 +191,7 @@ run_app() {
   run_step "app: bundle, sign, verify" cargo bash scripts/app-check.sh bundle
   run_step "app: window title, size, first frame" "" bash scripts/app-check.sh window
   run_step "app: sockets and memory, 3 idle launches" "" bash scripts/app-check.sh idle
+  run_step "app: Vietnamese Telex typing (changes your input source and clipboard)" "" bash scripts/app-check.sh telex
   run_step "app: negative controls" "" bash scripts/app-check.sh controls
   run_step "app: evidence summary and checksums" "" bash scripts/app-check.sh evidence
 }
