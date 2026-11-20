@@ -54,6 +54,7 @@ apps/
     src/shared/useFocusTrap.ts  Tab wrap for dialogs and the settings sheet
     src/shared/testing/    test helpers (renderApp.tsx); never imported by app code
     e2e/                   Playwright journeys (one file per journey)
+bench/<task-id>/           throwaway spike or measurement crate (M0b-05, M1-35); its own [workspace], not a member of the root workspace; merged with its note docs/m0/<task-id>.md
 assets/icon/               icon sources
 docs/                      reference files (routed from CLAUDE.md)
   adr/                     one file per architecture decision

@@ -169,6 +169,9 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | D-183 | X-23 scope. Decided 2026-11-19 (proposed the same day, confirmed by the owner). CI already runs cargo deny (advisories, licences, sources) and the UI audit (jobs `supply-rust` and `supply-npm` in `.gitlab-ci.yml`). X-23 keeps only: builds with the locked files on a clean checkout, and the new-dependency line with a licence registry diff in the merge request template. |
 | D-186 | Free-disk limit rule. Decided 2026-11-19 (proposed the same day, confirmed by the owner). The free-disk limit for Start is set after M2-22 (the 30-minute run) from the measured growth of journal and logs. Until then no number exists, and the disk budget item of X-22 stays open on purpose. |
 | D-187 | Code of conduct removed (owner request, 2026-11-19; the owner merged MR !7). `CODE_OF_CONDUCT.md` no longer exists. This supersedes the code-of-conduct part of D-57. PRD section 21 drops the line; the ADR 0014 index line follows. |
+| D-189 | Plan shift (owner, 2026-11-20). Day 1 passed with no code. Every date moves one working day later: day n takes the date that day n+1 had. One of the four spare days is used and the end of the window stays 20 Jan 2027. Task order, sizes and sprint numbers by day do not change. |
+| D-190 | Spike code and notes (owner, 2026-11-20). Spike and measurement code lives in `bench/<task-id>/`, one crate per task with its own `[workspace]`, and is merged with its note `docs/m0/<task-id>.md`. The note of M0b-05 is `docs/m0/M0b-05.md`. Product code never imports from `bench/`. |
+| D-191 | UI framework (owner, 2026-11-20). React stays. The Svelte comparison of Q57 is dropped for v1 because no task builds or measures a Svelte version. M0b-03 measures the React shell only. |
 
 Other rows that these decisions touch:
 
