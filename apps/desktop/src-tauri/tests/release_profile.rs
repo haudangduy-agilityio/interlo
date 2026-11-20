@@ -1,10 +1,10 @@
 //! The release profile of the root `Cargo.toml` keeps its agreed shape (M0b-02):
-//! thin LTO, one codegen unit, optimization level 3, symbols stripped, and
+//! thin LTO, one codegen unit, optimization level 3, a strip setting, and
 //! unwinding kept so a panic in one engine thread does not abort the app
 //! (D-135, FR-11). The file is read as text: the test adds no TOML crate.
 
-// Test helpers outside #[test] functions may unwrap and expect.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// Test helpers outside #[test] functions may expect.
+#![allow(clippy::expect_used)]
 
 use std::fs;
 use std::path::PathBuf;
@@ -38,8 +38,12 @@ fn profile_problems(manifest: &str) -> Vec<String> {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
     };
+    // Cargo accepts basic ("x") and literal ('x') TOML strings alike.
+    let is_string = |key: &str, want: &str| {
+        value(key).is_some_and(|v| v == format!("\"{want}\"") || v == format!("'{want}'"))
+    };
     let mut problems = Vec::new();
-    if value("lto") != Some("\"thin\"") {
+    if !is_string("lto", "thin") {
         problems.push("lto must be \"thin\"".to_string());
     }
     if value("codegen-units") != Some("1") {
@@ -51,7 +55,7 @@ fn profile_problems(manifest: &str) -> Vec<String> {
     if value("strip").is_none() {
         problems.push("a strip setting is required".to_string());
     }
-    if value("panic") == Some("\"abort\"") {
+    if is_string("panic", "abort") {
         problems.push("panic = \"abort\" is not allowed: unwinding stays".to_string());
     }
     problems
@@ -80,10 +84,20 @@ fn a_profile_with_panic_abort_is_refused() {
 }
 
 #[test]
+fn a_profile_with_a_literal_string_panic_abort_is_refused() {
+    let manifest = "[profile.release]\nlto = 'thin'\ncodegen-units = 1\nopt-level = 3\nstrip = true\npanic = 'abort'\n";
+    let problems = profile_problems(manifest);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("panic"));
+}
+
+#[test]
 fn a_profile_without_opt_level_and_strip_is_refused() {
     let manifest = "[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n";
     let problems = profile_problems(manifest);
     assert_eq!(problems.len(), 2, "{problems:?}");
+    assert!(problems.iter().any(|p| p.contains("opt-level")));
+    assert!(problems.iter().any(|p| p.contains("strip")));
 }
 
 #[test]
