@@ -25,13 +25,13 @@ function renderShell(initial?: Partial<AppState>) {
 describe("Shell", () => {
   it("has the five nav entries as buttons and a Settings button", () => {
     const html = renderShell();
-    for (const label of ["Home", "Live meeting", "Meetings", "Workspace", "Setup"]) {
-      expect(html).toContain(`>${label}</button>`);
+    for (const label of ["Today", "Live meeting", "Meetings", "Workspace", "Setup"]) {
+      expect(html).toContain(`${label}</button>`);
     }
-    expect(html).toContain(">Settings</button>");
+    expect(html).toContain("Settings</button>");
     expect(html).toContain('aria-current="page"');
     expect(NAV_ITEMS.map((n) => n.label)).toEqual([
-      "Home",
+      "Today",
       "Live meeting",
       "Meetings",
       "Workspace",
@@ -39,9 +39,9 @@ describe("Shell", () => {
     ]);
   });
 
-  it("starts on Home with its loading state", () => {
+  it("starts on Home (the Today view) with its loading state", () => {
     const html = renderShell();
-    expect(html).toContain("<h1>Home</h1>");
+    expect(html).toContain("<h1>Today</h1>");
     expect(html).toContain('role="status"');
   });
 

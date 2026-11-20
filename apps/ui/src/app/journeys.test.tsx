@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { acceptLicenceAndDownload, confirmStartPanel } from "../shared/testing/flows";
+import {
+  acceptLicenceAndDownload,
+  confirmStartPanel,
+  liveStartButton,
+} from "../shared/testing/flows";
 import { renderApp } from "../shared/testing/renderApp";
 
 const SETUP_MESSAGE = "Finish setup first. Not turned on yet: Models.";
@@ -10,7 +14,7 @@ describe("start gate", () => {
   it("shows the setup message and opens Setup when a model is missing", async () => {
     const { user } = renderApp({ screen: "live" });
 
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await liveStartButton());
     await confirmStartPanel(user);
     expect(await screen.findByText(SETUP_MESSAGE)).toBeTruthy();
     expect(screen.queryByText("Meeting running.")).toBeNull();
@@ -29,7 +33,7 @@ describe("start gate", () => {
     expect(screen.queryByRole("button", { name: /^Download/ })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Live meeting" }));
-    await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+    await user.click(await liveStartButton());
     await confirmStartPanel(user);
     // The shell, not the start command, reports the running state.
     await screen.findByText("Starting meeting…");
@@ -43,7 +47,7 @@ describe("start gate", () => {
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Stop meeting" }));
-    expect(await screen.findByRole("button", { name: "Start meeting" })).toBeTruthy();
+    expect(await liveStartButton()).toBeTruthy();
     expect(screen.queryByText(/^Paused\. Nothing/)).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Meetings" }));

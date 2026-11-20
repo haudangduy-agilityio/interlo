@@ -12,9 +12,17 @@ export async function confirmStartPanel(user: UserEvent): Promise<void> {
   await user.click(within(panel).getByRole("button", { name: "Start now" }));
 }
 
+/**
+ * The Start button of the Live screen itself. The top bar has a Start button with the same
+ * name, so the Live one is found inside the main area.
+ */
+export function liveStartButton(): Promise<HTMLElement> {
+  return within(screen.getByRole("main")).findByRole("button", { name: "Start meeting" });
+}
+
 /** Press Start on the Live screen, then confirm the panel. */
 export async function startMeetingFromLive(user: UserEvent): Promise<void> {
-  await user.click(await screen.findByRole("button", { name: "Start meeting" }));
+  await user.click(await liveStartButton());
   await confirmStartPanel(user);
 }
 

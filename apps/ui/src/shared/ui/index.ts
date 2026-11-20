@@ -16,3 +16,4 @@ export { Section } from "./Section";
 export { Segmented, type SegmentedOption } from "./Segmented";
 export { Tabs, type TabItem } from "./Tabs";
 export { Toast } from "./Toast";
+export { useUnavailable } from "./useUnavailable";

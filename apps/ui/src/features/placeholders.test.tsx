@@ -145,8 +145,9 @@ describe("brand and floating panels", () => {
   it("the sidebar brand reads Interlo", async () => {
     renderApp();
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    expect(within(nav).getByText("Interlo")).toBeTruthy();
-    expect(nav.textContent).not.toContain("Meeting Interpreter");
+    const side = nav.closest("aside") as HTMLElement;
+    expect(within(side).getByText("Interlo")).toBeTruthy();
+    expect(side.textContent).not.toContain("Meeting Interpreter");
   });
 
   it("a floating panel has a link back to the app", async () => {

@@ -1,9 +1,9 @@
-import { useId, type ButtonHTMLAttributes } from "react";
+import { useId, type ComponentPropsWithRef } from "react";
 import { useT } from "../i18n";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ComponentPropsWithRef<"button"> {
   variant?: ButtonVariant;
   /** `sm` is for a button inside a banner or a row. */
   size?: "sm";

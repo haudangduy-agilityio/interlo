@@ -1,4 +1,5 @@
 import { en, type MessageKey } from "../shared/messages.en";
+import type { IconName } from "../shared/ui";
 
 export const SCREEN_IDS = [
   "home",
@@ -16,20 +17,22 @@ export interface NavItem {
   labelKey: MessageKey;
   /** The English text of `labelKey`. */
   label: string;
+  icon: IconName;
 }
 
-const navItem = (id: NavItem["id"], labelKey: MessageKey): NavItem => ({
+const navItem = (id: NavItem["id"], labelKey: MessageKey, icon: IconName): NavItem => ({
   id,
   labelKey,
   label: en[labelKey],
+  icon,
 });
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  navItem("home", "nav.home"),
-  navItem("live", "nav.live"),
-  navItem("meetings", "nav.meetings"),
-  navItem("workspace", "nav.workspace"),
-  navItem("setup", "nav.setup"),
+  navItem("home", "nav.home", "home"),
+  navItem("live", "nav.live", "live"),
+  navItem("meetings", "nav.meetings", "doc"),
+  navItem("workspace", "nav.workspace", "folder"),
+  navItem("setup", "nav.setup", "setup"),
 ];
 
 /** The nav entry that stays highlighted while a screen is open. */
