@@ -38,13 +38,13 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | rubato | M1 audio tasks | Resampling with a proper filter |
 | ort | M1 engine tasks | ONNX Runtime in process (D-14 rule: final at the M0-19 memo) |
 | tokio | M1 coordinator tasks | Async tasks outside the audio callback |
-| tauri-cli | M0b-01 | `cargo tauri dev` and the signed local bundle for permission spikes; a build tool, not shipped. Not installed by default; install with the owner's approval |
+| tauri-cli | M0b-01 | `cargo tauri dev` and the signed local bundle for permission spikes; a build tool, not shipped. Installed on 2026-11-20 with the owner's approval, pinned to `^2.12` with `--locked`. Any other install or version change needs the owner's approval again |
 
 ## UI
 
 | Item | Value | Status |
 |---|---|---|
-| Framework | React 19, TypeScript, Vite | Rule set: React unless Svelte is at least 30% lighter in idle memory (M0b) |
+| Framework | React 19, TypeScript, Vite | React stays; the Svelte comparison is dropped for v1 (D-191) |
 | IPC | `@tauri-apps/api` package (`invoke`, `listen`); the `window.__TAURI__` global is off (withGlobalTauri false) | Changed from the global bridge after the skeleton review |
 
 ## UI packages (apps/ui/package.json, versions installed 2026-11-17)

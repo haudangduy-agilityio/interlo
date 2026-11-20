@@ -26,5 +26,5 @@ for what reaches the main branch.
 - Branch protection is a setting on the hosting site. It is not in the
   repository, so it needs an owner action (H-20).
 - Task X-12 covers the files and the DCO check.
-- Amended 2026-11-19: the owner removed the code of conduct file and its
-  references. This policy no longer includes a code of conduct.
+- Amended 2026-11-19 (D-187): the owner removed the code of conduct file and
+  its references. This policy no longer includes a code of conduct.
