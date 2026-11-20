@@ -46,6 +46,14 @@ export function HomeView(props: HomeViewProps) {
   const t = useT();
   const { language } = useLanguage();
   const locale = localeFor(language);
+  const todayNotes = notesOfToday(
+    props.notes.status === "done" ? props.notes.data : [],
+    props.nowMs,
+  );
+  const todayMeetings = meetingsOfToday(
+    props.meetings.status === "done" ? props.meetings.data : [],
+    props.nowMs,
+  );
   const date = new Date(props.nowMs).toLocaleDateString(locale, {
     weekday: "long",
     day: "numeric",
@@ -77,7 +85,7 @@ export function HomeView(props: HomeViewProps) {
             state={props.notes}
             onRetry={props.onRetryNotes}
             loadingLabel={t("workspace.loadingNotes")}
-            isEmpty={(all) => notesOfToday(all, props.nowMs).length === 0}
+            isEmpty={() => todayNotes.length === 0}
             empty={
               <EmptyState
                 title={t("home.notesEmptyTitle")}
@@ -85,9 +93,9 @@ export function HomeView(props: HomeViewProps) {
               />
             }
           >
-            {(all) => (
+            {() => (
               <div role="list" aria-label={t("home.todaysNotes")}>
-                {notesOfToday(all, props.nowMs).map((n) => (
+                {todayNotes.map((n) => (
                   <div key={n.id} role="listitem" className="rowi">
                     <div>
                       <div className="rowi__desc mono">{timeOfDay(n.createdAtMs, locale)}</div>
@@ -112,7 +120,7 @@ export function HomeView(props: HomeViewProps) {
             state={props.meetings}
             onRetry={props.onRetryMeetings}
             loadingLabel={t("meetings.loading")}
-            isEmpty={(all) => meetingsOfToday(all, props.nowMs).length === 0}
+            isEmpty={() => todayMeetings.length === 0}
             empty={
               <EmptyState
                 title={t("home.meetingsEmptyTitle")}
@@ -120,9 +128,9 @@ export function HomeView(props: HomeViewProps) {
               />
             }
           >
-            {(all) => (
+            {() => (
               <div role="list" aria-label={t("home.todaysMeetings")}>
-                {meetingsOfToday(all, props.nowMs).map((m) => (
+                {todayMeetings.map((m) => (
                   <div key={m.id} role="listitem" className="rowi">
                     <div>
                       <div className="rowi__title">{m.title}</div>

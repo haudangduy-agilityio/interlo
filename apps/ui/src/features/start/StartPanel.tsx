@@ -109,7 +109,7 @@ export function StartPanelBody({
   );
 }
 
-/** The per-meeting checks the owner confirms at every Start (D-44). Without hooks. */
+/** The per-meeting checks the owner confirms at every Start (D-44), as a card. */
 export function StartPanel(props: StartPanelProps) {
   const t = useT();
   return (

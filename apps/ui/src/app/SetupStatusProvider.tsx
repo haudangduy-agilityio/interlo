@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useClient } from "../ipc/ClientProvider";
+import { useSession } from "../ipc/SessionProvider";
 import { toUiError } from "../ipc/errors";
 import type { SetupStatus } from "../ipc/types";
 import type { Async } from "../shared/useAsync";
@@ -23,9 +24,14 @@ interface SetupStatusApi {
 
 const SetupStatusContext = createContext<SetupStatusApi | null>(null);
 
-/** One `checkSetup` load for everything in the shell that needs the readiness of the setup. */
+/**
+ * The shell's copy of the setup check, for the sidebar badge, the Local-only card and Start. It
+ * loads on mount and again when a model download finishes. The Setup screen and Live load the
+ * check for themselves and the Setup screen publishes its result here.
+ */
 export function SetupStatusProvider({ children }: { children: ReactNode }) {
   const client = useClient();
+  const { models } = useSession();
   const [state, setState] = useState<Async<SetupStatus>>({ status: "loading" });
 
   const refresh = useCallback(async () => {
@@ -54,7 +60,7 @@ export function SetupStatusProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, models.finished]);
 
   const publish = useCallback((data: SetupStatus) => setState({ status: "done", data }), []);
   const value = useMemo(() => ({ state, refresh, publish }), [state, refresh, publish]);

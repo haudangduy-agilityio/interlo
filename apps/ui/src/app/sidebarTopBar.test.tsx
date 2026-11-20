@@ -274,3 +274,26 @@ describe("Setup badge follows the Setup screen (AC-13)", () => {
     expect(setup().querySelector(".chip")).toBeNull();
   });
 });
+
+describe("Setup badge after a download in Settings (AC-13)", () => {
+  it("drops the badge when a model download finishes while another screen is open", async () => {
+    const { user, emit } = renderApp();
+    const setup = () => within(mainNav()).getByRole("button", { name: "Setup" });
+    await screen.findByText("Some setup items are missing.");
+    expect(setup().querySelector(".chip")).toBeTruthy();
+
+    await user.click(within(sidebar()).getByRole("button", { name: "Settings" }));
+    const sheet = await screen.findByRole("dialog", { name: "Settings" });
+    await user.click(within(sheet).getByRole("tab", { name: "Models" }));
+    await user.click(within(sheet).getByRole("button", { name: "Download English voice" }));
+    const licence = await screen.findByRole("dialog", { name: "Download English voice" });
+    await user.click(within(licence).getByRole("checkbox", { name: "I accept this licence" }));
+    await user.click(within(licence).getByRole("button", { name: "Download" }));
+    // The shell tells the UI that the download finished.
+    await emit("models://progress", { id: "enV", receivedBytes: 1, totalBytes: 1, state: "ok" });
+    await user.click(within(sheet).getByRole("button", { name: "Close settings" }));
+
+    await screen.findByText("Everything is ready on this Mac.", {}, { timeout: 4000 });
+    expect(setup().querySelector(".chip")).toBeNull();
+  });
+});

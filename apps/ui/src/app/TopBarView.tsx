@@ -7,8 +7,9 @@ import { StartSplit } from "./StartSplit";
 export interface TopBarViewProps {
   /** A meeting runs, or is being stopped. */
   running: boolean;
-  /** A start request is waiting, or the meeting is being stopped. */
+  /** A stop request is running. */
   stopping: boolean;
+  /** A start request is waiting. */
   starting: boolean;
   onStart: (mode?: MeetingMode) => void;
   onReviewSetup: () => void;

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createClient, type Client } from "../ipc/client";
 import { ClientProvider } from "../ipc/ClientProvider";
 import { createMockTransport } from "../ipc/mockTransport";
+import { SessionProvider } from "../ipc/SessionProvider";
 import type { SetupStatus } from "../ipc/types";
 import { SetupStatusProvider, useSetupStatus } from "./SetupStatusProvider";
 
@@ -40,9 +41,11 @@ function Probe() {
 function mount(client: Client) {
   render(
     <ClientProvider client={client}>
-      <SetupStatusProvider>
-        <Probe />
-      </SetupStatusProvider>
+      <SessionProvider>
+        <SetupStatusProvider>
+          <Probe />
+        </SetupStatusProvider>
+      </SessionProvider>
     </ClientProvider>,
   );
 }

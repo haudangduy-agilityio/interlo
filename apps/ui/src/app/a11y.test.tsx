@@ -46,10 +46,9 @@ describe("shell accessibility (AC-27)", () => {
     expect(rule.replace(/\s+/g, " ")).toContain("outline-offset: 2px");
   });
 
-  it("stops the live dot and the spinner under reduced motion", () => {
+  it("stops the live dot under reduced motion (the app has no spinner)", () => {
     const block = /@media \(prefers-reduced-motion: reduce\)\s*\{([^}]*\{[^}]*\}[^}]*)\}/.exec(css);
     expect(block?.[1]).toContain(".dot--live::after");
-    expect(block?.[1]).toContain(".spin");
     expect(block?.[1]).toContain("animation: none");
   });
 });

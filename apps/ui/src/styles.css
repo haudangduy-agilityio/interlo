@@ -573,21 +573,6 @@ a {
   align-items: center;
   margin: 0;
 }
-.spin {
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-pill);
-  border: 3px solid var(--sunk);
-  border-top-color: var(--acc);
-  animation: spin 0.9s linear infinite;
-  display: inline-block;
-  flex: none;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 /* ---------- Toast ---------- */
 .toast {
@@ -681,12 +666,6 @@ a {
 .dialog h2 {
   font-size: var(--size-19);
   margin: 0;
-}
-.dialog__actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
 }
 .sheet {
   background: var(--bg);
@@ -784,8 +763,7 @@ a {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dot--live::after,
-  .spin {
+  .dot--live::after {
     animation: none;
   }
 }

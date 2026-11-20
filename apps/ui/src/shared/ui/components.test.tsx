@@ -107,6 +107,16 @@ describe("Meter", () => {
     expect(meter.querySelector("i")?.style.width).toBe("40%");
   });
 
+  it("keeps the value between 0 and 100", () => {
+    const { rerender } = render(<Meter label="Memory" value={140} />);
+    const meter = () => screen.getByRole("meter", { name: "Memory" });
+    expect(meter().getAttribute("aria-valuenow")).toBe("100");
+    expect(meter().querySelector("i")?.style.width).toBe("100%");
+    rerender(<Meter label="Memory" value={-5} />);
+    expect(meter().getAttribute("aria-valuenow")).toBe("0");
+    expect(meter().querySelector("i")?.style.width).toBe("0%");
+  });
+
   it("shows an empty track with no value when it is not available", () => {
     render(<Meter label="Memory" unavailable />);
     const meter = screen.getByRole("meter", { name: "Memory" });
