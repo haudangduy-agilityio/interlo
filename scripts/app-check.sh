@@ -301,6 +301,7 @@ EOF
   local symbols
   symbols="$(nm -a "$ROOT/target/release/interlo-desktop" 2>/dev/null | wc -l | tr -d ' ')"
   {
+    echo "binary size (stat -f %z target/release/interlo-desktop): $(stat -f %z "$ROOT/target/release/interlo-desktop") bytes"
     echo "binary symbol table entries (nm -a target/release/interlo-desktop): $symbols"
     echo "RESULT: $n rustc commands (${summary% }) have opt-level=3, codegen-units=1, a strip flag, no panic flag; the bin has lto=thin; no profile or rustflags override found"
   } >>"$out"
@@ -560,8 +561,11 @@ step_controls() {
   local tmp lpid lport raw kind
   tmp="$(mktemp -d "$OUT/controlsXXXX")"
   ( serve_listener 0.0.0.0 >"$tmp/wild4" ) &
+  disown
   ( serve_listener 127.0.0.1 >"$tmp/loop4" ) &
+  disown
   ( serve_listener :: >"$tmp/wild6" ) &
+  disown
   sleep 2
   for kind in loop4 wild4 wild6; do
     lpid="$(cut -d' ' -f1 "$tmp/$kind")"
