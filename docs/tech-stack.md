@@ -44,7 +44,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 
 | Item | Value | Status |
 |---|---|---|
-| Framework | React 19, TypeScript, Vite | Rule set: React unless Svelte is at least 30% lighter in idle memory (M0b) |
+| Framework | React 19, TypeScript, Vite | React stays; the Svelte comparison is dropped for v1 (D-191) |
 | IPC | `@tauri-apps/api` package (`invoke`, `listen`); the `window.__TAURI__` global is off (withGlobalTauri false) | Changed from the global bridge after the skeleton review |
 
 ## UI packages (apps/ui/package.json, versions installed 2026-11-17)

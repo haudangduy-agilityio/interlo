@@ -28,5 +28,5 @@ channels. Build the interface in React 19 with TypeScript and Vite
 - Two languages need two toolchains and two test runners. `scripts/check.sh`
   runs both, and a contract fixture test keeps the Rust and TypeScript types in
   step.
-- The React choice stays open until the M0b memory measurement: React holds
-  unless Svelte is at least 30% lighter in idle memory (`docs/tech-stack.md`).
+- React stays (D-191, 2026-11-20). The earlier plan to compare idle memory
+  with Svelte at M0b is dropped for v1.
