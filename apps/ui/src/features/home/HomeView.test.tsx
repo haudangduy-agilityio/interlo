@@ -173,7 +173,7 @@ describe("Today's notes (AC-23)", () => {
       <HomeView
         {...props({
           notes: done([
-            note("n1", "Ask about the invoice", "Acme", at(9, 15)),
+            note("n1", "Ask about the invoice", "Client A", at(9, 15)),
             note("n2", "Yesterday's idea", null, new Date(2026, 10, 19, 23, 59, 59, 999).getTime()),
           ]),
           onOpenWorkspace,
@@ -183,7 +183,7 @@ describe("Today's notes (AC-23)", () => {
     const rows = within(card()).getAllByRole("listitem");
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain("Ask about the invoice");
-    expect(rows[0].querySelector(".chip")?.textContent).toBe("Acme");
+    expect(rows[0].querySelector(".chip")?.textContent).toBe("Client A");
     await userEvent.click(within(card()).getByRole("button", { name: "Open Workspace" }));
     expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
   });
