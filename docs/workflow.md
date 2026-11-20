@@ -53,6 +53,34 @@ Ticket route: grill SPEC > SPEC gate > PLAN > TDD > verify > review > MR > accep
 - Two tickets that touch the same files run one after the other.
 - Missing environment, missing tool or an unverified AC is BLOCKED, never PASS.
 
+## Ticket tracking (GitHub)
+
+The tracker is GitHub issues in `haudangduy-agilityio/interlo`; the review unit is a
+GitHub pull request (called MR in this doc). The owner's login is
+`haudangduy-agilityio`. Status is a label, so one filter shows what is being worked on.
+
+| Status label | Set when | Set by |
+|---|---|---|
+| `in-progress` | The implementer picks the ticket | At pick, together with the assignee |
+| `in-review` | The PR is open | At PR open; removes `in-progress` |
+| `done` | The PR is merged | After merge; removes `in-review` and closes the issue |
+
+Steps for every ticket:
+
+1. **Pick.** Assign the issue to `haudangduy-agilityio` and add `in-progress`. One
+   ticket at a time per implementer; a ticket with `in-progress` is taken.
+2. **Open the PR** after verify and review pass. Assign the PR to
+   `haudangduy-agilityio`, request a review from them, link the issue with
+   `Closes #N`, and copy the issue labels. If GitHub refuses the review request
+   (the author cannot review their own PR), say so in the PR and go on.
+3. **Swap the label** on the issue: remove `in-progress`, add `in-review`.
+4. **After merge** (the owner merges, station 9): remove `in-review`, add `done`,
+   and close the issue if it is still open.
+
+Every ticket is assigned to the owner at creation. A bug ticket carries the `bug`
+label next to its `ft::`, `sprint::` and `priority::` labels. Never leave two
+status labels on one issue.
+
 ## Review
 
 Reviews start only after the gate passes. Reviewer agents are in `.claude/agents/`.
