@@ -1,5 +1,6 @@
 export { MODE_OPTIONS } from "./modeOptions";
-export { StartPanel, type StartPanelProps } from "./StartPanel";
+export { StartPanel, StartPanelBody, type StartPanelProps } from "./StartPanel";
+export { StartProvider, useStart } from "./StartProvider";
 export {
   MEETING_APPS,
   toStartArgs,

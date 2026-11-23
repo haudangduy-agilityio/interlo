@@ -1,0 +1,18 @@
+2026-11-20T17:48:53 syllables=122 keys_len=426 distinct_codepoints=122
+2026-11-20T17:48:53 frontmost before='Claude'
+2026-11-20T17:48:53 input source before=com.apple.inputmethod.VietnameseIM.VietnameseTelex
+2026-11-20T17:48:56 click Workspace
+2026-11-20T17:48:59 click Notes
+2026-11-20T17:49:00 field ref=@s1stb1hrai6a84:e17 role=textfield
+2026-11-20T17:49:00 field_before_length=0
+2026-11-20T17:49:01 frontmost while typing='interlo-desktop'
+2026-11-20T17:49:05 input source set=com.apple.inputmethod.VietnameseIM.VietnameseTelex now=com.apple.inputmethod.VietnameseIM.VietnameseTelex
+2026-11-20T17:49:38 keys posted
+2026-11-20T17:49:40 field length=65 expected_length=244 equal_nfc=False
+2026-11-20T17:49:40 control tampered_expected_equal=False (must be False)
+2026-11-20T17:49:40 missing_codepoints=['0xc0', '0xc1', '0xc3', '0xc8', '0xc9', '0xcc', '0xcd', '0xe0', '0xe1', '0xe3', '0xe8', '0xe9', '0xec', '0xed', '0xf2', '0xf3', '0xf5', '0xf9', '0xfa', '0xfd', '0x128', '0x129', '0x169', '0x1ea0', '0x1ea1', '0x1ea2', '0x1ea3', '0x1ea4', '0x1ea5', '0x1ea6', '0x1ea7', '0x1ea8', '0x1ea9', '0x1eaa', '0x1eab', '0x1eac', '0x1ead', '0x1eae', '0x1eaf', '0x1eb0', '0x1eb1', '0x1eb2', '0x1eb3', '0x1eb4', '0x1eb5', '0x1eb6', '0x1eb7', '0x1eb8', '0x1eb9', '0x1eba', '0x1ebb', '0x1ebc', '0x1ebd', '0x1ebe', '0x1ebf', '0x1ec0', '0x1ec1', '0x1ec2', '0x1ec3', '0x1ec4', '0x1ec5', '0x1ec6', '0x1ec7', '0x1ec8', '0x1ec9', '0x1eca', '0x1ecb', '0x1ecd', '0x1ecf', '0x1ed1', '0x1ed3', '0x1ed5', '0x1ed7', '0x1ed9', '0x1edb', '0x1edd', '0x1edf', '0x1ee1', '0x1ee3', '0x1ee5', '0x1ee7', '0x1ee9', '0x1eeb', '0x1eed', '0x1eef', '0x1ef1', '0x1ef3', '0x1ef5', '0x1ef7', '0x1ef9'] extra_codepoints=[]
+2026-11-20T17:49:40 codepoints=U+00C0 U+00C1 U+00C3 U+00C8 U+00C9 U+00CC U+00CD U+00D2 U+00D3 U+00D5 U+00D9 U+00DA U+00DD U+00E0 U+00E1 U+00E3 U+00E8 U+00E9 U+00EC U+00ED U+00F2 U+00F3 U+00F5 U+00F9 U+00FA U+00FD U+0110 U+0111 U+0128 U+0129 U+0168 U+0169 U+1EA0 U+1EA1 U+1EA2 U+1EA3 U+1EA4 U+1EA5 U+1EA6 U+1EA7 U+1EA8 U+1EA9 U+1EAA U+1EAB U+1EAC U+1EAD U+1EAE U+1EAF U+1EB0 U+1EB1 U+1EB2 U+1EB3 U+1EB4 U+1EB5 U+1EB6 U+1EB7 U+1EB8 U+1EB9 U+1EBA U+1EBB U+1EBC U+1EBD U+1EBE U+1EBF U+1EC0 U+1EC1 U+1EC2 U+1EC3 U+1EC4 U+1EC5 U+1EC6 U+1EC7 U+1EC8 U+1EC9 U+1ECA U+1ECB U+1ECC U+1ECD U+1ECE U+1ECF U+1ED0 U+1ED1 U+1ED2 U+1ED3 U+1ED4 U+1ED5 U+1ED6 U+1ED7 U+1ED8 U+1ED9 U+1EDA U+1EDB U+1EDC U+1EDD U+1EDE U+1EDF U+1EE0 U+1EE1 U+1EE2 U+1EE3 U+1EE4 U+1EE5 U+1EE6 U+1EE7 U+1EE8 U+1EE9 U+1EEA U+1EEB U+1EEC U+1EED U+1EEE U+1EEF U+1EF0 U+1EF1 U+1EF2 U+1EF3 U+1EF4 U+1EF5 U+1EF6 U+1EF7 U+1EF8 U+1EF9
+2026-11-20T17:49:40 capture window_id=2681 file=telex-note-field.png
+2026-11-20T17:49:40 field cleared ok=True length_after=0
+2026-11-20T17:49:41 input source restored=com.apple.inputmethod.VietnameseIM.VietnameseTelex
+2026-11-20T17:49:41 frontmost restored='Claude'

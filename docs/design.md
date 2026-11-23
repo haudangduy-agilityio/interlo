@@ -188,28 +188,22 @@ preview. Read the folder before you change or add the component.
 
 | In the design system | In `apps/ui/src/shared/ui/` |
 |---|---|
-| `Button`, `Banner`, `ActionErrorBanner`, `Toast`, `Tabs`, `Dialog`, `EmptyState`, `ErrorState`, `LoadingState`, `NotAvailable`, `AsyncContent`, `Page`, `Section` | exists |
-| `Chip`, `Segmented`, `Toggle`, `Meter`, `Field`; `Button` variant `danger` and size `sm` | in the wireframe, not built yet |
-| `Window`, `MenuBar`, `Menu`, `StatusPopover`, `KeyCap` | desktop shell; the app supplies the menus and the status item |
+| `Button` (variants primary, secondary, ghost, danger; size sm), `Banner`, `ActionErrorBanner`, `Toast`, `Tabs`, `Dialog`, `EmptyState`, `ErrorState`, `LoadingState`, `NotAvailable`, `AsyncContent`, `Page`, `Section`, `Chip`, `Segmented`, `Meter`, `KeyCap`, the line icons (`Icon`) | exists (M1-51) |
+| `Toggle`, `Field` | in the wireframe, not built yet (X-50) |
+| `Window`, `MenuBar`, `Menu`, `StatusPopover` | desktop shell; the app supplies the menus and the status item |
+
+A control with no behaviour yet is a real `disabled` control described as "Not available yet"
+(`Button` prop `unavailable`, or `useUnavailable` for other elements), shows no value, and a
+`Meter` in that state is an empty track.
 
 ## What the code does not match yet
 
-`apps/ui/src/styles.css` was written before the tokens were fixed. Task X-50 replaces it. Until
-then, new UI follows this file, not that stylesheet.
+`apps/ui/src/styles.css` and `apps/ui/src/styles/tokens.css` use the tokens of this file (M1-51);
+`tokens.test.ts` keeps the values equal to the tables above and every text pair at 4.5:1, and
+`noLiterals.test.ts` keeps literal colours, radii, shadows and type sizes out of every other file.
+What is still open:
 
 | Area | In the code today | Should be |
 |---|---|---|
-| Accent | a blue (`--accent` `#2c4f8a`, dark `#8fb0ea`) | `acc` green with `acc-ink` on it |
-| Light background | `--bg` `#f5f6f8` | `bg` `#f7f8fa` |
-| Dark background | `--bg` `#0e1116` | `bg` `#101412` |
-| Token names | `--fg`, `--muted`, `--panel`, `--line`, `--accent` | `text`, `mute`, `card`, `line`, `acc`, plus `side`, `sunk`, `line2`, `acc-ink`, `acc-soft`, `live`, `warn`, `ok` and the `-soft` tints |
-| Font | `system-ui` | the `display`, `text` and `mono` families |
-| Status colours | literal hex values | `live`, `bad`, `warn`, `ok` and their tints |
-| Banner | a 4 px bar on the left edge | a full tint with a mixed border, `radius-12` |
-| Button | `radius-8` | `radius-10` (`radius-8` only for the small size) |
-| Dialog | `radius-8`, `bg` surface | `radius-18`, `card` surface, `shadow-overlay` |
-| Toast | bordered card, red edge for an error | inverted bar, `radius-12` |
-
-X-50 also adds the missing components, a test that keeps every text pair at 4.5:1, and the
-attribution of the font families in `docs/tech-stack.md` and `NOTICE` (the families are named in
-the design system's `tokens.json`).
+| Layout of Live, Setup, Meetings and detail, Workspace, settings sheet and dialogs | the old single-column layout, restyled with the tokens | the wireframe layout (tickets M1-51a to M1-51e) |
+| `Toggle`, `Field` | not built | the wireframe components (X-50) |

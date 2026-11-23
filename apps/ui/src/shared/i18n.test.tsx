@@ -23,7 +23,7 @@ function Probe() {
 
 describe("translate", () => {
   it("gives the English text and fills in {name} values", () => {
-    expect(translate("en", "nav.home")).toBe("Home");
+    expect(translate("en", "nav.home")).toBe("Today");
     expect(translate("en", "live.latency", { p50: 820, p95: 1450 })).toBe(
       "Latency: median 820 ms, 95th percentile 1450 ms.",
     );
@@ -65,7 +65,7 @@ describe("LanguageProvider", () => {
   it("speaks English without a provider", () => {
     render(<Probe />);
     expect(screen.getByText("language:en")).toBeTruthy();
-    expect(screen.getByText("text:Home")).toBeTruthy();
+    expect(screen.getByText("text:Today")).toBeTruthy();
   });
 });
 

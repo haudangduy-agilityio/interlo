@@ -1,0 +1,43 @@
+2026-11-20T17:34:36 original appearance dark=True
+2026-11-20T17:34:39 theme=dark start
+2026-11-20T17:34:40 click name='Today' ref=@s2apcstimhxvfh:e2 ok=True window=w-2523
+2026-11-20T17:34:41 capture screen=home theme=dark window_id=2523 file=home-dark.png
+2026-11-20T17:34:43 click name='Live meeting' ref=@s15v5b7s2hv183:e3 ok=True window=w-2523
+2026-11-20T17:34:44 capture screen=live theme=dark window_id=2523 file=live-dark.png
+2026-11-20T17:34:45 click name='Meetings' ref=@sdbqxk1g1p3t8:e4 ok=True window=w-2523
+2026-11-20T17:34:46 capture screen=meetings theme=dark window_id=2523 file=meetings-dark.png
+2026-11-20T17:34:47 click name='Workspace' ref=@s2o7jqkh8wcbg1:e5 ok=True window=w-2523
+2026-11-20T17:34:49 capture screen=workspace-today theme=dark window_id=2523 file=workspace-today-dark.png
+2026-11-20T17:34:50 click name='Notes' ref=@s1lbb5yhkc1ayf:e14 ok=True window=w-2523
+2026-11-20T17:34:51 capture screen=workspace-notes theme=dark window_id=2523 file=workspace-notes-dark.png
+2026-11-20T17:34:52 click name='Setup' ref=@s1qmkgw7xlnozf:e6 ok=True window=w-2523
+2026-11-20T17:34:53 capture screen=setup theme=dark window_id=2523 file=setup-dark.png
+2026-11-20T17:34:54 click name='Today' ref=@s2qvrnmyavo7hk:e2 ok=True window=w-2523
+2026-11-20T17:34:57 click name='Settings' ref=@sa4hptnzl9vxc:e7 ok=True window=w-2523
+2026-11-20T17:34:58 capture screen=settings theme=dark window_id=2523 file=settings-dark.png
+2026-11-20T17:34:59 click name='Close settings' ref=@s1udln0mdandof:e1 ok=True window=w-2523
+2026-11-20T17:35:01 click name='Start meeting' ref=@s19f7347fxrnpo:e10 ok=True window=w-2523
+2026-11-20T17:35:03 capture screen=start-pressed theme=dark window_id=2523 file=start-pressed-dark.png
+2026-11-20T17:35:03 theme=dark done
+2026-11-20T17:35:03 appearance switched to light
+2026-11-20T17:35:06 theme=light start
+2026-11-20T17:35:07 click name='Today' ref=@s1vvv8w3izzq8:e2 ok=True window=w-2523
+2026-11-20T17:35:08 capture screen=home theme=light window_id=2523 file=home-light.png
+2026-11-20T17:35:09 click name='Live meeting' ref=@s1sf3qxe94wwrf:e3 ok=True window=w-2523
+2026-11-20T17:35:11 capture screen=live theme=light window_id=2523 file=live-light.png
+2026-11-20T17:35:12 click name='Meetings' ref=@s28o351wvfb4gk:e4 ok=True window=w-2523
+2026-11-20T17:35:13 capture screen=meetings theme=light window_id=2523 file=meetings-light.png
+2026-11-20T17:35:14 click name='Workspace' ref=@s3ngj0q2oe8yzt:e5 ok=True window=w-2523
+2026-11-20T17:35:15 capture screen=workspace-today theme=light window_id=2523 file=workspace-today-light.png
+2026-11-20T17:35:16 click name='Notes' ref=@s22qvxilzpn91e:e14 ok=True window=w-2523
+2026-11-20T17:35:18 capture screen=workspace-notes theme=light window_id=2523 file=workspace-notes-light.png
+2026-11-20T17:35:19 click name='Setup' ref=@s1jjoahfn49k0o:e6 ok=True window=w-2523
+2026-11-20T17:35:20 capture screen=setup theme=light window_id=2523 file=setup-light.png
+2026-11-20T17:35:21 click name='Today' ref=@s2p4816emi3s1w:e2 ok=True window=w-2523
+2026-11-20T17:35:23 click name='Settings' ref=@szc40r7wu9wd7:e7 ok=True window=w-2523
+2026-11-20T17:35:25 capture screen=settings theme=light window_id=2523 file=settings-light.png
+2026-11-20T17:35:26 click name='Close settings' ref=@sqm0ogf4n1sne:e1 ok=True window=w-2523
+2026-11-20T17:35:28 click name='Start meeting' ref=@sy8agfem7k8l7:e10 ok=True window=w-2523
+2026-11-20T17:35:29 capture screen=start-pressed theme=light window_id=2523 file=start-pressed-light.png
+2026-11-20T17:35:29 theme=light done
+2026-11-20T17:35:33 appearance restored dark=True
