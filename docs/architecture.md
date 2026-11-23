@@ -42,6 +42,42 @@ wire type `ipc::Direction` converts to and from it (ADR 0020).
 | integration-tests | Cross-crate tests only: capture, journal replay, pipeline, records, settings, delete through both stores | Test threads | Ship code, or hold logic that belongs to a crate |
 | interlo-desktop (apps/desktop/src-tauri) | Tauri bridge: commands for control, channels for streams | Async handlers | Send settings or keys to the webview; allow broad capabilities |
 
+## Audio adapter boundary
+
+The engine reaches audio through two traits in `audio-io` (D-167), so a source
+or a sink can change without a change in the engine or in the playback queue.
+
+```text
+CaptureSource (process tap, 2ch virtual device, later others)
+  --push_slice--> ring buffer --> chain --write_frames--> AudioOutput
+                                                (virtual microphone, headphones, ...)
+```
+
+- **Source contract (`CaptureSource: Send`).** `start` takes the ring producer.
+  The source pushes mono f32 at `TARGET_SAMPLE_RATE` with `push_slice` only,
+  from any thread; a source that captures at another rate converts inside
+  itself. `start` returns without waiting for the consumer, and a full ring drops
+  the newest samples and counts them. `start` on a source that cannot run
+  returns a `CaptureError`. After `stop` returns, the source pushes nothing
+  more. A real-time callback allocates nothing: rate conversion uses scratch
+  space set up before `start`.
+- **Sink contract (`AudioOutput: Send`).** `write_frames` returns how many
+  frames it took, fewer than given is allowed, and the caller writes the rest
+  again. A non-empty write that takes nothing returns `OutputError::Stalled`,
+  never `Ok(0)`; the caller owns the retry policy. `write_frames` runs on a
+  control-side worker thread, never in an audio callback. `flush` ends a stream.
+- **Adapters now.** The process tap and the 2ch virtual device are the two
+  decided routes (`capture_plan`). Only the placeholder implementers exist; the
+  real ones come in M1-06 and M1-34.
+- **A new source** is one implementer of `CaptureSource`, one `CaptureMethod`
+  variant and one line in `capture_plan`. The engine and the playback queue do
+  not change.
+- **Playback side.** `SegmentPlayer` stays in `playback`; it carries no samples
+  and `playback` has no audio backend. A player that writes to an `AudioOutput`
+  is the next step (M1-08, M1-12).
+- `crates/audio-io/tests/adapter_boundary.rs` swaps fake sources and sinks
+  behind the two traits and checks the chain output on a fixture.
+
 ## UI features (apps/ui/src/features)
 
 Rows say what exists in the skeleton. Text marked "planned" is not built yet.

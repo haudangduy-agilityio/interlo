@@ -6,6 +6,7 @@ crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
   audio-io/                devices, capture plan, output, ring buffer, resampler trait
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
+    tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
   engine-host/             engine traits, registry, segmenter, language gate
   playback/                playback queue, speed-up, mixer
   store/                   SQLite projections, schema, full-text index
