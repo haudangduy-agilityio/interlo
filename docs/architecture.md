@@ -8,7 +8,9 @@ This file maps the decided architecture to the code. The full architecture page
 One app process. The Rust core runs inside the Tauri shell. Engines run on worker
 threads with ONNX Runtime in process; a helper process only if the M0-19 memo
 shows a model cannot load in process (D-14). The UI is a webview that talks to
-the core through typed commands and event channels only.
+the core through typed commands and event channels only. The device list reads
+the system audio tool as one short-lived child process with a reader thread, and
+stops it after 5 seconds.
 
 ```text
 Meeting app audio --(process tap, or 2ch virtual device)--> audio-io --> engine-host
@@ -27,7 +29,7 @@ wire type `ipc::Direction` converts to and from it (ADR 0020).
 | Crate | Owns | Threads | Must never |
 |---|---|---|---|
 | meeting-core | Protocol, session states, coordinator (line state), journal, policy gate | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
-| audio-io | Devices, device list and setup report (eight rows, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), output, ring buffers, resampling | Real-time callback plus one router thread | Allocate, lock or log in the callback; block capture when a consumer is slow |
+| audio-io | Devices, device list and setup report (eight rows, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry, segmenter, language gate | One worker thread per model | Open a network connection |
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
 | store | SQLite projections, schema, full-text index, cascade delete | One writer, background reads | Store audio |

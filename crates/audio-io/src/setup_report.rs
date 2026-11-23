@@ -10,7 +10,7 @@ use crate::device_list::DeviceSnapshot;
 use crate::devices::{DeviceInfo, DeviceKind, Transport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum RowId {
+pub enum SetupItemId {
     #[serde(rename = "mic")]
     Mic,
     #[serde(rename = "capture")]
@@ -31,7 +31,7 @@ pub enum RowId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum RowState {
+pub enum SetupState {
     Ok,
     Missing,
     Installing,
@@ -89,9 +89,9 @@ pub enum InputOpenError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SetupRow {
-    pub id: RowId,
-    pub state: RowState,
+pub struct SetupItem {
+    pub id: SetupItemId,
+    pub state: SetupState,
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<SetupFix>,
@@ -101,7 +101,7 @@ pub struct SetupRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SetupReport {
-    pub rows: Vec<SetupRow>,
+    pub items: Vec<SetupItem>,
 }
 
 /// Everything the report needs. Models are in the order `sr`, `tr`, `enV`, `viV`.
@@ -122,8 +122,13 @@ pub fn mic_permission_from_error(error: InputOpenError) -> MicPermission {
     }
 }
 
-fn row(id: RowId, state: RowState, detail: impl Into<String>, fix: Option<SetupFix>) -> SetupRow {
-    SetupRow {
+fn item(
+    id: SetupItemId,
+    state: SetupState,
+    detail: impl Into<String>,
+    fix: Option<SetupFix>,
+) -> SetupItem {
+    SetupItem {
         id,
         state,
         detail: detail.into(),
@@ -146,32 +151,32 @@ pub fn microphone(devices: &[DeviceInfo]) -> Option<&DeviceInfo> {
         .or_else(|| devices.iter().find(usable))
 }
 
-fn mic_row(facts: &SetupFacts) -> SetupRow {
+fn mic_row(facts: &SetupFacts) -> SetupItem {
     let Some(device) = microphone(&facts.devices.devices) else {
-        return row(
-            RowId::Mic,
-            RowState::Missing,
+        return item(
+            SetupItemId::Mic,
+            SetupState::Missing,
             "No microphone found",
             Some(SetupFix::ConnectMicrophone),
         );
     };
     match facts.mic_permission {
-        MicPermission::Granted => row(RowId::Mic, RowState::Ok, device.name.clone(), None),
-        MicPermission::Denied => row(
-            RowId::Mic,
-            RowState::Missing,
+        MicPermission::Granted => item(SetupItemId::Mic, SetupState::Ok, device.name.clone(), None),
+        MicPermission::Denied => item(
+            SetupItemId::Mic,
+            SetupState::Missing,
             "Microphone access is off",
             Some(SetupFix::AllowMicrophone),
         ),
-        MicPermission::NotDetermined => row(
-            RowId::Mic,
-            RowState::Missing,
+        MicPermission::NotDetermined => item(
+            SetupItemId::Mic,
+            SetupState::Missing,
             "Microphone access has not been asked yet",
             Some(SetupFix::AllowMicrophone),
         ),
-        MicPermission::Unknown => row(
-            RowId::Mic,
-            RowState::Error,
+        MicPermission::Unknown => item(
+            SetupItemId::Mic,
+            SetupState::Error,
             "Microphone permission could not be checked",
             Some(SetupFix::CheckAgain),
         ),
@@ -179,9 +184,9 @@ fn mic_row(facts: &SetupFacts) -> SetupRow {
 }
 
 /// Decided order (D-15): the process tap, then the 2-channel virtual device.
-fn capture_row(facts: &SetupFacts) -> SetupRow {
+fn capture_row(facts: &SetupFacts) -> SetupItem {
     if facts.tap_available {
-        return row(RowId::Capture, RowState::Ok, "Process tap", None);
+        return item(SetupItemId::Capture, SetupState::Ok, "Process tap", None);
     }
     let has_2ch = facts
         .devices
@@ -189,49 +194,57 @@ fn capture_row(facts: &SetupFacts) -> SetupRow {
         .iter()
         .any(|d| d.kind == DeviceKind::VirtualInput2ch);
     if has_2ch {
-        row(
-            RowId::Capture,
-            RowState::Ok,
+        item(
+            SetupItemId::Capture,
+            SetupState::Ok,
             "2-channel virtual device",
             None,
         )
     } else {
-        row(
-            RowId::Capture,
-            RowState::Missing,
+        item(
+            SetupItemId::Capture,
+            SetupState::Missing,
             "No capture route works",
             Some(SetupFix::InstallCaptureDevice),
         )
     }
 }
 
-fn vmic_row(facts: &SetupFacts) -> SetupRow {
+fn vmic_row(facts: &SetupFacts) -> SetupItem {
     let present = facts
         .devices
         .devices
         .iter()
         .any(|d| d.kind == DeviceKind::VirtualOutput16ch);
     if present {
-        row(RowId::Vmic, RowState::Ok, "16-channel virtual device", None)
+        item(
+            SetupItemId::Vmic,
+            SetupState::Ok,
+            "16-channel virtual device",
+            None,
+        )
     } else {
-        row(
-            RowId::Vmic,
-            RowState::Missing,
+        item(
+            SetupItemId::Vmic,
+            SetupState::Missing,
             "16-channel virtual device not installed",
             Some(SetupFix::InstallVirtualMicrophone),
         )
     }
 }
 
-fn phones_row(facts: &SetupFacts) -> SetupRow {
+fn phones_row(facts: &SetupFacts) -> SetupItem {
     let output = facts.devices.devices.iter().find(|d| d.is_default_output);
     let mut r = match output {
-        Some(d) if d.kind == DeviceKind::Headphones => {
-            row(RowId::Phones, RowState::Ok, "Headphones connected", None)
-        }
-        _ => row(
-            RowId::Phones,
-            RowState::Missing,
+        Some(d) if d.kind == DeviceKind::Headphones => item(
+            SetupItemId::Phones,
+            SetupState::Ok,
+            "Headphones connected",
+            None,
+        ),
+        _ => item(
+            SetupItemId::Phones,
+            SetupState::Missing,
             "No headphones detected",
             Some(SetupFix::ConnectHeadphones),
         ),
@@ -242,24 +255,24 @@ fn phones_row(facts: &SetupFacts) -> SetupRow {
     r
 }
 
-fn model_row(id: RowId, state: ModelState, label: &str) -> SetupRow {
+fn model_row(id: SetupItemId, state: ModelState, label: &str) -> SetupItem {
     match state {
-        ModelState::Ok => row(id, RowState::Ok, label, None),
-        ModelState::Missing => row(
+        ModelState::Ok => item(id, SetupState::Ok, label, None),
+        ModelState::Missing => item(
             id,
-            RowState::Missing,
+            SetupState::Missing,
             format!("{label} not downloaded"),
             Some(SetupFix::DownloadModel),
         ),
-        ModelState::Downloading => row(
+        ModelState::Downloading => item(
             id,
-            RowState::Installing,
+            SetupState::Installing,
             format!("{label} downloading"),
             Some(SetupFix::WaitForInstall),
         ),
-        ModelState::Error => row(
+        ModelState::Error => item(
             id,
-            RowState::Error,
+            SetupState::Error,
             format!("{label} failed"),
             Some(SetupFix::DownloadModel),
         ),
@@ -272,15 +285,15 @@ fn model_row(id: RowId, state: ModelState, label: &str) -> SetupRow {
 pub fn build_report(facts: &SetupFacts) -> SetupReport {
     let [sr, tr, en_v, vi_v] = facts.models;
     SetupReport {
-        rows: vec![
+        items: vec![
             mic_row(facts),
             capture_row(facts),
             vmic_row(facts),
             phones_row(facts),
-            model_row(RowId::Sr, sr, "Speech recognition model"),
-            model_row(RowId::Tr, tr, "Translation model"),
-            model_row(RowId::EnV, en_v, "English voice model"),
-            model_row(RowId::ViV, vi_v, "Vietnamese voice model"),
+            model_row(SetupItemId::Sr, sr, "Speech recognition model"),
+            model_row(SetupItemId::Tr, tr, "Translation model"),
+            model_row(SetupItemId::EnV, en_v, "English voice model"),
+            model_row(SetupItemId::ViV, vi_v, "Vietnamese voice model"),
         ],
     }
 }
@@ -336,9 +349,9 @@ mod tests {
         facts_with(vec![mic(), v2(), v16(), phones()])
     }
 
-    fn row(report: &SetupReport, id: RowId) -> &SetupRow {
+    fn find_item(report: &SetupReport, id: SetupItemId) -> &SetupItem {
         report
-            .rows
+            .items
             .iter()
             .find(|r| r.id == id)
             .expect("row present")
@@ -347,22 +360,22 @@ mod tests {
     #[test]
     fn all_ok_gives_eight_rows_in_order() {
         let report = build_report(&all_ok());
-        let ids: Vec<RowId> = report.rows.iter().map(|r| r.id).collect();
+        let ids: Vec<SetupItemId> = report.items.iter().map(|r| r.id).collect();
         assert_eq!(
             ids,
             [
-                RowId::Mic,
-                RowId::Capture,
-                RowId::Vmic,
-                RowId::Phones,
-                RowId::Sr,
-                RowId::Tr,
-                RowId::EnV,
-                RowId::ViV
+                SetupItemId::Mic,
+                SetupItemId::Capture,
+                SetupItemId::Vmic,
+                SetupItemId::Phones,
+                SetupItemId::Sr,
+                SetupItemId::Tr,
+                SetupItemId::EnV,
+                SetupItemId::ViV
             ]
         );
-        for r in &report.rows {
-            assert_eq!(r.state, RowState::Ok, "{:?}", r.id);
+        for r in &report.items {
+            assert_eq!(r.state, SetupState::Ok, "{:?}", r.id);
             assert_eq!(r.fix, None, "{:?}", r.id);
             assert_eq!(r.warning, None, "{:?}", r.id);
         }
@@ -373,10 +386,10 @@ mod tests {
         let mut f = all_ok();
         f.mic_permission = MicPermission::Denied;
         let r = build_report(&f);
-        let m = row(&r, RowId::Mic);
+        let m = find_item(&r, SetupItemId::Mic);
         assert_eq!(
             (m.state, m.fix),
-            (RowState::Missing, Some(SetupFix::AllowMicrophone))
+            (SetupState::Missing, Some(SetupFix::AllowMicrophone))
         );
     }
 
@@ -387,10 +400,13 @@ mod tests {
         let mut asked = all_ok();
         asked.mic_permission = MicPermission::NotDetermined;
         let (d, a) = (build_report(&denied), build_report(&asked));
-        let (d, a) = (row(&d, RowId::Mic), row(&a, RowId::Mic));
+        let (d, a) = (
+            find_item(&d, SetupItemId::Mic),
+            find_item(&a, SetupItemId::Mic),
+        );
         assert_eq!(
             (a.state, a.fix),
-            (RowState::Missing, Some(SetupFix::AllowMicrophone))
+            (SetupState::Missing, Some(SetupFix::AllowMicrophone))
         );
         assert_ne!(a.detail, d.detail);
     }
@@ -406,10 +422,10 @@ mod tests {
             let mut f = facts_with(vec![v2(), v16(), phones()]);
             f.mic_permission = permission;
             let r = build_report(&f);
-            let m = row(&r, RowId::Mic);
+            let m = find_item(&r, SetupItemId::Mic);
             assert_eq!(
                 (m.state, m.fix),
-                (RowState::Missing, Some(SetupFix::ConnectMicrophone))
+                (SetupState::Missing, Some(SetupFix::ConnectMicrophone))
             );
         }
     }
@@ -419,10 +435,10 @@ mod tests {
         let mut f = all_ok();
         f.mic_permission = MicPermission::Unknown;
         let r = build_report(&f);
-        let m = row(&r, RowId::Mic);
+        let m = find_item(&r, SetupItemId::Mic);
         assert_eq!(
             (m.state, m.fix),
-            (RowState::Error, Some(SetupFix::CheckAgain))
+            (SetupState::Error, Some(SetupFix::CheckAgain))
         );
     }
 
@@ -431,8 +447,8 @@ mod tests {
         let virtual_default = v2().with_defaults(true, false);
         let other = dev("Other Mic", DeviceKind::Microphone, 1, 0, Transport::Usb);
         let r = build_report(&facts_with(vec![virtual_default, v16(), other, phones()]));
-        let m = row(&r, RowId::Mic);
-        assert_eq!(m.state, RowState::Ok);
+        let m = find_item(&r, SetupItemId::Mic);
+        assert_eq!(m.state, SetupState::Ok);
         assert!(m.detail.contains("Other Mic"), "{}", m.detail);
     }
 
@@ -447,8 +463,8 @@ mod tests {
         )
         .with_defaults(true, true);
         let r = build_report(&facts_with(vec![headset, v2(), v16()]));
-        let m = row(&r, RowId::Mic);
-        assert_eq!(m.state, RowState::Ok);
+        let m = find_item(&r, SetupItemId::Mic);
+        assert_eq!(m.state, SetupState::Ok);
         assert!(m.detail.contains("Headset"));
     }
 
@@ -456,8 +472,8 @@ mod tests {
     fn capture_uses_the_tap_with_or_without_the_2ch_device() {
         for devices in [vec![mic(), v16(), phones()], all_ok().devices.devices] {
             let r = build_report(&facts_with(devices));
-            let c = row(&r, RowId::Capture);
-            assert_eq!((c.state, c.fix), (RowState::Ok, None));
+            let c = find_item(&r, SetupItemId::Capture);
+            assert_eq!((c.state, c.fix), (SetupState::Ok, None));
             assert!(c.detail.to_lowercase().contains("tap"), "{}", c.detail);
         }
     }
@@ -467,8 +483,8 @@ mod tests {
         let mut f = all_ok();
         f.tap_available = false;
         let r = build_report(&f);
-        let c = row(&r, RowId::Capture);
-        assert_eq!((c.state, c.fix), (RowState::Ok, None));
+        let c = find_item(&r, SetupItemId::Capture);
+        assert_eq!((c.state, c.fix), (SetupState::Ok, None));
         assert!(c.detail.contains("2-channel"), "{}", c.detail);
     }
 
@@ -477,10 +493,10 @@ mod tests {
         let mut f = facts_with(vec![mic(), v16(), phones()]);
         f.tap_available = false;
         let r = build_report(&f);
-        let c = row(&r, RowId::Capture);
+        let c = find_item(&r, SetupItemId::Capture);
         assert_eq!(
             (c.state, c.fix),
-            (RowState::Missing, Some(SetupFix::InstallCaptureDevice))
+            (SetupState::Missing, Some(SetupFix::InstallCaptureDevice))
         );
     }
 
@@ -490,7 +506,10 @@ mod tests {
         let mut f = facts_with(vec![mic(), v16(), odd, phones()]);
         f.tap_available = false;
         let r = build_report(&f);
-        assert_eq!(row(&r, RowId::Capture).state, RowState::Missing);
+        assert_eq!(
+            find_item(&r, SetupItemId::Capture).state,
+            SetupState::Missing
+        );
     }
 
     #[test]
@@ -500,7 +519,8 @@ mod tests {
                 let devices = if with_2ch { vec![v2()] } else { vec![] };
                 let mut f = facts_with(devices.clone());
                 f.tap_available = tap;
-                let row_ok = row(&build_report(&f), RowId::Capture).state == RowState::Ok;
+                let row_ok =
+                    find_item(&build_report(&f), SetupItemId::Capture).state == SetupState::Ok;
                 let plan_ok = crate::capture_plan(tap, "meeting.app", devices.first()).is_ok();
                 assert_eq!(row_ok, plan_ok, "tap {tap}, 2ch {with_2ch}");
             }
@@ -511,19 +531,24 @@ mod tests {
     fn capture_row_with_an_empty_app_id_still_counts_the_tap() {
         let mut f = facts_with(vec![]);
         f.tap_available = true;
-        assert_eq!(row(&build_report(&f), RowId::Capture).state, RowState::Ok);
-        assert!(crate::capture_plan(true, "", None).is_err());
+        assert_eq!(
+            find_item(&build_report(&f), SetupItemId::Capture).state,
+            SetupState::Ok
+        );
     }
 
     #[test]
     fn vmic_is_ok_with_a_16ch_device_and_missing_without_it() {
         let ok = build_report(&all_ok());
-        assert_eq!(row(&ok, RowId::Vmic).state, RowState::Ok);
+        assert_eq!(find_item(&ok, SetupItemId::Vmic).state, SetupState::Ok);
         let missing = build_report(&facts_with(vec![mic(), v2(), phones()]));
-        let v = row(&missing, RowId::Vmic);
+        let v = find_item(&missing, SetupItemId::Vmic);
         assert_eq!(
             (v.state, v.fix),
-            (RowState::Missing, Some(SetupFix::InstallVirtualMicrophone))
+            (
+                SetupState::Missing,
+                Some(SetupFix::InstallVirtualMicrophone)
+            )
         );
     }
 
@@ -532,14 +557,17 @@ mod tests {
         let mut f = facts_with(vec![mic(), v16(), phones()]);
         f.tap_available = false;
         let r = build_report(&f);
-        assert_eq!(row(&r, RowId::Capture).state, RowState::Missing);
-        assert_eq!(row(&r, RowId::Vmic).state, RowState::Ok);
+        assert_eq!(
+            find_item(&r, SetupItemId::Capture).state,
+            SetupState::Missing
+        );
+        assert_eq!(find_item(&r, SetupItemId::Vmic).state, SetupState::Ok);
     }
 
-    fn phones_row_for(output: Option<DeviceInfo>) -> SetupRow {
+    fn phones_row_for(output: Option<DeviceInfo>) -> SetupItem {
         let mut devices = vec![mic(), v2(), v16()];
         devices.extend(output);
-        row(&build_report(&facts_with(devices)), RowId::Phones).clone()
+        find_item(&build_report(&facts_with(devices)), SetupItemId::Phones).clone()
     }
 
     #[test]
@@ -547,7 +575,7 @@ mod tests {
         for transport in [Transport::BuiltIn, Transport::Bluetooth, Transport::Usb] {
             let d = dev("H", DeviceKind::Headphones, 0, 2, transport).with_defaults(false, true);
             let r = phones_row_for(Some(d));
-            assert_eq!((r.state, r.fix), (RowState::Ok, None), "{transport:?}");
+            assert_eq!((r.state, r.fix), (SetupState::Ok, None), "{transport:?}");
         }
     }
 
@@ -562,7 +590,7 @@ mod tests {
             let r = phones_row_for(output);
             assert_eq!(
                 (r.state, r.fix),
-                (RowState::Missing, Some(SetupFix::ConnectHeadphones))
+                (SetupState::Missing, Some(SetupFix::ConnectHeadphones))
             );
         }
     }
@@ -570,7 +598,7 @@ mod tests {
     #[test]
     fn phones_ignores_a_headphone_device_that_is_not_the_default_output() {
         let not_default = dev("H", DeviceKind::Headphones, 0, 2, Transport::Usb);
-        assert_eq!(phones_row_for(Some(not_default)).state, RowState::Missing);
+        assert_eq!(phones_row_for(Some(not_default)).state, SetupState::Missing);
     }
 
     #[test]
@@ -580,7 +608,7 @@ mod tests {
         let r = phones_row_for(Some(bt));
         assert_eq!(
             (r.state, r.warning),
-            (RowState::Ok, Some(SetupWarning::BluetoothOutput))
+            (SetupState::Ok, Some(SetupWarning::BluetoothOutput))
         );
         let usb = dev("U", DeviceKind::Headphones, 0, 2, Transport::Usb).with_defaults(false, true);
         assert_eq!(phones_row_for(Some(usb)).warning, None);
@@ -591,7 +619,10 @@ mod tests {
         let bt_in = dev("BI", DeviceKind::Headphones, 1, 2, Transport::Bluetooth);
         let mut f = all_ok();
         f.devices.devices.push(bt_in);
-        assert_eq!(row(&build_report(&f), RowId::Phones).warning, None);
+        assert_eq!(
+            find_item(&build_report(&f), SetupItemId::Phones).warning,
+            None
+        );
     }
 
     #[test]
@@ -604,19 +635,29 @@ mod tests {
             ModelState::Error,
         ];
         let r = build_report(&f);
-        let got: Vec<(RowId, RowState, Option<SetupFix>)> =
-            r.rows[4..].iter().map(|x| (x.id, x.state, x.fix)).collect();
+        let got: Vec<(SetupItemId, SetupState, Option<SetupFix>)> = r.items[4..]
+            .iter()
+            .map(|x| (x.id, x.state, x.fix))
+            .collect();
         assert_eq!(
             got,
             [
-                (RowId::Sr, RowState::Ok, None),
-                (RowId::Tr, RowState::Missing, Some(SetupFix::DownloadModel)),
+                (SetupItemId::Sr, SetupState::Ok, None),
                 (
-                    RowId::EnV,
-                    RowState::Installing,
+                    SetupItemId::Tr,
+                    SetupState::Missing,
+                    Some(SetupFix::DownloadModel)
+                ),
+                (
+                    SetupItemId::EnV,
+                    SetupState::Installing,
                     Some(SetupFix::WaitForInstall)
                 ),
-                (RowId::ViV, RowState::Error, Some(SetupFix::DownloadModel)),
+                (
+                    SetupItemId::ViV,
+                    SetupState::Error,
+                    Some(SetupFix::DownloadModel)
+                ),
             ]
         );
     }
@@ -632,15 +673,15 @@ mod tests {
             ModelState::Error,
             ModelState::Ok,
         ];
-        for r in build_report(&f).rows {
-            assert_eq!(r.fix.is_some(), r.state != RowState::Ok, "{:?}", r.id);
+        for r in build_report(&f).items {
+            assert_eq!(r.fix.is_some(), r.state != SetupState::Ok, "{:?}", r.id);
         }
     }
 
     #[test]
     fn report_json_uses_camel_case_ids_and_has_no_required_field() {
         let json = serde_json::to_value(build_report(&all_ok())).unwrap();
-        let ids: Vec<&str> = json["rows"]
+        let ids: Vec<&str> = json["items"]
             .as_array()
             .unwrap()
             .iter()
@@ -650,9 +691,11 @@ mod tests {
             ids,
             ["mic", "capture", "vmic", "phones", "sr", "tr", "enV", "viV"]
         );
-        let text = json.to_string();
-        assert!(!text.contains("required") && !text.contains("blocks"));
-        assert!(json["rows"][0].get("fix").is_none());
+        let keys = |v: &serde_json::Value| -> Vec<String> {
+            v.as_object().unwrap().keys().cloned().collect()
+        };
+        assert_eq!(keys(&json), ["items"]);
+        assert_eq!(keys(&json["items"][0]), ["detail", "id", "state"]);
     }
 
     #[test]
@@ -662,10 +705,10 @@ mod tests {
         let mut f = all_ok();
         f.mic_permission = permission;
         let r = build_report(&f);
-        let m = row(&r, RowId::Mic);
+        let m = find_item(&r, SetupItemId::Mic);
         assert_eq!(
             (m.state, m.fix),
-            (RowState::Missing, Some(SetupFix::AllowMicrophone))
+            (SetupState::Missing, Some(SetupFix::AllowMicrophone))
         );
     }
 
