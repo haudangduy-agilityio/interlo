@@ -13,10 +13,24 @@ pub enum OutputError {
     VirtualMicrophoneLoop,
     #[error("audio output is not implemented yet")]
     NotImplemented,
+    /// The sink took none of the frames of a non-empty write. A sink returns
+    /// this instead of `Ok(0)`, so a caller that writes the rest again cannot
+    /// loop forever.
+    #[error("the audio output accepted no frames")]
+    Stalled,
 }
 
-/// A sink for mono f32 frames at the output sample rate.
-pub trait AudioOutput {
+/// A sink for mono f32 frames at the output sample rate: the one interface
+/// between the engine and the audio backends (virtual microphone, headphones,
+/// later others). One frame is one mono sample.
+///
+/// Contract:
+/// - `write_frames` returns how many frames it took: fewer than given is
+///   allowed, more is not. The caller writes the rest again.
+/// - A non-empty write that takes no frame returns `Err(OutputError::Stalled)`,
+///   never `Ok(0)`.
+/// - `flush` ends a stream.
+pub trait AudioOutput: Send {
     /// Returns the number of frames accepted.
     fn write_frames(&mut self, frames: &[f32]) -> Result<usize, OutputError>;
     fn flush(&mut self) -> Result<(), OutputError>;
