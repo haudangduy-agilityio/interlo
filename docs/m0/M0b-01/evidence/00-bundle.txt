@@ -1,0 +1,17 @@
+# The bundle, its signature and its size (2026-11-23T14:21:20+0700)
+bundle: target/release/bundle/macos/Interlo.app (one-off --config override, tauri.conf.json unchanged)
+$ codesign --verify --deep --strict --verbose=2 Interlo.app
+~/Desktop/workspace/training/ai/interlo-wt-m0b01/target/release/bundle/macos/Interlo.app: valid on disk
+~/Desktop/workspace/training/ai/interlo-wt-m0b01/target/release/bundle/macos/Interlo.app: satisfies its Designated Requirement
+exit: 0
+$ codesign -dv Interlo.app
+Identifier=app.interlo.desktop
+Format=app bundle with Mach-O thin (arm64)
+Signature size=1914
+Signed Time=Nov 23, 2026 at 14:21:20
+TeamIdentifier=not set
+$ shasum -a 256 .../Contents/MacOS/interlo-desktop
+3356b25757e911520a7957362b1a3d0673d8a04fe100fc0277c8c64a60ff5c08  target/release/bundle/macos/Interlo.app/Contents/MacOS/interlo-desktop
+$ du -sh Interlo.app
+5.9M	target/release/bundle/macos/Interlo.app
+RESULT: signed with "Interlo Local Signing"; codesign --verify --deep --strict exit 0

@@ -1,0 +1,9 @@
+# Window poll, every 100 ms, from the moment before open -n (2026-11-23T14:21:20+0700)
+launch: epoch_ms=1795418480742 pid=65019; limit 60000 ms
+t=184ms windows=0 
+t=1054ms windows=1 found: id=2164 title="Interlo" size=1200x780
+capture: first-frame-win2164-t1054ms-epoch1795418481.png taken at t=1054ms (the first poll that found the window)
+capture: after-5s-win2164-t6215ms-epoch1795418486.png taken at t=6215ms
+first-frame-win2164-t1054ms-epoch1795418481.png: 1200 780 pixels, 22760 bytes
+after-5s-win2164-t6215ms-epoch1795418486.png: 1200 780 pixels, 123552 bytes
+RESULT: title "Interlo", size 1200 by 780 points, found 1054 ms after launch (limit 60000 ms); two screenshots of window 2164
