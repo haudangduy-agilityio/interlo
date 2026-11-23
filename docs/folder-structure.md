@@ -4,7 +4,10 @@
 Cargo.toml                 Rust workspace; every crate below is a member
 crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
-  audio-io/                devices, capture plan, output, ring buffer, resampler trait
+  audio-io/                devices, device list, setup report, capture plan, output, ring buffer, resampler trait
+    src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
+    src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
+    examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
   engine-host/             engine traits, registry, segmenter, language gate
@@ -66,6 +69,7 @@ docs/                      reference files (routed from CLAUDE.md)
 fixtures/
   protocol/                journal replay files
   ipc/                     IPC contract payloads read by Rust and UI tests
+  audio/                   one text sample of the system audio tool's output (generic device names), read by audio-io tests
 scripts/check.sh           the gate (quick, full), the e2e run (e2e), the signed-app check (app) and the dependency audit (supply)
 scripts/app-check.sh       the steps of the signed-app check; `app-check.test.sh` tests its pure parts; `app-check/` holds the Swift helpers (window list, input source, app driver)
 .claude/                   project hooks and their tests, review agents, skills, review-scope rule
