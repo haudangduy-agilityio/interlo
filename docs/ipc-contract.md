@@ -17,6 +17,12 @@ Webview rules: each command is granted to the main window by name
 A new command needs an entry in both files. The webview can show only the app's
 own origin; any other navigation is denied.
 
+The main window starts hidden (`"visible": false` in `tauri.conf.json`). The page shows it
+after it has mounted (`apps/ui/src/ipc/showWindow.ts`), so the owner never sees the empty
+native window colour. The capability grants `core:window:allow-show` for this and no other
+window permission. If the page does not show the window, the shell does after 3 seconds
+(`src/first_paint.rs`).
+
 ## Errors
 
 ```ts
