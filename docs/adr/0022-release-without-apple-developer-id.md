@@ -7,7 +7,7 @@
 
 ## Context
 
-The owner has no Apple Developer Program account. Without it there is no Developer ID
+Interlo does not use an Apple Developer Program account. Without one there is no Developer ID
 certificate and no notarization. Interlo is not published in an app store. The owner
 gives people a DMG file and a guide to install it.
 
