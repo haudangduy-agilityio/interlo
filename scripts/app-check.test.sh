@@ -109,6 +109,18 @@ expect_flagged "the diff names the wrong tone" "$(nfc_diff "$NFC_DIR/wrong-tone.
 rm -f "$NFC_DIR"/*.txt
 rmdir "$NFC_DIR"
 
+# A locked screen is detected from the ioreg text.
+LOCKED_TEXT='	<key>CGSSessionScreenIsLocked</key>
+	<true/>
+	<key>kCGSSessionOnConsoleKey</key>
+	<true/>'
+UNLOCKED_TEXT='	<key>kCGSSessionOnConsoleKey</key>
+	<true/>
+	<key>kCGSSessionUserIDKey</key>
+	<integer>501</integer>'
+expect_status "a locked screen is detected" 0 "$(echo "$LOCKED_TEXT" | status_of screen_is_locked)"
+expect_status "an unlocked screen is not reported as locked" 1 "$(echo "$UNLOCKED_TEXT" | status_of screen_is_locked)"
+
 # The repository evidence folder holds text only: an image under it is refused.
 TXT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-textXXXXXX")"
 mkdir -p "$TXT_DIR/ok" "$TXT_DIR/image" "$TXT_DIR/binary"

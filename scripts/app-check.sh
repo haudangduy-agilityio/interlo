@@ -114,6 +114,11 @@ socket_violations() {
   '
 }
 
+# True when the `ioreg -n Root -d1 -a` text on stdin says that the screen is locked.
+screen_is_locked() {
+  grep -A1 'CGSSessionScreenIsLocked' | grep -q '<true/>'
+}
+
 # Median of the numbers on stdin (one per line); the lower middle for an even count.
 median() {
   sort -n | awk '{ v[NR] = $1 } END { if (NR == 0) exit 1; print v[int((NR + 1) / 2)] }'
@@ -299,6 +304,10 @@ step_prereq() {
   cargo tauri --version >/dev/null 2>&1 || blocked "the Tauri CLI is not installed (cargo install tauri-cli --version '^2' --locked)"
   security find-identity -v -p codesigning | grep -q "$IDENTITY" ||
     blocked "the signing identity \"$IDENTITY\" is not in the keychain"
+  # A locked screen hides the windows: the window, memory and screenshot checks cannot run.
+  if ioreg -n Root -d1 -a 2>/dev/null | screen_is_locked; then
+    blocked "the screen is locked (CGSSessionScreenIsLocked is true): unlock the Mac and run the check again"
+  fi
   mkdir -p "$OUT" "$EVID" "$SHOTS"
   # A new run replaces the evidence of the last run.
   find "$EVID" -type f -delete
@@ -438,7 +447,12 @@ step_window() {
   h="$(echo "$first" | cut -f4)"
   epoch="$(date +%s)"
   first_shot="$SHOTS/first-frame-win${id}-t${elapsed}ms-epoch${epoch}.png"
-  screencapture -x -o -l "$id" "$first_shot" || fail "screencapture of window $id failed"
+  local try=0
+  until screencapture -x -o -l "$id" "$first_shot" 2>/dev/null; do
+    try=$((try + 1))
+    [ "$try" -lt 10 ] || fail "screencapture of window $id failed 10 times in a row (is the screen locked or asleep?)"
+    sleep 0.2
+  done
   echo "$first_shot" >>"$OUT/shots.list"
   echo "capture: first-frame-win${id}-t${elapsed}ms-epoch${epoch}.png taken at t=${elapsed}ms (the first poll that found the window)" >>"$log"
   sleep "$SHOT_LATE_AFTER_S"
