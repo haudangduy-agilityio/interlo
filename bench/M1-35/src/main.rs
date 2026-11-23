@@ -14,9 +14,20 @@ use std::process::ExitCode;
 
 use common::{failure_line, result_line, Config, Outcome, Res};
 
-const ROLES: [&str; 4] = ["vad", "translate", "voice", "asr"];
+type RoleFn = fn(&Config) -> Res<Outcome>;
 
-fn parse_args() -> Result<(String, Config), String> {
+/// The entry point of a role, or `None` for a name that is not one of the four roles.
+fn find_role(name: &str) -> Option<RoleFn> {
+    match name {
+        "vad" => Some(vad::run),
+        "translate" => Some(translate::run),
+        "voice" => Some(voice::run),
+        "asr" => Some(asr::run),
+        _ => None,
+    }
+}
+
+fn parse_args() -> Result<(String, RoleFn, Config), String> {
     let mut args = std::env::args().skip(1);
     let role = args.next().unwrap_or_default();
     let mut cfg = Config {
@@ -36,31 +47,19 @@ fn parse_args() -> Result<(String, Config), String> {
             _ => return Err(format!("unknown flag {flag}")),
         }
     }
-    if !ROLES.contains(&role.as_str()) {
-        return Err(format!("unknown role '{role}'"));
-    }
-    Ok((role, cfg))
-}
-
-fn run_role(role: &str, cfg: &Config) -> Res<Outcome> {
-    match role {
-        "vad" => vad::run(cfg),
-        "translate" => translate::run(cfg),
-        "voice" => voice::run(cfg),
-        "asr" => asr::run(cfg),
-        _ => Err("not implemented".to_string()),
-    }
+    let run = find_role(&role).ok_or_else(|| format!("unknown role '{role}'"))?;
+    Ok((role, run, cfg))
 }
 
 fn main() -> ExitCode {
-    let (role, cfg) = match parse_args() {
+    let (role, run, cfg) = match parse_args() {
         Ok(parsed) => parsed,
         Err(reason) => {
             eprintln!("{}", failure_line("none", &reason));
             return ExitCode::from(2);
         }
     };
-    match run_role(&role, &cfg) {
+    match run(&cfg) {
         Ok(outcome) => {
             eprintln!("{}", result_line(&role, &outcome));
             if outcome.pass {

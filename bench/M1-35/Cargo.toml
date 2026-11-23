@@ -10,7 +10,7 @@ publish = false
 
 [dependencies]
 ort = { version = "=2.0.0-rc.15" }
-# Not called by this crate: pinned so the tensor feature of `ort` resolves to this exact version.
+# Not called by this crate: declared with an exact pin because SPEC M1-35 AC-02 lists it.
 ndarray = "=0.17.2"
 tokenizers = { version = "=0.23.2", default-features = false, features = ["onig"] }
 

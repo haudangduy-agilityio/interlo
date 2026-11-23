@@ -35,6 +35,11 @@ const AUDIO_TOPP: f32 = 0.95;
 const REPETITION_PENALTY: f32 = 1.2;
 const CFG_SCALE: f32 = 1.0;
 
+/// Most values a config may ask for in the code table or the preset voice (16 MiB as f32).
+const MAX_TABLE_VALUES: usize = 1 << 22;
+/// Longest file name accepted for the codec weight link.
+const MAX_NAME_BYTES: usize = 255;
+
 const MIN_SAMPLES: usize = 4_800;
 const MIN_PEAK: f32 = 0.01;
 
@@ -104,6 +109,7 @@ fn flags_out(outputs: &SessionOutputs, name: &str) -> Res<Flags> {
 }
 
 pub fn run(cfg: &Config) -> Res<Outcome> {
+    refuse_file_stdout()?;
     let t_load = Instant::now();
     let dir = cfg.models_dir.join("voice");
     let env = new_environment()?;
@@ -124,10 +130,19 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
     if sample_rate != CODEC_RATE_HZ {
         return Err(format!("unexpected codec rate {sample_rate}"));
     }
+    let table = params.codebooks.checked_mul(params.codebook_size);
+    let preset = params.voice_queries.checked_mul(params.d_model);
+    let (Some(table), Some(preset)) = (table, preset) else {
+        return Err("config sizes overflow".to_string());
+    };
+    if table > MAX_TABLE_VALUES || preset > MAX_TABLE_VALUES {
+        return Err("config sizes are too large".to_string());
+    }
+    check_size(&dir.join("tokenizer.json"), MAX_TEXT_FILE_BYTES)?;
     let tokenizer =
         Tokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| format!("tokenizer: {e}"))?;
-    let voice = read_f32_raw(&dir.join("voices/preset.bin"))?;
-    if voice.len() != params.voice_queries * params.d_model {
+    let voice = read_f32_raw(&dir.join("voices/preset.bin"), preset as u64 * 4)?;
+    if voice.len() != preset {
         return Err(format!("voice preset has {} values", voice.len()));
     }
     let load_ms = ms(t_load);
@@ -159,7 +174,6 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
         );
     }
 
-    refuse_file_stdout()?;
     let mut bytes = Vec::with_capacity(samples.len() * 4);
     for s in &samples {
         bytes.extend_from_slice(&s.to_le_bytes());
@@ -178,20 +192,28 @@ fn load_codec(env: &Environment, dir: &Path) -> Res<Session> {
     use std::os::unix::fs::MetadataExt;
     let graph = dir.join("decode_full.onnx");
     let short = dir.join("decode_shared.data");
-    if short.is_file() && graph.is_file() {
+    if let (true, Ok(a)) = (graph.is_file(), std::fs::symlink_metadata(&short)) {
+        // Links are never followed: both names must be regular files of the models folder.
+        if !a.file_type().is_file() {
+            return Err("codec weights are not a regular file".to_string());
+        }
+        check_size(&graph, MAX_TEXT_FILE_BYTES)?;
         let bytes = std::fs::read(&graph).ctx("read codec graph")?;
         let name = external_data_name(&bytes).ok_or("codec graph names no weight file")?;
+        if name.len() > MAX_NAME_BYTES {
+            return Err("codec weight name is too long".to_string());
+        }
         let long = dir.join(name);
-        if long.exists() {
-            let (a, b) = (
-                std::fs::metadata(&short).ctx("codec weights")?,
-                std::fs::metadata(&long).ctx("codec weights link")?,
-            );
-            if (a.dev(), a.ino()) != (b.dev(), b.ino()) {
-                return Err("codec weights link is not the listed file".to_string());
+        match std::fs::symlink_metadata(&long) {
+            Ok(b) => {
+                if !b.file_type().is_file() || (a.dev(), a.ino()) != (b.dev(), b.ino()) {
+                    return Err("codec weights link is not the listed file".to_string());
+                }
             }
-        } else {
-            std::fs::hard_link(&short, &long).ctx("link codec weights")?;
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::hard_link(&short, &long).ctx("link codec weights")?;
+            }
+            Err(e) => return Err(format!("codec weights link: {e}")),
         }
     }
     load_session(env, &graph)
@@ -228,8 +250,9 @@ fn refuse_file_stdout() -> Res<()> {
 }
 
 /// Reads raw f32 little-endian values.
-fn read_f32_raw(path: &Path) -> Res<Vec<f32>> {
-    let bytes = std::fs::read(path).ctx(&format!("read {}", path.display()))?;
+fn read_f32_raw(path: &Path, max_bytes: u64) -> Res<Vec<f32>> {
+    check_size(path, max_bytes)?;
+    let bytes = std::fs::read(path).ctx(&format!("read {}", file_name(path)))?;
     Ok(f32s_from_le(&bytes))
 }
 
@@ -314,17 +337,18 @@ fn generate_codes(
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut seen = vec![false; p.codebooks * p.codebook_size];
     let mut frames: Vec<Vec<i32>> = Vec::new();
-    let mut index = 0usize;
-    loop {
+    let mut ended = false;
+    for index in 0..MAX_FRAMES {
         let forbid = index < MIN_FRAMES;
         let (is_eoa, codes) = local_call(local_decode, p, &hidden, forbid, &mut seen, &mut rng)?;
-        if index >= MAX_FRAMES {
-            break;
-        }
         // The frame that carries the end marker is kept: it is the model's own trailing frame.
         let step_codes: Vec<i64> = codes.iter().map(|&c| c as i64).collect();
         frames.push(codes);
         if is_eoa {
+            ended = true;
+            break;
+        }
+        if index + 1 == MAX_FRAMES {
             break;
         }
         let next = prefix_call(
@@ -345,10 +369,9 @@ fn generate_codes(
         hidden = next.0;
         packed_kv = next.1;
         full_valid = next.2;
-        index += 1;
     }
-    if frames.is_empty() {
-        return Err("no audio frames".to_string());
+    if !ended {
+        return Err(format!("no end marker within {MAX_FRAMES} frames"));
     }
     Ok(frames)
 }
@@ -458,9 +481,7 @@ fn local_call(
             return Err(format!("code {code} is outside the codebook"));
         }
         let at = book * p.codebook_size + code as usize;
-        if let Some(slot) = seen.get_mut(at) {
-            *slot = true;
-        }
+        seen[at] = true;
     }
     Ok((eoa != 0, codes))
 }

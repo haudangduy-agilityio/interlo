@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ort::environment::Environment;
-use ort::session::Session;
+use ort::session::{Session, SessionOutputs};
 use ort::value::{DynValue, Tensor};
 use tokenizers::{NormalizedString, Normalizer};
 
@@ -84,11 +84,7 @@ pub fn new_environment() -> Res<Environment> {
 /// Loads one ONNX file with four intra-op threads. A missing file is a plain failure reason.
 pub fn load_session(env: &Environment, path: &Path) -> Res<Session> {
     if !path.is_file() {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-        return Err(format!(
-            "model file missing: {}",
-            name.unwrap_or_else(|| "?".to_string())
-        ));
+        return Err(format!("model file missing: {}", file_name(path)));
     }
     let mut builder = Session::builder(env)
         .ctx("session builder")?
@@ -96,12 +92,33 @@ pub fn load_session(env: &Environment, path: &Path) -> Res<Session> {
         .ctx("thread setting")?;
     builder
         .commit_from_file(path)
-        .ctx(&format!("load {}", path.display()))
+        .ctx(&format!("load {}", file_name(path)))
+}
+
+/// The last component of a path, for error lines: a failure reason never carries a full path.
+pub fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(|| "?".to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// Largest text file a role reads (config, tokenizer, reading list).
+pub const MAX_TEXT_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Fails when the file is larger than `max` bytes, before any of it is read into memory.
+pub fn check_size(path: &Path, max: u64) -> Res<()> {
+    let len = std::fs::metadata(path)
+        .ctx(&format!("stat {}", file_name(path)))?
+        .len();
+    if len > max {
+        return Err(format!("{} is larger than {max} bytes", file_name(path)));
+    }
+    Ok(())
 }
 
 /// Reads a small text file of the model folder.
 pub fn read_text(path: &Path) -> Res<String> {
-    std::fs::read_to_string(path).ctx(&format!("read {}", path.display()))
+    check_size(path, MAX_TEXT_FILE_BYTES)?;
+    std::fs::read_to_string(path).ctx(&format!("read {}", file_name(path)))
 }
 
 /// Finds `"key": <integer>` in a flat JSON text. The configs of the models are flat; a full JSON
@@ -176,6 +193,20 @@ pub fn f32s_from_le(bytes: &[u8]) -> Vec<f32> {
 /// Splits a tensor shape from the runtime into plain sizes.
 pub fn dims(shape: &[i64]) -> Vec<usize> {
     shape.iter().map(|&d| d.max(0) as usize).collect()
+}
+
+/// The logits of the last position of a decoder step (output `logits`, shape `[1, steps, vocab]`).
+pub fn last_logits(outputs: &SessionOutputs) -> Res<Vec<f32>> {
+    let (shape, logits) = outputs
+        .get("logits")
+        .ok_or("logits missing")?
+        .try_extract_tensor::<f32>()
+        .ctx("logits")?;
+    let vocab = *dims(shape).last().ok_or("logits shape is empty")?;
+    if vocab == 0 || logits.len() < vocab {
+        return Err("logits are empty".to_string());
+    }
+    Ok(logits[logits.len() - vocab..].to_vec())
 }
 
 /// Index of the largest value (first one on a tie).

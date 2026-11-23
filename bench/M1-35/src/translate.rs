@@ -147,17 +147,7 @@ fn translate(
         ];
         push_empty_past(&mut inputs)?;
         let outputs = decoder.run(inputs).ctx("decoder run")?;
-        let (shape, logits) = outputs
-            .get("logits")
-            .ok_or("logits missing")?
-            .try_extract_tensor::<f32>()
-            .ctx("logits")?;
-        let d = dims(shape);
-        let vocab = *d.last().ok_or("logits shape is empty")?;
-        if logits.len() < vocab || vocab == 0 {
-            return Err("logits are empty".to_string());
-        }
-        let mut last = logits[logits.len() - vocab..].to_vec();
+        let mut last = last_logits(&outputs)?;
         // The start token doubles as the padding token and never appears in a translation.
         if let Some(v) = last.get_mut(start as usize) {
             *v = f32::NEG_INFINITY;

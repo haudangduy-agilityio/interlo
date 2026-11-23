@@ -33,6 +33,7 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
     let env = new_environment()?;
     let mut encoder = load_session(&env, &dir.join("encoder.onnx"))?;
     let mut decoder = load_session(&env, &dir.join("decoder.onnx"))?;
+    check_size(&dir.join("tokenizer.json"), MAX_TEXT_FILE_BYTES)?;
     let tokenizer =
         Tokenizer::from_file(dir.join("tokenizer.json")).map_err(|e| format!("tokenizer: {e}"))?;
     let config = read_text(&dir.join("config.json"))?;
@@ -143,16 +144,7 @@ fn recognize(
         ];
         push_empty_past(&mut inputs)?;
         let outputs = decoder.run(inputs).ctx("decoder run")?;
-        let (shape, logits) = outputs
-            .get("logits")
-            .ok_or("logits missing")?
-            .try_extract_tensor::<f32>()
-            .ctx("logits")?;
-        let vocab = *dims(shape).last().ok_or("logits shape is empty")?;
-        if vocab == 0 || logits.len() < vocab {
-            return Err("logits are empty".to_string());
-        }
-        let mut last = logits[logits.len() - vocab..].to_vec();
+        let mut last = last_logits(&outputs)?;
         // Only text tokens and the end token may follow the prompt: every id above the end token
         // is a control or time stamp token.
         for (id, v) in last.iter_mut().enumerate() {
