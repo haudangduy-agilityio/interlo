@@ -1,4 +1,4 @@
-This file is the private licence record for NOTICE. It names the models that were studied; do not copy these names into other docs.
+This file is the private licence record for the third-party notice that is generated at release (ADR 0023). It names the models that were studied; do not copy these names into other docs.
 
 # M0-02: Candidate sheet and licence registry
 

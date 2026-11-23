@@ -7,15 +7,16 @@
 ## Context
 
 Some candidate models, such as the translation models, were trained on data
-under non-commercial terms (see `NOTICE`). Dropping them would leave v1 without
-a working translation model. Models are not bundled (ADR 0003), so the owner
+under non-commercial terms (see the notice shipped in the app). Dropping them would
+leave v1 without a working translation model. Models are not bundled (ADR 0003), so the owner
 downloads each one.
 
 ## Decision
 
 These models stay in the default model list. The model manager shows each
 model's licence and its non-commercial flag, and the owner accepts the licence
-before the download starts. README and NOTICE say so.
+before the download starts. The README and the notice shipped in the app say so (the
+notice is generated at release, ADR 0023).
 
 ## Consequences
 

@@ -55,7 +55,8 @@ icon in the sidebar at 26 px. Do not recolour the icon until the owner decides.
   does ("Start meeting", "Retry translation"). A failure stays until the cause is gone or the
   person dismisses it. Strings live in `apps/ui/src/shared/messages.en.ts` and `messages.vi.ts`.
 - **No other product names** in any UI text or fixture (guardrail 3). Meeting apps are "meeting
-  app". Libraries and fonts are named only in `docs/tech-stack.md` and `NOTICE`.
+  app". Libraries and fonts are named only in `docs/tech-stack.md`, the notice generated at release,
+  and the licence files beside bundled fonts.
 
 ## Tokens
 
@@ -211,5 +212,5 @@ then, new UI follows this file, not that stylesheet.
 | Toast | bordered card, red edge for an error | inverted bar, `radius-12` |
 
 X-50 also adds the missing components, a test that keeps every text pair at 4.5:1, and the
-attribution of the font families in `docs/tech-stack.md` and `NOTICE` (the families are named in
-the design system's `tokens.json`).
+attribution of the font families in `docs/tech-stack.md` and in the licence files beside the font
+files (the families are named in the design system's `tokens.json`).

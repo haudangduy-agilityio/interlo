@@ -83,7 +83,7 @@ const FOREIGN = ["claude-code", "Ticket-", "practice/", "todo-api", "npm start",
 const CHECK_MODES = new Set(["quick", "full", "e2e", "supply"]);
 const NAME = /^[A-Za-z0-9_]+\.md$/;
 const ROOT_PATH = /^(?:\.claude|\.github|\.gitlab|docs|scripts|apps|crates)\/[\w./-]+$/;
-const TOP_LEVEL = new Set(["LICENSE", "NOTICE", "deny.toml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]);
+const TOP_LEVEL = new Set(["LICENSE", "deny.toml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]);
 
 const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
 const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/;

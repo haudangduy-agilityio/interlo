@@ -80,8 +80,9 @@ Ranges are in `package.json`; the lock file pins the exact version.
 
 ## Models (not in the repo)
 
-This is the one place in the docs that names models. Licence attribution is in
-`NOTICE`; the licence reads are in `docs/m0/candidates.md`.
+This is the one place in the docs that names models. Licence attribution is the
+notice that is generated at release and shipped inside the app (ADR 0023); the
+licence reads are in `docs/m0/candidates.md`.
 
 | Stage | Model | Licence | Status |
 |---|---|---|---|

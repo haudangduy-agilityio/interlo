@@ -147,6 +147,14 @@ describe("check-templates", () => {
     assert.deepEqual(mr("Default.md", (t) => t + "\nSee `docs/guardrails.md:12`, `docs/*.md`, [x](docs/guardrails.md#top), `deny.toml`.\n"), []);
   });
 
+  it("does not treat NOTICE as a repository path (it is generated at release, not tracked)", () => {
+    const root = scratch();
+    rmSync(join(root, "NOTICE"), { force: true });
+    const path = join(root, ".gitlab", "merge_request_templates", "Default.md");
+    writeFileSync(path, readFileSync(path, "utf8") + "\nThird-party notices: `NOTICE`.\n");
+    assert.deepEqual(checkTemplates(root), []);
+  });
+
   it("reports a dropped Interlo rule in the default merge request template", () => {
     has(mr("Default.md", (t) => t.replace("- [ ] Every commit is signed off (DCO)\n", "")), "signed off (DCO)");
   });

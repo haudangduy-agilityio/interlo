@@ -16,8 +16,9 @@ Rules for every change. A change that breaks one is not done.
    commit messages or UI text. Use generic terms: "meeting app", "virtual
    microphone", "virtual audio device".
    The README and every other text in the repository name only Interlo.
-   Libraries and models are named only in `docs/tech-stack.md` and `NOTICE` as
-   dependency attribution (D-56).
+   Libraries and models are named only in `docs/tech-stack.md`, in the notice that
+   is generated at release and shipped inside the app, and in the licence files
+   beside bundled fonts, as dependency attribution (D-56, D-192).
 4. **English** in code, comments, identifiers, docs and UI text. Vietnamese UI text
    comes from the interface-language setting, never from hard-coded strings.
 5. **Secrets.** API keys live in the macOS Keychain only. They never reach the

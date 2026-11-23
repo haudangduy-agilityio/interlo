@@ -49,6 +49,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | [0020](adr/0020-ipc-types-stay-hand-written.md) | IPC types stay hand-written; the fixtures keep both sides in step (accepted) |
 | [0021](adr/0021-downloads-https-only-redirects-inside-the-allow-list.md) | Downloads use https only and follow a redirect only inside the pinned allow list (accepted, D-175) |
 | [0022](adr/0022-release-without-apple-developer-id.md) | Release without an Apple Developer account: a locally signed DMG, no notarization, an install guide (accepted, D-188) |
+| [0023](adr/0023-notice-is-generated-at-release-not-tracked.md) | NOTICE is not tracked; it is generated at release and shipped in the app (accepted, D-192) |
 
 ## Scope and release
 
@@ -60,8 +61,8 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | D-41 | macOS only in v1 (Apple silicon, macOS 14.4 or later). |
 | D-42 | No cloud in v1: no cloud engines, accounts, sharing or backend. |
 | D-43 | Daily workspace (E1) and quick actions (E2) ship in v1, after the MVP gate, in the same app as modules. |
-| D-47 | Models trained on non-commercial data stay in the default list. The model manager shows each licence and its non-commercial flag; the owner accepts before the download. README and NOTICE say so. |
-| D-56 | The README and every other repository text, UI text, code, test and fixture name only Interlo. Libraries and models are named only in `docs/tech-stack.md` and `NOTICE` as dependency attribution. The UI uses generic labels for meeting apps. Guardrail 3 stays as written. |
+| D-47 | Models trained on non-commercial data stay in the default list. The model manager shows each licence and its non-commercial flag; the owner accepts before the download. The README and the notice shipped in the app say so (D-192). |
+| D-56 | The README and every other repository text, UI text, code, test and fixture name only Interlo. Libraries and models are named only in `docs/tech-stack.md`, in the notice generated at release and shipped in the app, and in the licence files beside bundled fonts, as dependency attribution (amended by D-192; before it, the place was `docs/tech-stack.md` and the tracked `NOTICE`). The UI uses generic labels for meeting apps. |
 | D-57 | Contribution policy: DCO sign-off (`Signed-off-by`), no CLA; main branch protected with the required CI check and one review (owner action H-20). Task X-12 adds the files and the DCO check. The code of conduct part is superseded by D-187: `CODE_OF_CONDUCT.md` was removed on the owner's request (2026-11-19). See ADR 0014. |
 | D-58 | Nothing is sent automatically. "Export diagnostics" writes a redacted file (timings, event names, error codes; no transcript text) that the user attaches to an issue by hand. The update half of this decision is superseded by D-61 (automatic updates, ADR 0015); the diagnostics half stays. |
 | D-54 | The README keeps the sentence "You must follow the recording laws where you live." There is no consent notice in the app (M-Q11). |
@@ -172,6 +173,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | D-189 | Plan shift (owner, 2026-11-20). Day 1 passed with no code. Every date moves one working day later: day n takes the date that day n+1 had. One of the four spare days is used and the end of the window stays 20 Jan 2027. Task order, sizes and sprint numbers by day do not change. |
 | D-190 | Spike code and notes (owner, 2026-11-20). Spike and measurement code lives in `bench/<task-id>/`, one crate per task with its own `[workspace]`, and is merged with its note `docs/m0/<task-id>.md`. The note of M0b-05 is `docs/m0/M0b-05.md`. Product code never imports from `bench/`. |
 | D-191 | UI framework (owner, 2026-11-20). React stays. The Svelte comparison of Q57 is dropped for v1 because no task builds or measures a Svelte version. M0b-03 measures the React shell only. |
+| D-192 | `NOTICE` is not tracked (owner, 2026-11-23; ADR 0023). `/NOTICE` is in `.gitignore`. The release build generates the third-party notice from `docs/tech-stack.md` and `docs/m0/candidates.md` and ships it inside the app. Repository text no longer links to it. Bundled font licence texts stay beside the font files. Old commits keep the file. The release tasks (M4-15, X-10, X-09) must generate and bundle the notice and fail the release without it. |
 
 Other rows that these decisions touch:
 

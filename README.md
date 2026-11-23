@@ -81,7 +81,8 @@ cargo run -p interlo-desktop
 - Audio is never stored. Only text is saved.
 - Models are not bundled and are checked against a checksum before they run.
   Models are downloaded by you after you accept each model's licence; some
-  models are trained on non-commercial data (see NOTICE).
+  models are trained on non-commercial data (see the third-party notice inside the
+  app).
 
 ## Reporting problems and updates
 
@@ -106,7 +107,8 @@ You must follow the recording laws where you live.
 ## Licence
 
 MIT. See [LICENSE](LICENSE). Models are not part of this repository and carry
-their own licences; third-party notices are in [NOTICE](NOTICE).
+their own licences; third-party notices are generated at release and shipped
+inside the app.
 
 ## Documentation
 

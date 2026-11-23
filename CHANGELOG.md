@@ -12,7 +12,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Rust workspace with the core crates, a Tauri 2 shell and a React UI shell.
 - `scripts/check.sh` gate (`quick` and `full`) and a CI workflow that runs it.
 - Architecture decision records in `docs/adr/` (0007 part 2 is proposed).
-- `NOTICE` with third-party licence attribution.
+- Third-party licence attribution, generated at release and shipped inside the app
+  (not tracked in the repository, ADR 0023).
 - Start checks in two layers.
 - Quick actions paste only after Enter.
 - Deleting a meeting deletes notes created in it.
