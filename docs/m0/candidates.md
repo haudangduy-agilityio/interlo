@@ -68,3 +68,20 @@ Well under the 6 GB model cap (M-Q39). Data volume: 54 GiB free on 2026-11-16.
 1. ZeroTTS ONNX int8 file size: check the zeroweight-ai/ZeroTTS repo files (G-12).
 2. English voice choice (M0-07): owner listens (G-13).
 3. PhoWhisper base and tiny cards (G-10).
+
+## M1-35 provenance (downloaded 2026-11-23, owner approved the list)
+
+The files that `bench/M1-35/` loads. Hashes are in `bench/M1-35/models.sha256`. The translation and
+recognition files are community exports of the official weights, used for this spike only (the final model
+source is decided at M1-04 and M0-19). Columns: task, role, source repository, files and bytes, revision.
+
+| Task | Role | Source repository | Files and bytes | Revision |
+|---|---|---|---|---|
+| M1-35 | voice activity detection | github.com/snakers4/silero-vad (tag v6.2.3) | `src/silero_vad/data/silero_vad.onnx` 2327524 | 5cd7945676eb32225748052e2e6a0580e4686a08 |
+| M1-35 | translation | huggingface.co/Xenova/opus-mt-vi-en | encoder 186873644, merged decoder 212729612, tokenizer 5169708, config 1389, generation config 293; total 404774646 | 541dfd72ec07e8f1563795e0224408ad8d729e80 |
+| M1-35 | speech recognition | huggingface.co/onnx-community/PhoWhisper-base-ONNX | encoder 82435426, merged decoder 208446607, tokenizer 3654002, config 1309, generation config 3801, preprocessor config 339; total 294541484 | 41a94b878c46ec2ab28e0ebea0915369f0758380 |
+| M1-35 | voice | huggingface.co/zeroweight-ai/ZeroTTS | text encoder 323096725, prefix step 348303894, local frame decode 186743011, codec decode full 681902, codec decode step 351400, codec shared weights 44198912, preset voice `voices/hamy/voice.bin` 30720, null voice 30848, silence frame 256, tokenizer 191542, config 378; total 903629588. `onnx/voice_encoder.onnx` (139853093) not downloaded: the reference code does not call it | 18d6681518a4becaed3c125ceb3c7db59905fe86 |
+
+Notes from the run: the voice model card says the model is built for Vietnamese and is not evaluated as an
+English voice (see the English voice row above and M0-07). The download hosts were `raw.githubusercontent.com`,
+`huggingface.co` and its CDN `us.aws.cdn.hf.co`.

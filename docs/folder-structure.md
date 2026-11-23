@@ -29,6 +29,7 @@ apps/
   desktop/src-tauri/       Tauri shell
     src/commands/          one file per command group
     src/clock.rs           time source for the shell
+    src/first_paint.rs     shows the hidden main window after a delay if the page did not (safety net)
     src/native_confirm.rs  native dialog that proves an owner click (stub, ADR 0006)
     src/navigation.rs      webview navigation rules (only the app itself)
     tests/                 IPC contract, security config, demo-data gate, native confirm gate,
