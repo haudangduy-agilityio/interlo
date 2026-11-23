@@ -66,15 +66,16 @@ mod tests {
 
     #[test]
     fn reads_every_option() {
-        let o = parse(&a(&[
+        let Ok(o) = parse(&a(&[
             "--target-arg",
             "--user-data-dir=/x",
             "--ignore-2ch",
             "--self-tone",
             "--pidfile",
             "/p",
-        ]))
-        .unwrap_or_default();
+        ])) else {
+            panic!("a valid command line must parse");
+        };
         assert_eq!(o.target_arg.as_deref(), Some("--user-data-dir=/x"));
         assert!(o.ignore_2ch);
         assert!(o.self_tone);
@@ -84,14 +85,18 @@ mod tests {
 
     #[test]
     fn reads_the_exit_file() {
-        let o = parse(&a(&["--exitfile", "/e"])).unwrap_or_default();
+        let Ok(o) = parse(&a(&["--exitfile", "/e"])) else {
+            panic!("a valid command line must parse");
+        };
         assert_eq!(o.exitfile, Some(PathBuf::from("/e")));
         assert!(parse(&a(&["--exitfile"])).is_err());
     }
 
     #[test]
     fn control_switch_implies_the_self_tone() {
-        let o = parse(&a(&["--control-include-self"])).unwrap_or_default();
+        let Ok(o) = parse(&a(&["--control-include-self"])) else {
+            panic!("a valid command line must parse");
+        };
         assert!(o.control_include_self && o.self_tone);
     }
 

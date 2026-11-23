@@ -4,6 +4,7 @@
 //! needs hardware (and so cannot be a unit test) is exercised by the evidence runs in
 //! `docs/m0/M0b-05/evidence/`.
 
+use crate::route::Permission;
 use objc2::rc::Retained;
 use objc2_core_audio::{
     kAudioDevicePropertyDeviceUID, kAudioDevicePropertyNominalSampleRate,
@@ -19,20 +20,24 @@ use objc2_core_audio::{
 };
 use objc2_core_audio_types::{AudioBuffer, AudioBufferList};
 use objc2_foundation::NSString;
-use std::ffi::{c_char, c_int, c_void, CString};
+use std::ffi::{c_char, c_int, c_void};
 use std::ptr::NonNull;
 
 /// Plain old data that Core Audio may fill byte by byte: numbers and C structs of numbers.
-pub trait Pod: Copy {
+///
+/// # Safety
+/// Every bit pattern must be a valid value of the type (so no `bool`, enum or reference).
+pub unsafe trait Pod: Copy {
     fn zeroed() -> Self;
 }
 
 macro_rules! pod_numbers {
-    ($($t:ty),*) => {$(impl Pod for $t { fn zeroed() -> Self { 0 as $t } })*};
+    ($($t:ty),*) => {$(unsafe impl Pod for $t { fn zeroed() -> Self { 0 as $t } })*};
 }
 pod_numbers!(u32, i32, f64);
 
-impl Pod for objc2_core_audio_types::AudioStreamBasicDescription {
+// SAFETY: a C struct of plain numbers; every bit pattern is valid.
+unsafe impl Pod for objc2_core_audio_types::AudioStreamBasicDescription {
     fn zeroed() -> Self {
         Self {
             mSampleRate: 0.0,
@@ -101,7 +106,7 @@ fn get_value_qualified<T: Pod, Q>(
             NonNull::from(&mut out).cast(),
         )
     };
-    (status == 0).then_some(out)
+    (status == 0 && size as usize == std::mem::size_of::<T>()).then_some(out)
 }
 
 /// Read an array property.
@@ -258,14 +263,24 @@ pub fn channel_count(device: AudioObjectID, scope: u32) -> u32 {
     if status != 0 {
         return 0;
     }
+    sum_channels(&raw, size as usize)
+}
+
+/// Sum the channels of an `AudioBufferList` held in `raw` (`size` bytes valid): the buffer count
+/// first, then that many buffers, never more than fit in `size`.
+fn sum_channels(raw: &[u64], size: usize) -> u32 {
+    let size = size.min(std::mem::size_of_val(raw));
+    if size < 8 {
+        return 0;
+    }
     let list = raw.as_ptr().cast::<AudioBufferList>();
-    // SAFETY: Core Audio filled a valid `AudioBufferList` of `size` bytes: the count first,
-    // then that many buffers. We read only `n` buffers and stop at the buffer's byte length.
+    // SAFETY: `raw` is 8-byte aligned and holds at least `size >= 8` bytes, so the count is in
+    // bounds. Only buffers that fit completely inside `size` are read.
     unsafe {
         let n = (*list).mNumberBuffers as usize;
         let first = std::ptr::addr_of!((*list).mBuffers).cast::<AudioBuffer>();
-        let max_buffers = (size as usize).saturating_sub(8) / std::mem::size_of::<AudioBuffer>();
-        (0..n.min(max_buffers))
+        let fit = (size - 8) / std::mem::size_of::<AudioBuffer>();
+        (0..n.min(fit))
             .map(|i| (*first.add(i)).mNumberChannels)
             .sum()
     }
@@ -321,15 +336,6 @@ pub fn process_object_for_pid(pid: u32) -> Option<AudioObjectID> {
     .filter(|o| *o != 0)
 }
 
-/// State of the audio-capture permission of this app.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tcc {
-    Granted,
-    Refused,
-    /// Not decided yet (the dialog has not been answered) or the check is unavailable.
-    Unknown,
-}
-
 extern "C" {
     fn dlopen(path: *const c_char, mode: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -337,22 +343,22 @@ extern "C" {
 
 /// Ask the system for the audio-capture permission state without opening a dialog.
 /// Uses the private TCC preflight call; there is no public call for this permission.
-pub fn audio_capture_permission() -> Tcc {
+pub fn audio_capture_permission() -> Permission {
     tcc_from_code(preflight_code())
 }
 
 /// Map the preflight code: 0 granted, 1 refused, anything else not decided.
-pub fn tcc_from_code(code: Option<i32>) -> Tcc {
+pub fn tcc_from_code(code: Option<i32>) -> Permission {
     match code {
-        Some(0) => Tcc::Granted,
-        Some(1) => Tcc::Refused,
-        _ => Tcc::Unknown,
+        Some(0) => Permission::Granted,
+        Some(1) => Permission::Refused,
+        _ => Permission::Undecided,
     }
 }
 
 /// The permission as seen by a fresh process. A long-running process keeps answering with the
 /// state it first saw, so the spike asks a short-lived child of its own executable.
-pub fn fresh_permission() -> Tcc {
+pub fn fresh_permission() -> Permission {
     let code = std::env::current_exe()
         .ok()
         .and_then(|exe| {
@@ -373,12 +379,8 @@ pub fn fresh_permission() -> Tcc {
 /// Raw result of the preflight call, `None` when the call is unavailable.
 pub fn preflight_code() -> Option<i32> {
     type Preflight = unsafe extern "C" fn(*const c_void, *const c_void) -> c_int;
-    let (Ok(path), Ok(name)) = (
-        CString::new("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC"),
-        CString::new("TCCAccessPreflight"),
-    ) else {
-        return None;
-    };
+    let path = c"/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC";
+    let name = c"TCCAccessPreflight";
     // SAFETY: both strings are NUL-terminated and live for the calls; mode 2 is RTLD_NOW.
     let handle = unsafe { dlopen(path.as_ptr(), 2) };
     if handle.is_null() {
@@ -401,11 +403,36 @@ pub fn preflight_code() -> Option<i32> {
 mod tests {
     use super::*;
 
+    /// One buffer is `{channels: u32, bytes: u32, data: ptr}` = two u64 words.
+    fn list(buffers: &[u32]) -> Vec<u64> {
+        let mut raw = vec![buffers.len() as u64];
+        for ch in buffers {
+            raw.push(u64::from(*ch) | (4_096u64 << 32));
+            raw.push(0);
+        }
+        raw
+    }
+
+    #[test]
+    fn channels_are_summed_over_the_buffers() {
+        let raw = list(&[2, 4]);
+        assert_eq!(sum_channels(&raw, raw.len() * 8), 6);
+        assert_eq!(sum_channels(&list(&[]), 8), 0);
+    }
+
+    #[test]
+    fn a_short_size_never_reads_past_the_valid_bytes() {
+        let raw = list(&[2, 4]);
+        assert_eq!(sum_channels(&raw, 8 + 16), 2, "only one buffer fits");
+        assert_eq!(sum_channels(&raw, 4), 0, "not even the count fits");
+        assert_eq!(sum_channels(&raw, 10_000), 6, "size is capped by the slice");
+    }
+
     #[test]
     fn preflight_codes_map_to_states() {
-        assert_eq!(tcc_from_code(Some(0)), Tcc::Granted);
-        assert_eq!(tcc_from_code(Some(1)), Tcc::Refused);
-        assert_eq!(tcc_from_code(Some(2)), Tcc::Unknown);
-        assert_eq!(tcc_from_code(None), Tcc::Unknown);
+        assert_eq!(tcc_from_code(Some(0)), Permission::Granted);
+        assert_eq!(tcc_from_code(Some(1)), Permission::Refused);
+        assert_eq!(tcc_from_code(Some(2)), Permission::Undecided);
+        assert_eq!(tcc_from_code(None), Permission::Undecided);
     }
 }

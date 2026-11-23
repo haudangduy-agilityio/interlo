@@ -2,11 +2,13 @@
 //! else refuse. A pure function of what the spike found, so every row of the
 //! decision table is a unit test.
 
-/// State of the audio-capture permission when the spike starts.
+/// State of the audio-capture permission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     Granted,
     Refused,
+    /// The system has not decided yet (the dialog was not answered), or the check is unavailable.
+    Undecided,
 }
 
 /// Why the process tap cannot be used.
@@ -22,7 +24,7 @@ pub enum Route {
     Tap,
     TwoCh,
     /// No route: the only case in which the spike refuses to capture.
-    None,
+    Refused,
 }
 
 /// What the spike found at start.
@@ -44,7 +46,7 @@ pub struct RoutePlan {
 
 pub fn choose_route(inputs: &RouteInputs) -> RoutePlan {
     let mut causes = Vec::new();
-    if inputs.permission == Permission::Refused {
+    if inputs.permission != Permission::Granted {
         causes.push(Cause::PermissionRefused);
     }
     if !inputs.target_running {
@@ -55,9 +57,49 @@ pub fn choose_route(inputs: &RouteInputs) -> RoutePlan {
     } else if inputs.two_ch_found && !inputs.ignore_2ch {
         Route::TwoCh
     } else {
-        Route::None
+        Route::Refused
     };
     RoutePlan { causes, route }
+}
+
+/// First look at the permission. Returns the answer when no dialog is needed, `None` when the
+/// system must be asked. A tap needs a target process, so with no target the dialog cannot be
+/// triggered and an undecided permission counts as granted (the tap is not going to be used).
+pub fn first_look(seen: Permission, has_target_process: bool) -> Option<Permission> {
+    match seen {
+        Permission::Undecided if has_target_process => None,
+        Permission::Undecided => Some(Permission::Granted),
+        decided => Some(decided),
+    }
+}
+
+/// One step of waiting for the dialog: `Some` when the wait is over. A timeout, or a stop
+/// signal, counts as refused: nothing allowed the capture.
+pub fn wait_step(seen: Permission, timed_out: bool) -> Option<Permission> {
+    match seen {
+        Permission::Undecided if timed_out => Some(Permission::Refused),
+        Permission::Undecided => None,
+        decided => Some(decided),
+    }
+}
+
+/// The tap failed to start although the plan chose it: use the 2-channel device when allowed,
+/// else refuse (D-15).
+pub fn after_tap_error(two_ch_found: bool, ignore_2ch: bool) -> Route {
+    if two_ch_found && !ignore_2ch {
+        Route::TwoCh
+    } else {
+        Route::Refused
+    }
+}
+
+/// The status line of a route.
+pub fn route_line(route: Route) -> &'static str {
+    match route {
+        Route::Tap => "route=tap",
+        Route::TwoCh => "route=2ch",
+        Route::Refused => "NO_CAPTURE_ROUTE 2ch=missing",
+    }
 }
 
 impl RoutePlan {
@@ -71,17 +113,13 @@ impl RoutePlan {
                 Cause::AppMissing => "app=missing".to_string(),
             })
             .collect();
-        lines.push(match self.route {
-            Route::Tap => "route=tap".to_string(),
-            Route::TwoCh => "route=2ch".to_string(),
-            Route::None => "NO_CAPTURE_ROUTE 2ch=missing".to_string(),
-        });
+        lines.push(route_line(self.route).to_string());
         lines
     }
 
     /// True when the spike must exit non-zero without capturing.
     pub fn refuses(&self) -> bool {
-        self.route == Route::None
+        self.route == Route::Refused
     }
 }
 
@@ -161,6 +199,11 @@ mod tests {
             p.status_lines(),
             vec!["PERMISSION_REFUSED", "NO_CAPTURE_ROUTE 2ch=missing"]
         );
+        assert!(p.refuses());
+    }
+
+    #[test]
+    fn missing_target_without_2ch_refuses() {
         let p = plan(Permission::Granted, false, false, false);
         assert_eq!(
             p.status_lines(),
@@ -174,5 +217,59 @@ mod tests {
         let p = plan(Permission::Granted, true, false, false);
         assert_eq!(p.route, Route::Tap);
         assert!(!p.refuses());
+    }
+
+    #[test]
+    fn first_look_asks_the_system_only_when_undecided_and_a_target_exists() {
+        assert_eq!(
+            first_look(Permission::Granted, true),
+            Some(Permission::Granted)
+        );
+        assert_eq!(
+            first_look(Permission::Refused, false),
+            Some(Permission::Refused)
+        );
+        assert_eq!(first_look(Permission::Undecided, true), None);
+        assert_eq!(
+            first_look(Permission::Undecided, false),
+            Some(Permission::Granted)
+        );
+    }
+
+    #[test]
+    fn waiting_ends_on_an_answer_a_timeout_or_a_stop() {
+        assert_eq!(
+            wait_step(Permission::Granted, false),
+            Some(Permission::Granted)
+        );
+        assert_eq!(
+            wait_step(Permission::Refused, false),
+            Some(Permission::Refused)
+        );
+        assert_eq!(wait_step(Permission::Undecided, false), None);
+        assert_eq!(
+            wait_step(Permission::Undecided, true),
+            Some(Permission::Refused)
+        );
+    }
+
+    #[test]
+    fn a_tap_that_fails_to_start_falls_back_to_2ch_or_refuses() {
+        assert_eq!(after_tap_error(true, false), Route::TwoCh);
+        assert_eq!(after_tap_error(true, true), Route::Refused);
+        assert_eq!(after_tap_error(false, false), Route::Refused);
+    }
+
+    #[test]
+    fn route_lines_are_the_ones_the_checks_read() {
+        assert_eq!(route_line(Route::Tap), "route=tap");
+        assert_eq!(route_line(Route::TwoCh), "route=2ch");
+        assert_eq!(route_line(Route::Refused), "NO_CAPTURE_ROUTE 2ch=missing");
+    }
+
+    #[test]
+    fn undecided_permission_is_not_used_for_the_tap() {
+        let p = plan(Permission::Undecided, true, true, false);
+        assert_eq!(p.status_lines(), vec!["PERMISSION_REFUSED", "route=2ch"]);
     }
 }

@@ -31,10 +31,29 @@ pub fn parse_ps(text: &str) -> Vec<ProcEntry> {
         .collect()
 }
 
+/// Pids as `1,2,3` for the log lines.
+pub fn join(pids: &[u32]) -> String {
+    pids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Pids of the target app right now, from `ps`.
+pub fn pids_of(marker: &str) -> Vec<u32> {
+    let text = std::process::Command::new("/bin/ps")
+        .args(["-axww", "-o", "pid=,ppid=,command="])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    select_target_pids(&parse_ps(&text), marker, std::process::id())
+}
+
 /// Markers of the spike's own bundle: a process whose command holds it is never a target.
 pub const OWN_BUNDLE_MARKER: &str = "/m0b05.app/";
 
-/// Pids of the target app: every process whose command line holds `marker`, plus all their
+/// Pids of the target app: every process that has `marker` as a whole argument (not a prefix of
+/// another instance's argument), plus all their
 /// descendants. The spike's own process, and any process of the spike's own bundle, is left out
 /// so the tap never includes this app (AC-12). Sorted, unique.
 pub fn select_target_pids(entries: &[ProcEntry], marker: &str, own_pid: u32) -> Vec<u32> {
@@ -44,7 +63,7 @@ pub fn select_target_pids(entries: &[ProcEntry], marker: &str, own_pid: u32) -> 
     let allowed = |e: &ProcEntry| e.pid != own_pid && !e.command.contains(OWN_BUNDLE_MARKER);
     let mut selected: Vec<u32> = entries
         .iter()
-        .filter(|e| allowed(e) && e.command.contains(marker))
+        .filter(|e| allowed(e) && e.command.split_whitespace().any(|arg| arg == marker))
         .map(|e| e.pid)
         .collect();
     let mut grew = true;
@@ -109,6 +128,25 @@ garbage line
         assert!(!pids.contains(&5000));
         let pids = select_target_pids(&e, "--user-data-dir=/tmp/prof-a", 1234);
         assert!(!pids.contains(&5000));
+    }
+
+    #[test]
+    fn marker_must_equal_a_whole_argument_not_a_prefix() {
+        let text = "\
+ 6001     1 /Applications/Browser.app/Contents/MacOS/Browser --user-data-dir=/tmp/prof-ab
+ 6002     1 /Applications/Browser.app/Contents/MacOS/Browser --user-data-dir=/tmp/prof-a
+";
+        let e = parse_ps(text);
+        assert_eq!(
+            select_target_pids(&e, "--user-data-dir=/tmp/prof-a", 9999),
+            vec![6002]
+        );
+    }
+
+    #[test]
+    fn join_lists_pids_with_commas() {
+        assert_eq!(join(&[3, 5, 8]), "3,5,8");
+        assert_eq!(join(&[]), "");
     }
 
     #[test]

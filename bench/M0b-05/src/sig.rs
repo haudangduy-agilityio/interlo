@@ -26,3 +26,14 @@ pub fn install() {
 pub fn stopped() -> bool {
     STOP.load(Ordering::SeqCst)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_handler_sets_the_stop_flag() {
+        on_signal(2);
+        assert!(stopped());
+    }
+}

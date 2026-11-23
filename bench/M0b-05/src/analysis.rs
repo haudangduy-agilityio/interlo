@@ -2,7 +2,7 @@
 //! holds. The rules come from the SPEC definitions (levels in `levels.rs`); the periods and
 //! limits below are its starting guesses.
 
-use crate::levels::{audio_present, energy_mean_dbfs, within_idle, WITHIN_DB};
+use crate::levels::{audio_present, energy_mean_dbfs, within_idle, WINDOW_MS, WITHIN_DB};
 
 /// Seconds of a "period" in the checks (AC-11, AC-15, AC-19, AC-35).
 pub const PERIOD_SECONDS: usize = 10;
@@ -10,6 +10,15 @@ pub const PERIOD_SECONDS: usize = 10;
 pub const PRESENT_SECONDS_OF_TEN: usize = 9;
 /// A one-second bucket needs at least this many 100 ms windows to count as measured.
 const MIN_WINDOWS_PER_SECOND: usize = 8;
+/// 100 ms windows in one second.
+const WINDOWS_PER_SECOND: u64 = 1000 / WINDOW_MS as u64;
+/// Windows in a period of `PERIOD_SECONDS`.
+const PERIOD_WINDOWS: usize = PERIOD_SECONDS * WINDOWS_PER_SECOND as usize;
+/// A period (AC-14) or a tone check may miss this many windows and still count as measured
+/// (starting value: the spec gives none; it absorbs a late first window).
+const WINDOW_COUNT_TOLERANCE: usize = 5;
+/// Windows a 10 s period needs to count as measured.
+pub const MIN_PERIOD_WINDOWS: usize = PERIOD_WINDOWS - WINDOW_COUNT_TOLERANCE;
 /// AC-11: the quiet check runs from this many ms after `SOURCE_END` ...
 pub const QUIET_FROM_MS: u64 = 2_000;
 /// ... to this many ms after it.
@@ -23,18 +32,18 @@ pub const STATUS_DEADLINE_MS: u64 = 2_000;
 /// AC-18: `RESTART` within this many ms of `RATE_CHANGE`, and audio present within this many
 /// ms after `RESTART`.
 pub const RESTART_DEADLINE_MS: u64 = 3_000;
-/// Seconds the self tone plays (AC-12).
+/// Milliseconds the self tone plays (AC-12); the spike plays it for the same time.
 pub const SELF_TONE_MS: u64 = 5_000;
 
 /// One log line: `<ms> <event> <rest>`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Line {
-    pub ms: u64,
+pub struct LogLine {
+    pub at_ms: u64,
     pub event: String,
     pub rest: String,
 }
 
-impl Line {
+impl LogLine {
     /// The value of a `key=value` token in the rest of the line.
     pub fn field(&self, key: &str) -> Option<&str> {
         self.rest
@@ -45,8 +54,8 @@ impl Line {
 
 /// One 100 ms window reading.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Win {
-    pub ms: u64,
+pub struct WindowReading {
+    pub at_ms: u64,
     pub level: f64,
     pub tone: f64,
 }
@@ -54,7 +63,7 @@ pub struct Win {
 /// A parsed spike log.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Log {
-    pub lines: Vec<Line>,
+    pub lines: Vec<LogLine>,
 }
 
 /// The answer of one check.
@@ -87,8 +96,8 @@ impl Log {
                 let (ms, rest) = l.split_once(' ')?;
                 let ms = ms.parse().ok()?;
                 let (event, rest) = rest.split_once(' ').unwrap_or((rest, ""));
-                Some(Line {
-                    ms,
+                Some(LogLine {
+                    at_ms: ms,
                     event: event.to_string(),
                     rest: rest.to_string(),
                 })
@@ -97,7 +106,26 @@ impl Log {
         Log { lines }
     }
 
-    pub fn first(&self, event: &str) -> Option<&Line> {
+    /// True once the tap or the device capture has started.
+    pub fn capture_started(&self) -> bool {
+        self.first("TAP_START")
+            .or_else(|| self.first("DEVICE_START"))
+            .is_some()
+    }
+
+    /// `(IDLE_FLOOR, IDLE_TONE)`, or the verdict of a check that cannot run without them.
+    fn idle_or_no(&self) -> Result<(f64, f64), Verdict> {
+        self.idle()
+            .ok_or_else(|| Verdict::no("no IDLE_FLOOR or IDLE_TONE line"))
+    }
+
+    /// Time of `MARK <label>`, or the verdict of a check that cannot run without it.
+    fn mark_or_no(&self, label: &str) -> Result<u64, Verdict> {
+        self.mark(label)
+            .ok_or_else(|| Verdict::no(format!("no MARK {label} line")))
+    }
+
+    pub fn first(&self, event: &str) -> Option<&LogLine> {
         self.lines.iter().find(|l| l.event == event)
     }
 
@@ -106,16 +134,16 @@ impl Log {
         self.lines
             .iter()
             .find(|l| l.event == "MARK" && l.rest.trim() == label)
-            .map(|l| l.ms)
+            .map(|l| l.at_ms)
     }
 
-    pub fn windows(&self) -> Vec<Win> {
+    pub fn windows(&self) -> Vec<WindowReading> {
         self.lines
             .iter()
             .filter(|l| l.event == "WIN")
             .filter_map(|l| {
-                Some(Win {
-                    ms: l.ms,
+                Some(WindowReading {
+                    at_ms: l.at_ms,
                     level: l.field("level")?.parse().ok()?,
                     tone: l.field("tone")?.parse().ok()?,
                 })
@@ -132,13 +160,18 @@ impl Log {
 }
 
 /// Energy means of the one-second buckets after `start_ms`; `None` for a bucket with too few windows.
-fn second_means(wins: &[Win], start_ms: u64, seconds: usize, tone: bool) -> Vec<Option<f64>> {
+fn second_means(
+    wins: &[WindowReading],
+    start_ms: u64,
+    seconds: usize,
+    tone: bool,
+) -> Vec<Option<f64>> {
     (0..seconds as u64)
         .map(|k| {
             let from = start_ms + k * 1000;
             let vals: Vec<f64> = wins
                 .iter()
-                .filter(|w| w.ms > from && w.ms <= from + 1000)
+                .filter(|w| w.at_ms > from && w.at_ms <= from + 1000)
                 .map(|w| if tone { w.tone } else { w.level })
                 .collect();
             (vals.len() >= MIN_WINDOWS_PER_SECOND).then(|| energy_mean_dbfs(&vals))
@@ -147,17 +180,18 @@ fn second_means(wins: &[Win], start_ms: u64, seconds: usize, tone: bool) -> Vec<
 }
 
 /// Windows with `from_ms < ms <= to_ms`.
-fn between(wins: &[Win], from_ms: u64, to_ms: u64) -> Vec<Win> {
+fn between(wins: &[WindowReading], from_ms: u64, to_ms: u64) -> Vec<WindowReading> {
     wins.iter()
         .copied()
-        .filter(|w| w.ms > from_ms && w.ms <= to_ms)
+        .filter(|w| w.at_ms > from_ms && w.at_ms <= to_ms)
         .collect()
 }
 
 /// "Audio present over a period": 9 of 10 one-second windows from `start_ms` are present.
 pub fn present_over_period(log: &Log, start_ms: u64) -> Verdict {
-    let Some((floor, _)) = log.idle() else {
-        return Verdict::no("no IDLE_FLOOR line");
+    let (floor, _) = match log.idle_or_no() {
+        Ok(idle) => idle,
+        Err(verdict) => return verdict,
     };
     let means = second_means(&log.windows(), start_ms, PERIOD_SECONDS, false);
     let present = means
@@ -183,18 +217,20 @@ pub fn present_over_period(log: &Log, start_ms: u64) -> Verdict {
 /// AC-11: present for 10 s from the mark, then within 3 dB of the idle floor from 2 s to 5 s
 /// after `SOURCE_END`.
 pub fn check_ac11(log: &Log, start_label: &str) -> Verdict {
-    let Some(start) = log.mark(start_label) else {
-        return Verdict::no(format!("no MARK {start_label} line"));
+    let start = match log.mark_or_no(start_label) {
+        Ok(at) => at,
+        Err(verdict) => return verdict,
     };
     let first = present_over_period(log, start);
-    let Some(end) = log.first("SOURCE_END").map(|l| l.ms) else {
+    let Some(end) = log.first("SOURCE_END").map(|l| l.at_ms) else {
         return Verdict::no(format!("no SOURCE_END line; {}", first.detail));
     };
-    let Some((floor, _)) = log.idle() else {
-        return Verdict::no("no IDLE_FLOOR line");
+    let (floor, _) = match log.idle_or_no() {
+        Ok(idle) => idle,
+        Err(verdict) => return verdict,
     };
     let quiet = between(&log.windows(), end + QUIET_FROM_MS, end + QUIET_TO_MS);
-    let expected = ((QUIET_TO_MS - QUIET_FROM_MS) / 100) as usize;
+    let expected = ((QUIET_TO_MS - QUIET_FROM_MS) / u64::from(WINDOW_MS)) as usize;
     let loud = quiet
         .iter()
         .filter(|w| !within_idle(w.level, floor))
@@ -208,7 +244,7 @@ pub fn check_ac11(log: &Log, start_label: &str) -> Verdict {
         first.detail,
         quiet.len()
     );
-    if first.pass && loud == 0 && quiet.len() + 5 >= expected {
+    if first.pass && loud == 0 && quiet.len() + WINDOW_COUNT_TOLERANCE >= expected {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -218,20 +254,21 @@ pub fn check_ac11(log: &Log, start_label: &str) -> Verdict {
 /// A 1 kHz tone must not reach the tap: the mean tone level over the period is within 3 dB of
 /// `IDLE_TONE`.
 fn tone_absent_between(log: &Log, from_ms: u64, to_ms: u64) -> Verdict {
-    let Some((_, idle_tone)) = log.idle() else {
-        return Verdict::no("no IDLE_TONE line");
+    let (_, idle_tone) = match log.idle_or_no() {
+        Ok(idle) => idle,
+        Err(verdict) => return verdict,
     };
     let tones: Vec<f64> = between(&log.windows(), from_ms, to_ms)
         .iter()
         .map(|w| w.tone)
         .collect();
-    let need = ((to_ms - from_ms) / 100) as usize;
+    let need = ((to_ms - from_ms) / u64::from(WINDOW_MS)) as usize;
     let mean = energy_mean_dbfs(&tones);
     let detail = format!(
         "idle_tone={idle_tone:.1} mean_tone={mean:.1} windows={}/{need} limit_db={WITHIN_DB}",
         tones.len()
     );
-    if tones.len() + 5 >= need && within_idle(mean, idle_tone) {
+    if tones.len() + WINDOW_COUNT_TOLERANCE >= need && within_idle(mean, idle_tone) {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -241,36 +278,41 @@ fn tone_absent_between(log: &Log, from_ms: u64, to_ms: u64) -> Verdict {
 /// AC-12: the spike's own tone (`SELF_TONE_START` plus 5 s) is not in the tap.
 pub fn check_ac12(log: &Log) -> Verdict {
     match log.first("SELF_TONE_START") {
-        Some(l) => tone_absent_between(log, l.ms, l.ms + SELF_TONE_MS),
+        Some(l) => tone_absent_between(log, l.at_ms, l.at_ms + SELF_TONE_MS),
         None => Verdict::no("no SELF_TONE_START line"),
     }
 }
 
 /// AC-13: a tone played for `seconds` from the mark is not in the tap.
 pub fn check_ac13(log: &Log, start_label: &str, seconds: u64) -> Verdict {
-    match log.mark(start_label) {
-        Some(start) => tone_absent_between(log, start, start + seconds * 1000),
-        None => Verdict::no(format!("no MARK {start_label} line")),
+    match log.mark_or_no(start_label) {
+        Ok(start) => tone_absent_between(log, start, start + seconds * 1000),
+        Err(verdict) => verdict,
     }
 }
 
 /// AC-14: the 10 s after the mark stay within 3 dB of the idle floor, no window above +10 dB.
 pub fn check_ac14(log: &Log, start_label: &str) -> Verdict {
-    let Some(start) = log.mark(start_label) else {
-        return Verdict::no(format!("no MARK {start_label} line"));
+    let start = match log.mark_or_no(start_label) {
+        Ok(at) => at,
+        Err(verdict) => return verdict,
     };
-    let Some((floor, _)) = log.idle() else {
-        return Verdict::no("no IDLE_FLOOR line");
+    let (floor, _) = match log.idle_or_no() {
+        Ok(idle) => idle,
+        Err(verdict) => return verdict,
     };
-    let wins = between(&log.windows(), start, start + 10_000);
+    let wins = between(&log.windows(), start, start + PERIOD_SECONDS as u64 * 1000);
     let levels: Vec<f64> = wins.iter().map(|w| w.level).collect();
     let mean = energy_mean_dbfs(&levels);
     let max = levels.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let detail = format!(
-        "idle_floor={floor:.1} mean_level={mean:.1} max_window={max:.1} windows={}/100",
+        "idle_floor={floor:.1} mean_level={mean:.1} max_window={max:.1} windows={}/{PERIOD_WINDOWS}",
         levels.len()
     );
-    if levels.len() >= 95 && within_idle(mean, floor) && max <= floor + SINGLE_WINDOW_LIMIT_DB {
+    if levels.len() >= MIN_PERIOD_WINDOWS
+        && within_idle(mean, floor)
+        && max <= floor + SINGLE_WINDOW_LIMIT_DB
+    {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -282,9 +324,9 @@ pub fn check_ac16(log: &Log) -> Verdict {
     let (Some(start), Some(silent)) = (log.first("TAP_START"), log.first("SILENT")) else {
         return Verdict::no("no TAP_START or no SILENT line");
     };
-    let delay = silent.ms.saturating_sub(start.ms);
+    let delay = silent.at_ms.saturating_sub(start.at_ms);
     let detail = format!("SILENT {delay} ms after TAP_START (limit {SILENT_DEADLINE_MS} ms)");
-    if silent.ms >= start.ms && delay <= SILENT_DEADLINE_MS {
+    if silent.at_ms >= start.at_ms && delay <= SILENT_DEADLINE_MS {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -292,7 +334,7 @@ pub fn check_ac16(log: &Log) -> Verdict {
 }
 
 /// The status lines between `START` and the first capture start (or the end), in order.
-fn status_lines(log: &Log) -> Vec<&Line> {
+fn status_lines(log: &Log) -> Vec<&LogLine> {
     log.lines
         .iter()
         .skip_while(|l| l.event != "START")
@@ -310,25 +352,22 @@ fn status_lines(log: &Log) -> Vec<&Line> {
 /// The exit code of the run, from its `EXIT code=<n>` line, and the time of that line.
 fn exit_of(log: &Log) -> Option<(i32, u64)> {
     let line = log.first("EXIT")?;
-    Some((line.field("code")?.parse().ok()?, line.ms))
+    Some((line.field("code")?.parse().ok()?, line.at_ms))
 }
 
 /// AC-17, AC-20, AC-40: the expected status lines, in order, each within 2 s of `START`, and a
 /// capture started.
 pub fn check_route_lines(log: &Log, expected: &[&str]) -> Verdict {
-    let Some(start) = log.first("START").map(|l| l.ms) else {
+    let Some(start) = log.first("START").map(|l| l.at_ms) else {
         return Verdict::no("no START line");
     };
     let got = status_lines(log);
     let names: Vec<&str> = got.iter().map(|l| l.event.as_str()).collect();
     let late = got
         .iter()
-        .filter(|l| l.ms.saturating_sub(start) > STATUS_DEADLINE_MS)
+        .filter(|l| l.at_ms.saturating_sub(start) > STATUS_DEADLINE_MS)
         .count();
-    let started = log
-        .first("TAP_START")
-        .or_else(|| log.first("DEVICE_START"))
-        .is_some();
+    let started = log.capture_started();
     let exit = exit_of(log).map(|(code, _)| code);
     let detail = format!(
         "lines={names:?} expected={expected:?} late_lines={late} capture_started={started} exit_code={exit:?}"
@@ -343,7 +382,7 @@ pub fn check_route_lines(log: &Log, expected: &[&str]) -> Verdict {
 /// AC-36: the causes, then `NO_CAPTURE_ROUTE 2ch=missing` within 2 s, no capture started and a
 /// non-zero exit within 2 s.
 pub fn check_no_route(log: &Log, causes: &[&str]) -> Verdict {
-    let Some(start) = log.first("START").map(|l| l.ms) else {
+    let Some(start) = log.first("START").map(|l| l.at_ms) else {
         return Verdict::no("no START line");
     };
     let got = status_lines(log);
@@ -356,12 +395,9 @@ pub fn check_no_route(log: &Log, causes: &[&str]) -> Verdict {
     expected.push("NO_CAPTURE_ROUTE 2ch=missing".to_string());
     let late = got
         .iter()
-        .filter(|l| l.ms.saturating_sub(start) > STATUS_DEADLINE_MS)
+        .filter(|l| l.at_ms.saturating_sub(start) > STATUS_DEADLINE_MS)
         .count();
-    let started = log
-        .first("TAP_START")
-        .or_else(|| log.first("DEVICE_START"))
-        .is_some();
+    let started = log.capture_started();
     let exit = exit_of(log);
     let exit_ms = exit.map(|(_, ms)| ms.saturating_sub(start));
     let detail = format!(
@@ -385,8 +421,9 @@ pub fn check_route_present(log: &Log, want: &str, start_label: &str) -> Verdict 
         .find(|l| l.event.starts_with("route="))
         .map(|l| l.event.as_str());
     let refused = log.first("NO_CAPTURE_ROUTE").is_some();
-    let Some(start) = log.mark(start_label) else {
-        return Verdict::no(format!("no MARK {start_label} line"));
+    let start = match log.mark_or_no(start_label) {
+        Ok(at) => at,
+        Err(verdict) => return verdict,
     };
     let period = present_over_period(log, start);
     let detail = format!(
@@ -406,14 +443,15 @@ pub fn check_ac18(log: &Log) -> Verdict {
     let (Some(change), Some(restart)) = (log.first("RATE_CHANGE"), log.first("RESTART")) else {
         return Verdict::no("no RATE_CHANGE or no RESTART line");
     };
-    let Some((floor, _)) = log.idle() else {
-        return Verdict::no("no IDLE_FLOOR line");
+    let (floor, _) = match log.idle_or_no() {
+        Ok(idle) => idle,
+        Err(verdict) => return verdict,
     };
-    let restart_delay = restart.ms.saturating_sub(change.ms);
+    let restart_delay = restart.at_ms.saturating_sub(change.at_ms);
     let wins = log.windows();
     let means = second_means(
         &wins,
-        restart.ms,
+        restart.at_ms,
         (RESTART_DEADLINE_MS / 1000) as usize,
         false,
     );
@@ -424,7 +462,10 @@ pub fn check_ac18(log: &Log) -> Verdict {
         "restart_after_rate_change_ms={restart_delay} first_present_window_end_ms_after_restart={} idle_floor={floor:.1}",
         first_present.map_or("none".to_string(), |k| ((k as u64 + 1) * 1000).to_string())
     );
-    if restart.ms >= change.ms && restart_delay <= RESTART_DEADLINE_MS && first_present.is_some() {
+    if restart.at_ms >= change.at_ms
+        && restart_delay <= RESTART_DEADLINE_MS
+        && first_present.is_some()
+    {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -438,6 +479,15 @@ pub fn check_lsof(text: &str) -> Verdict {
     if samples == 0 {
         return Verdict::no("no sample lines in the lsof log");
     }
+    // lsof exits 1 when it finds no sockets; any larger code means the command itself failed.
+    let failed = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("# lsof exit="))
+        .filter_map(|c| c.trim().parse::<i32>().ok())
+        .any(|c| c > 1);
+    if failed {
+        return Verdict::no(format!("samples={samples} lsof failed (exit code above 1)"));
+    }
     let mut bad = Vec::new();
     for line in text
         .lines()
@@ -449,16 +499,17 @@ pub fn check_lsof(text: &str) -> Verdict {
         else {
             continue;
         };
+        let (local, remote) = name
+            .split_once("->")
+            .map_or((name, None), |(l, r)| (l, Some(r)));
         if name.starts_with("*:") || name.starts_with("0.0.0.0:") || name.starts_with("[::]:") {
             bad.push(format!("wildcard listener: {line}"));
-        } else if let Some((_, remote)) = name.split_once("->") {
-            let host = remote
-                .rsplit_once(':')
-                .map_or(remote, |(h, _)| h)
-                .trim_matches(['[', ']']);
-            if !(host == "localhost" || host == "::1" || host.starts_with("127.")) {
+        } else if let Some(remote) = remote {
+            if !is_loopback(remote) {
                 bad.push(format!("remote address: {line}"));
             }
+        } else if !is_loopback(local) {
+            bad.push(format!("non-loopback local socket: {line}"));
         }
     }
     if bad.is_empty() {
@@ -466,6 +517,15 @@ pub fn check_lsof(text: &str) -> Verdict {
     } else {
         Verdict::no(format!("samples={samples} violations={}", bad.join(" | ")))
     }
+}
+
+/// True for `127.x.x.x`, `::1` and `localhost` addresses with a port.
+fn is_loopback(address_with_port: &str) -> bool {
+    let host = address_with_port
+        .rsplit_once(':')
+        .map_or(address_with_port, |(h, _)| h)
+        .trim_matches(['[', ']']);
+    host == "localhost" || host == "::1" || host.starts_with("127.")
 }
 
 #[cfg(test)]
@@ -522,8 +582,8 @@ mod tests {
         assert_eq!(log.mark("clip_start"), Some(150));
         assert_eq!(
             log.windows(),
-            vec![Win {
-                ms: 200,
+            vec![WindowReading {
+                at_ms: 200,
                 level: -12.5,
                 tone: -30.0
             }]
@@ -791,5 +851,97 @@ mod tests {
         let any = "# sample 1\nm0b05 1 u 4u IPv4 0x1 0t0 UDP 0.0.0.0:5353\n";
         assert!(!check_lsof(any).pass);
         assert!(!check_lsof("COMMAND PID\n").pass);
+    }
+
+    #[test]
+    fn lsof_flags_a_non_loopback_listener_and_a_non_loopback_udp_socket() {
+        let listen = "# sample 1\nm0b05 1 u 4u IPv4 0x1 0t0 TCP 192.168.1.5:8080 (LISTEN)\n";
+        assert!(!check_lsof(listen).pass);
+        let udp = "# sample 1\nm0b05 1 u 4u IPv4 0x1 0t0 UDP 192.168.1.5:5353\n";
+        assert!(!check_lsof(udp).pass);
+        let loop_listen = "# sample 1\nm0b05 1 u 4u IPv4 0x1 0t0 TCP 127.0.0.1:8080 (LISTEN)\n";
+        assert!(check_lsof(loop_listen).pass);
+    }
+
+    #[test]
+    fn lsof_log_fails_when_lsof_itself_failed() {
+        assert!(!check_lsof("# sample 1\n# lsof exit=127\n").pass);
+        assert!(
+            check_lsof("# sample 1\n# lsof exit=1\n").pass,
+            "exit 1 means no sockets"
+        );
+        assert!(check_lsof("# sample 1\n# lsof exit=0\n").pass);
+    }
+
+    #[test]
+    fn status_lines_must_come_within_two_seconds_inclusive() {
+        let build = |at: u64| {
+            let mut b = B::new(0);
+            b.line(at, "app=missing")
+                .line(at, "route=2ch")
+                .line(at + 100, "DEVICE_START rate=48000")
+                .line(at + 5_000, "EXIT code=0");
+            b
+        };
+        assert!(
+            check_route_lines(
+                &build(STATUS_DEADLINE_MS).log(),
+                &["app=missing", "route=2ch"]
+            )
+            .pass
+        );
+        assert!(
+            !check_route_lines(
+                &build(STATUS_DEADLINE_MS + 1).log(),
+                &["app=missing", "route=2ch"]
+            )
+            .pass
+        );
+    }
+
+    #[test]
+    fn restart_must_follow_the_rate_change_within_three_seconds_inclusive() {
+        let build = |gap: u64| {
+            let mut b = B::new(0);
+            b.idle(-120.0, -120.0);
+            let t = b.t;
+            b.line(t + 10, "RATE_CHANGE from=48000 to=44100");
+            b.line(t + 10 + gap, "RESTART rate=44100 took_ms=90");
+            b.t = t + 10 + gap;
+            b.wins(40, -20.0, -90.0);
+            b
+        };
+        assert!(check_ac18(&build(RESTART_DEADLINE_MS).log()).pass);
+        assert!(!check_ac18(&build(RESTART_DEADLINE_MS + 1).log()).pass);
+    }
+
+    #[test]
+    fn one_window_may_be_ten_db_above_the_floor_and_not_more() {
+        let build = |burst: f64| {
+            let mut b = B::new(0);
+            b.idle(-120.0, -120.0);
+            let s = b.t;
+            b.line(s, "MARK notify");
+            b.wins(50, -120.0, -120.0)
+                .wins(1, burst, -120.0)
+                .wins(49, -120.0, -120.0);
+            b
+        };
+        assert!(check_ac14(&build(-110.0).log(), "notify").pass);
+        assert!(!check_ac14(&build(-109.9).log(), "notify").pass);
+    }
+
+    #[test]
+    fn ac14_needs_nearly_all_of_the_hundred_windows() {
+        let build = |n: usize| {
+            let mut b = B::new(0);
+            b.idle(-120.0, -120.0);
+            let s = b.t;
+            b.line(s, "MARK notify");
+            b.wins(n, -120.0, -120.0);
+            b
+        };
+        assert!(check_ac14(&build(MIN_PERIOD_WINDOWS).log(), "notify").pass);
+        assert!(!check_ac14(&build(MIN_PERIOD_WINDOWS - 1).log(), "notify").pass);
     }
 }

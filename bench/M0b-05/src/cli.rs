@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 
 /// Exit code for a bad command line.
 pub const EXIT_USAGE: i32 = 64;
+/// Exit code of a run that refuses to capture (no route) or whose helper command failed.
+pub const EXIT_REFUSED: i32 = 2;
+/// Exit code of a run whose capture could not restart.
+pub const EXIT_RESTART_FAILED: i32 = 3;
 
 fn verdict_line(v: &Verdict) -> (i32, String) {
     if v.pass {
@@ -65,7 +69,7 @@ pub fn analyze(args: &[String], read: &dyn Fn(&str) -> Option<String>) -> (i32, 
 pub fn rate(args: &[String]) -> i32 {
     let Some(device) = ca::default_output_device() else {
         println!("RATE_ERROR no default output device");
-        return 2;
+        return EXIT_REFUSED;
     };
     let before = ca::device_rate(device).unwrap_or(0.0);
     match (args.first().map(String::as_str), args.get(1)) {
@@ -79,7 +83,7 @@ pub fn rate(args: &[String]) -> i32 {
             };
             if let Err(status) = ca::set_device_rate(device, hz) {
                 println!("RATE_ERROR set failed: {status}");
-                return 2;
+                return EXIT_REFUSED;
             }
             let deadline = Instant::now() + Duration::from_secs(5);
             let mut after = ca::device_rate(device).unwrap_or(0.0);
@@ -88,7 +92,11 @@ pub fn rate(args: &[String]) -> i32 {
                 after = ca::device_rate(device).unwrap_or(0.0);
             }
             println!("RATE from={before} to={after}");
-            i32::from((after - hz).abs() > 0.5) * 2
+            if (after - hz).abs() > 0.5 {
+                EXIT_REFUSED
+            } else {
+                0
+            }
         }
         _ => EXIT_USAGE,
     }
@@ -114,13 +122,7 @@ pub fn probe_output(args: &[String]) -> i32 {
             .collect();
         let target: Vec<u32> = match marker {
             Some(m) => {
-                let text = std::process::Command::new("/bin/ps")
-                    .args(["-axww", "-o", "pid=,ppid=,command="])
-                    .output()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                    .unwrap_or_default();
-                let pids =
-                    targets::select_target_pids(&targets::parse_ps(&text), m, std::process::id());
+                let pids = targets::pids_of(m);
                 running
                     .iter()
                     .copied()
@@ -136,8 +138,8 @@ pub fn probe_output(args: &[String]) -> i32 {
             .collect();
         let now = format!(
             "OUTPUT_PROCS target={} other={}",
-            join(&target),
-            join(&other)
+            targets::join(&target),
+            targets::join(&other)
         );
         if now != last {
             emit(&now);
@@ -157,7 +159,7 @@ pub fn play_to_2ch(args: &[String]) -> i32 {
     };
     let Some(device) = ca::find_two_ch_device() else {
         println!("PLAY_ERROR no 2-channel virtual device");
-        return 2;
+        return EXIT_REFUSED;
     };
     match TonePlayer::start_on(device, 0.2) {
         Ok(_player) => {
@@ -179,22 +181,13 @@ pub fn target(args: &[String]) -> i32 {
     let Some(marker) = args.first() else {
         return EXIT_USAGE;
     };
-    let text = std::process::Command::new("/bin/ps")
-        .args(["-axww", "-o", "pid=,ppid=,command="])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
-    let pids = targets::select_target_pids(&targets::parse_ps(&text), marker, std::process::id());
+    let pids = targets::pids_of(marker);
     let objects = pids
         .iter()
         .filter_map(|p| ca::process_object_for_pid(*p))
         .count();
     println!("TARGET pids={} objects={objects}", pids.len());
     i32::from(objects == 0)
-}
-
-fn join(v: &[u32]) -> String {
-    v.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
 }
 
 #[cfg(test)]

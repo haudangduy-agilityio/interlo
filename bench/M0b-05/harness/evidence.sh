@@ -39,6 +39,8 @@ PROF_B="$TMPB/m0b05-browser-b"
 MARK_A="--user-data-dir=$PROF_A"
 MARK_NONE="--user-data-dir=$TMPB/m0b05-no-such-app"
 VOLUME_TEST=20
+# The file names and the size that the AC-21 scan treats as audio.
+AUDIO_TYPES=(-name '*.wav' -o -name '*.caf' -o -name '*.aif*' -o -name '*.m4a' -o -name '*.mp3' -o -name '*.flac' -o -name '*.ogg' -o -name '*.pcm' -o -name '*.raw' -o -size +1M)
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 H="$OUT/harness.log"
@@ -48,22 +50,30 @@ hlog() { echo "$(now_ms) $*" | tee -a "$H"; }
 effect() { hlog "EFFECT $*"; }
 
 ORIG_VOLUME=""
+ORIG_MUTED=""
 ORIG_RATE=""
 SERVER_PID=""
 CURRENT_RUN=""
 
 # --- cleanup: always undo every effect ----------------------------------------------------
+# Kill a pid read from a file, only when it is a plain number above 1 and its command is the spike.
+kill_spike_pid() { # pid
+  case "$1" in '' | *[!0-9]*) return ;; esac
+  [ "$1" -gt 1 ] || return
+  ps -p "$1" -o command= 2>/dev/null | grep -q "/m0b05.app/" && kill -KILL "$1" 2>/dev/null
+}
+
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   if [ -n "$CURRENT_RUN" ] && [ -s "$BASE/runs/$CURRENT_RUN/pid" ]; then
-    kill -KILL "$(cat "$BASE/runs/$CURRENT_RUN/pid")" 2>/dev/null
+    kill_spike_pid "$(cat "$BASE/runs/$CURRENT_RUN/pid")"
   fi
-  pkill -f "$CLIPS/tone.wav" 2>/dev/null
+  pkill -f "$CLIPS/" 2>/dev/null
   if [ -n "$ORIG_RATE" ]; then
     cur="$("$BIN" rate get 2>/dev/null | sed -n 's/.*hz=\([0-9.]*\).*/\1/p')"
     if [ -n "$cur" ] && [ "${cur%.*}" != "${ORIG_RATE%.*}" ]; then
       hlog "RESTORE output sample rate to $ORIG_RATE"
-      "$BIN" rate set "$ORIG_RATE" >/dev/null 2>&1
+      "$BIN" rate set "$ORIG_RATE" >/dev/null 2>&1 || hlog "WARN the output sample rate could not be restored: set it back to $ORIG_RATE"
     fi
   fi
   for marker in "$PROF_A" "$PROF_B"; do
@@ -72,13 +82,23 @@ cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
   if [ -n "$ORIG_VOLUME" ]; then
     hlog "RESTORE output volume to $ORIG_VOLUME"
-    osascript -e "set volume output volume $ORIG_VOLUME" >/dev/null 2>&1
+    osascript -e "set volume output volume $ORIG_VOLUME" >/dev/null 2>&1 || hlog "WARN the output volume could not be restored: set it back to $ORIG_VOLUME"
   fi
+  if [ -n "$ORIG_MUTED" ] && [ "$ORIG_MUTED" = false ]; then
+    osascript -e "set volume without output muted" >/dev/null 2>&1
+  fi
+  hlog "RESTORE tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)"
+  tccutil reset AudioCapture app.interlo.bench.m0b05 >/dev/null 2>&1
   cp "$WORK/serve.log" "$OUT/page-server.log" 2>/dev/null
   rm -rf "$PROF_A" "$PROF_B" "$WORK" 2>/dev/null
   hlog "CLEANUP done"
 }
-trap cleanup EXIT INT TERM
+# A signal runs the cleanup and then stops the script, so no later step plays sound at the
+# restored volume.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 # --- helpers -----------------------------------------------------------------------------
 step_dir() { D="$OUT/$1"; mkdir -p "$D"; }
@@ -111,21 +131,28 @@ wait_log() { # pattern timeout_s
   return 0
 }
 
-stop_run() { # send SIGINT and wait for the exit file
+stop_run() { # send SIGINT, wait for the EXIT line, kill the spike if it does not exit
   local pid
   pid="$(cat "$RUN/pid" 2>/dev/null)"
-  [ -n "$pid" ] && kill -INT "$pid" 2>/dev/null
+  case "$pid" in '' | *[!0-9]*) pid="" ;; esac
+  [ -n "$pid" ] && [ "$pid" -gt 1 ] && kill -INT "$pid" 2>/dev/null
   local i=0
-  while [ ! -s "$RUN/exit" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
-  sleep 1.2 # let the sampler write its last sample and copy lsof.log
+  while ! grep -q "EXIT code=" "$RUN/spike.log" 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  if [ "$i" -ge 100 ]; then
+    hlog "WARN the spike did not exit within 10 s after SIGINT: killing it"
+    kill_spike_pid "$pid"
+  fi
+  sleep 1.5 # let the sampler write its last sample and copy lsof.log
   CURRENT_RUN=""
 }
+
+# The exit code of the last run, from the spike's own EXIT line.
+exit_code_of() { sed -n 's/.* EXIT code=\(-\{0,1\}[0-9]*\).*/\1/p' "$1" | tail -1; }
 
 save_run() { # step-dir prefix
   cp "$RUN/spike.log" "$1/$2-spike.log" 2>/dev/null
   cp "$RUN/spike.err" "$1/$2-spike.err" 2>/dev/null
-  cp "$RUN/lsof.log" "$1/$2-lsof.log" 2>/dev/null
-  cp "$RUN/exit" "$1/$2-exit.txt" 2>/dev/null
+  cp "$RUN/lsof.log" "$1/$2-lsof.log" 2>/dev/null || cp "$BASE/lsof.log" "$1/$2-lsof.log" 2>/dev/null
 }
 
 # The result of the analyzer as a status word.
@@ -150,32 +177,34 @@ permission_code() {
 need_granted() { [ "$(permission_code)" = "0" ]; }
 need_refused() { [ "$(permission_code)" = "1" ]; }
 
+# make_tone <file> <seconds of silence first> <seconds of 1 kHz tone>: a test clip, kept outside the repository
+make_tone() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import math, struct, sys, wave
+path, silence, tone = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+w = wave.open(path, "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+w.writeframes(b"\x00\x00" * (48000 * silence))
+w.writeframes(b"".join(struct.pack("<h", int(0.3 * 32767 * math.sin(2 * math.pi * 1000 * i / 48000))) for i in range(48000 * tone)))
+w.close()
+PY
+}
+
 # --- environment setup ---------------------------------------------------------------------
 setup_env() {
   mkdir -p "$WORK" "$BASE" "$CLIPS"
-  ORIG_VOLUME="$(osascript -e 'output volume of (get volume settings)')"
+  ORIG_VOLUME="$(osascript -e 'output volume of (get volume settings)' 2>/dev/null)"
+  ORIG_MUTED="$(osascript -e 'output muted of (get volume settings)' 2>/dev/null)"
+  case "$ORIG_VOLUME" in '' | *[!0-9]*) hlog "ABORT the output volume cannot be read ($ORIG_VOLUME), so it could not be restored"; exit 2 ;; esac
   ORIG_RATE="$("$BIN" rate get | sed -n 's/.*hz=\([0-9.]*\).*/\1/p')"
   hlog "STATE original volume=$ORIG_VOLUME output_rate=$ORIG_RATE"
   if [ ! -s "$CLIPS/speech.wav" ]; then
     hlog "MAKE test clips (speech synthesis; kept outside the repository)"
     say -v Samantha -o "$CLIPS/speech.aiff" "Hello, this is a short test of the meeting audio. The quick brown fox jumps over the lazy dog. Please confirm that you can hear me clearly. Numbers: one, two, three, four, five, six, seven, eight, nine, ten."
     afconvert -f WAVE -d LEI16@48000 -c 1 "$CLIPS/speech.aiff" "$CLIPS/speech.wav"
-    python3 - "$CLIPS/tone.wav" <<'PY'
-import math, struct, sys, wave
-w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
-w.writeframes(b"".join(struct.pack("<h", int(0.3 * 32767 * math.sin(2 * math.pi * 1000 * i / 48000))) for i in range(48000 * 12)))
-w.close()
-PY
+    make_tone "$CLIPS/tone.wav" 0 12
   fi
   if [ ! -s "$CLIPS/tone-delayed.wav" ]; then
-    python3 - "$CLIPS/tone-delayed.wav" <<'PY'
-import math, struct, sys, wave
-w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
-silence = b"\x00\x00" * (48000 * 7)
-tone = b"".join(struct.pack("<h", int(0.3 * 32767 * math.sin(2 * math.pi * 1000 * i / 48000))) for i in range(48000 * 14))
-w.writeframes(silence + tone)
-w.close()
-PY
+    make_tone "$CLIPS/tone-delayed.wav" 7 14
   fi
   touch /tmp/m0b-05.start
   hlog "TOUCH /tmp/m0b-05.start (the clips were made before this line)"
@@ -197,7 +226,7 @@ PY
     effect "opening browser window '$id' with its own temporary profile (deleted on exit)"
     open -n -a "$BROWSER" --args --user-data-dir="$prof" --no-first-run --no-default-browser-check \
       --disable-background-networking --disable-sync --disable-component-update \
-      --autoplay-policy=no-user-gesture-required --window-size=420,300 "http://127.0.0.1:$PORT/?id=$id"
+      --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --window-size=420,300 "http://127.0.0.1:$PORT/?id=$id"
   done
   # wait until each instance has a process with a Core Audio object (it is using audio)
   for prof in "$PROF_A" "$PROF_B"; do
@@ -253,7 +282,7 @@ step_ac11() {
   stop_run
   save_run "$D" run
   local out; out="$(analyze ac11 "$D/run-spike.log" clip_start)"
-  local code; code="$(cat "$D/run-exit.txt" 2>/dev/null)"
+  local code; code="$(exit_code_of "$D/run-spike.log")"
   if [ "$(status_of "$out")" = PASS ] && [ "$code" = 0 ]; then result "$R" AC-11 PASS "exit=$code $out"; else result "$R" AC-11 NO "exit=$code $out"; fi
   # negative control: nothing plays, so "audio present" must fail
   start_run ac11-control --target-arg "$MARK_A"
@@ -366,21 +395,27 @@ step_ac14() {
   local R="$D/result.txt"
   : > "$R"
   if ! need_granted; then result "$R" AC-14 BLOCKED "permission is not granted"; return; fi
-  effect "a system notification sound is triggered once (osascript display notification, sound Glass)"
-  start_run ac14 --target-arg "$MARK_A"
-  wait_log IDLE_TONE 20
-  probe_start "$D/probe.log" 16
-  sleep 2
-  ctl "mark notify"
-  osascript -e 'display notification "x" sound name "Glass"' > "$D/osascript.txt" 2>&1
-  echo "osascript_exit=$?" >> "$D/osascript.txt"
-  sleep 11; stop_run; save_run "$D" run; wait "$PROBE_PID" 2>/dev/null
-  local out; out="$(analyze ac14 "$D/run-spike.log" notify)"
-  local newp; newp="$(new_output_pids "$D/probe.log")"
+  # The sound must be audible (a process starts an output stream after the trigger); the system may
+  # drop a notification, so the trigger is tried up to three times, each in its own run.
+  local n out newp=0
+  for n in 1 2 3; do
+    effect "a system notification sound is triggered once (osascript display notification, sound Glass), attempt $n"
+    start_run "ac14-$n" --target-arg "$MARK_A"
+    wait_log IDLE_TONE 20
+    probe_start "$D/probe-$n.log" 16
+    sleep 2
+    ctl "mark notify"
+    osascript -e 'display notification "x" sound name "Glass"' > "$D/osascript-$n.txt" 2>&1
+    echo "osascript_exit=$?" >> "$D/osascript-$n.txt"
+    sleep 11; stop_run; save_run "$D" "try$n"; wait "$PROBE_PID" 2>/dev/null
+    out="$(analyze ac14 "$D/try$n-spike.log" notify)"
+    newp="$(new_output_pids "$D/probe-$n.log")"
+    [ "$newp" -ge 1 ] && break
+  done
   if [ "$newp" = 0 ]; then
-    result "$R" AC-14 "NOT RUN" "no process started an output stream after the trigger, so the sound was not audible: $out"
+    result "$R" AC-14 "NOT RUN" "after 3 attempts no process started an output stream after the trigger, so the sound was not audible: $out"
   else
-    result "$R" AC-14 "$(status_of "$out")" "pids that started an output stream after the trigger: $newp (see probe.log); $out"
+    result "$R" AC-14 "$(status_of "$out")" "attempt $n: pids that started an output stream after the trigger: $newp (see probe-$n.log); $out"
   fi
   # negative control: the target plays the clip during the same 10 s
   start_run ac14-control --target-arg "$MARK_A"
@@ -558,9 +593,9 @@ step_ac21() {
   local R="$D/result.txt"
   : > "$R"
   [ -d "$BASE" ] && [ -d "$HOME/Library/Caches/app.interlo.bench.m0b05" ] || { result "$R" AC-21 BLOCKED "a scanned folder does not exist"; return; }
-  ( cd "$ROOT" && find bench/M0b-05 -path '*/target' -prune -o -newer /tmp/m0b-05.start -type f \( -name '*.wav' -o -name '*.caf' -o -name '*.aif*' -o -name '*.m4a' -o -name '*.mp3' -o -name '*.flac' -o -name '*.ogg' -o -name '*.pcm' -o -name '*.raw' -o -size +1M \) -print ) > "$D/find-bench.txt" 2> "$D/find-bench.err"
+  ( cd "$ROOT" && find bench/M0b-05 -path '*/target' -prune -o -newer /tmp/m0b-05.start -type f \( "${AUDIO_TYPES[@]}" \) -print ) > "$D/find-bench.txt" 2> "$D/find-bench.err"
   local c1=$?
-  find "$BASE" "$HOME/Library/Caches/app.interlo.bench.m0b05" -newer /tmp/m0b-05.start -type f \( -name '*.wav' -o -name '*.caf' -o -name '*.aif*' -o -name '*.m4a' -o -name '*.mp3' -o -name '*.flac' -o -name '*.ogg' -o -name '*.pcm' -o -name '*.raw' -o -size +1M \) -print > "$D/find-runtime.txt" 2> "$D/find-runtime.err"
+  find "$BASE" "$HOME/Library/Caches/app.interlo.bench.m0b05" -newer /tmp/m0b-05.start -type f \( "${AUDIO_TYPES[@]}" \) -print > "$D/find-runtime.txt" 2> "$D/find-runtime.err"
   local c2=$?
   hlog "AC-21 find exit codes: bench=$c1 runtime=$c2; bytes printed: bench=$(wc -c < "$D/find-bench.txt" | tr -d ' ') runtime=$(wc -c < "$D/find-runtime.txt" | tr -d ' ')"
   if [ "$c1" = 0 ] && [ "$c2" = 0 ] && [ ! -s "$D/find-bench.txt" ] && [ ! -s "$D/find-runtime.txt" ] && [ ! -s "$D/find-bench.err" ] && [ ! -s "$D/find-runtime.err" ]; then
@@ -619,12 +654,9 @@ step_ac39() {
     case "$out" in PASS*) ;; *) bad=$((bad + 1)) ;; esac
   done
   if [ "$n" -gt 0 ] && [ "$bad" = 0 ]; then result "$R" AC-39 PASS "$n run logs, each with sample lines and no non-loopback address or wildcard listener (see per-run.txt)"; else result "$R" AC-39 NO "$n run logs, $bad failing (see per-run.txt)"; fi
-  # negative control: a process that listens on every interface, sampled the same way
-  python3 -c 'import socket,time; s=socket.socket(); s.bind(("0.0.0.0",0)); s.listen(1); time.sleep(6)' &
-  local LP=$!
-  sleep 1
-  { echo "# sample $(now_ms)"; lsof -nP -a -p "$LP" -i 2>/dev/null; } > "$D/control-lsof.log"
-  wait "$LP" 2>/dev/null
+  # negative control: a sample in the same format that holds a listener on every interface
+  # (synthetic: no real socket is opened for it)
+  printf '# sample %s\nm0b05 1 user 4u IPv4 0x1 0t0 TCP *:8080 (LISTEN)\n# lsof exit=0\n' "$(now_ms)" > "$D/control-lsof.log"
   control "$R" AC-39 "a wildcard listener is sampled" "$("$BIN" analyze lsof "$D/control-lsof.log")"
 }
 

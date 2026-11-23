@@ -1,3 +1,7 @@
+//! Spike M0b-05: taps the audio of one chosen app through Core Audio and prints level readings.
+//! It owns no product code and must never write audio anywhere (guardrail 2) or open a network
+//! connection (guardrail 1); product crates never import it (D-190).
+
 mod analysis;
 #[allow(unsafe_code)]
 mod ca;
@@ -46,7 +50,9 @@ fn main() {
                 let code = spike::run(&o);
                 log::emit(&format!("EXIT code={code}"));
                 if let Some(path) = &o.exitfile {
-                    let _ = std::fs::write(path, code.to_string());
+                    if let Err(e) = std::fs::write(path, code.to_string()) {
+                        eprintln!("m0b05: cannot write the exit file: {e}");
+                    }
                 }
                 code
             }

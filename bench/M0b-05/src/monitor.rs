@@ -103,6 +103,7 @@ impl SilenceFill {
         {
             return false;
         }
+        // After a long gap start again from now, so that one gap gives one window, not a burst.
         self.last_window_ms = if now_ms - self.last_window_ms >= 2 * window_ms {
             now_ms
         } else {

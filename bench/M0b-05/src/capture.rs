@@ -23,19 +23,24 @@ use objc2_core_audio::{
     AudioObjectPropertyAddress, AudioObjectRemovePropertyListener, CATapDescription,
     CATapMuteBehavior,
 };
-use objc2_core_audio_types::{AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp};
+use objc2_core_audio_types::{
+    kAudioFormatFlagIsFloat, kAudioFormatFlagIsNonInterleaved, AudioBufferList,
+    AudioStreamBasicDescription, AudioTimeStamp,
+};
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString, NSUUID};
 use std::ffi::{c_void, CStr};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Mono-mixes the first input buffer (interleaved Float32) and feeds the window accumulator.
+/// State of the capture callback: the window accumulator and the ring it writes to.
 struct CaptureState {
     acc: WindowAccumulator,
     ring: Arc<StatsRing>,
 }
 
+/// Mono-mixes the first input buffer (assumed interleaved Float32: the tap and the virtual input
+/// device deliver it) and feeds the window accumulator.
 #[allow(clippy::too_many_arguments)]
 unsafe extern "C-unwind" fn capture_proc(
     _device: AudioObjectID,
@@ -100,6 +105,9 @@ impl Capture {
         process_objects: &[AudioObjectID],
         ring: Arc<StatsRing>,
     ) -> Result<Self, String> {
+        if process_objects.is_empty() {
+            return Err("no process objects to tap".to_string());
+        }
         let output = ca::default_output_device().ok_or("no default output device")?;
         let output_uid = ca::device_uid(output).ok_or("default output device has no uid")?;
 
@@ -179,14 +187,30 @@ impl Capture {
             ));
         }
 
-        let rate_hz = ca::get_value::<AudioStreamBasicDescription>(
+        let format = ca::get_value::<AudioStreamBasicDescription>(
             tap,
             kAudioTapPropertyFormat,
             ca::SCOPE_GLOBAL,
-        )
-        .map(|f| f.mSampleRate)
-        .or_else(|| ca::device_rate(aggregate))
-        .unwrap_or(48_000.0) as u32;
+        );
+        let rate_hz = format
+            .map(|f| f.mSampleRate)
+            .or_else(|| ca::device_rate(aggregate))
+            .unwrap_or(48_000.0) as u32;
+        // The callback reads the first input buffer. If the aggregate had other input streams (for
+        // example a microphone on the output device), that buffer could be something else than
+        // the tap, so the aggregate must hold the tap's channels and nothing more.
+        let tap_channels = format.map_or(2, |f| f.mChannelsPerFrame);
+        let input_channels = ca::channel_count(aggregate, ca::SCOPE_INPUT);
+        if input_channels != tap_channels {
+            // SAFETY: both objects were created above and are destroyed once.
+            unsafe {
+                AudioHardwareDestroyAggregateDevice(aggregate);
+                AudioHardwareDestroyProcessTap(tap);
+            }
+            return Err(format!(
+                "aggregate has {input_channels} input channels, the tap has {tap_channels}"
+            ));
+        }
         Self::start_io(aggregate, Some(tap), Some(aggregate), rate_hz, ring)
     }
 
@@ -327,7 +351,7 @@ struct PlayState {
     phase: f64,
     step: f64,
     /// Peak amplitude as `f32` bits; the main thread changes it while the callback runs.
-    amplitude: AtomicU32,
+    amplitude: Arc<AtomicU32>,
 }
 
 unsafe extern "C-unwind" fn playout_proc(
@@ -352,7 +376,7 @@ unsafe extern "C-unwind" fn playout_proc(
         return 0;
     }
     let frames = buf.mDataByteSize as usize / (4 * channels);
-    // SAFETY: the output buffer holds `mDataByteSize` bytes of Float32 samples (checked at start).
+    // SAFETY: the output buffer holds `mDataByteSize` bytes of Float32 samples (assumed; the flags are checked at start).
     let data =
         unsafe { std::slice::from_raw_parts_mut(buf.mData.cast::<f32>(), frames * channels) };
     for frame in data.chunks_exact_mut(channels) {
@@ -371,6 +395,7 @@ pub struct TonePlayer {
     device: AudioObjectID,
     proc_id: AudioDeviceIOProcID,
     state: *mut PlayState,
+    amplitude: Arc<AtomicU32>,
 }
 
 impl TonePlayer {
@@ -388,16 +413,17 @@ impl TonePlayer {
             ca::SCOPE_OUTPUT,
         )
         .ok_or("cannot read the output format")?;
-        if format.mFormatFlags & objc2_core_audio_types::kAudioFormatFlagIsFloat == 0
-            || format.mFormatFlags & objc2_core_audio_types::kAudioFormatFlagIsNonInterleaved != 0
+        if format.mFormatFlags & kAudioFormatFlagIsFloat == 0
+            || format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
         {
             return Err("output format is not interleaved Float32".to_string());
         }
         let step = std::f64::consts::TAU * TONE_HZ / format.mSampleRate;
+        let amplitude_bits = Arc::new(AtomicU32::new(amplitude.to_bits()));
         let state = Box::into_raw(Box::new(PlayState {
             phase: 0.0,
             step,
-            amplitude: AtomicU32::new(amplitude.to_bits()),
+            amplitude: Arc::clone(&amplitude_bits),
         }));
         let mut proc_id: AudioDeviceIOProcID = None;
         // SAFETY: `state` is a valid leaked box; `proc_id` is a live local.
@@ -413,6 +439,7 @@ impl TonePlayer {
             device,
             proc_id,
             state,
+            amplitude: amplitude_bits,
         };
         if status != 0 {
             return Err(format!("AudioDeviceCreateIOProcID (tone) failed: {status}"));
@@ -424,16 +451,9 @@ impl TonePlayer {
         }
         Ok(player)
     }
-}
-
-impl TonePlayer {
     /// Change the peak amplitude while playing (0.0 is silence; the output stream keeps running).
     pub fn set_amplitude(&self, amplitude: f32) {
-        // SAFETY: `state` stays valid until `Drop`; only an atomic field is touched.
-        let state = unsafe { &*self.state };
-        state
-            .amplitude
-            .store(amplitude.to_bits(), Ordering::Relaxed);
+        self.amplitude.store(amplitude.to_bits(), Ordering::Relaxed);
     }
 }
 
