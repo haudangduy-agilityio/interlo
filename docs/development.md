@@ -15,7 +15,8 @@ scripts/check.sh quick                      # format, lint, unit and integration
 scripts/check.sh full                       # quick + UI build + shell build + hook tests (the gate)
 scripts/check.sh supply                     # dependency audit (needs: cargo install cargo-deny --locked)
 scripts/check.sh e2e                        # end-to-end journeys (out of the gate for now)
-scripts/check.sh app                        # the signed app: build flags, window, sockets, memory (needs a display and Screen Recording; about 8 minutes)
+scripts/check.sh app                        # the signed app: build flags, window, sockets, memory (needs a display and Screen Recording; about 6 minutes; screenshots go to ../interlo-evidence/M0b-01, not into git)
+scripts/check.sh app --typing               # the same, plus the Telex typing check: it sends key events and changes your input source and clipboard (opt-in)
 cargo test --workspace                      # all Rust tests
 cargo test -p <crate>                       # one crate
 cargo clippy --workspace --all-targets -- -D warnings   # lint

@@ -11,8 +11,9 @@
 //   app-drive read-text <pid>         print the value of the first text area
 //   app-drive keys <pid> <delay-ms> <text>  type <text> with key events (US layout key codes), one key every <delay-ms>
 //   app-drive chord <pid> <name>      send select-all, copy or delete
-// keys and chord refuse to send anything unless the app with that pid is the front app: a key event goes to
-// whatever app is in front, so it must never be sent blind.
+// Key events are posted to the pid, so they can only reach that app. The input method composes text only
+// while the app is in front, so keys also stops (exit 4) as soon as the app is not in front: the text that
+// was typed up to then is partial and the caller must start again.
 //   app-drive trusted                 print a line when the Accessibility permission is granted (exit 3 otherwise)
 //   app-drive dump <pid>              print the element tree (role, title, description), for debugging
 //
@@ -78,25 +79,29 @@ func topWindowPID() -> pid_t? {
     return nil
 }
 
-/// Exit code 4: the app is not in front. A key event goes to whatever app is in front, so it is never sent blind.
+/// Exit code 4: the app is not in front.
 func requireFront(_ argument: String) {
     guard let pid = pid_t(argument) else { fail("bad pid \(argument)", 64) }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))  // let the workspace refresh its state
     let active = NSWorkspace.shared.frontmostApplication?.processIdentifier
     let top = topWindowPID()
     if active != pid || top != pid {
-        fail("refusing to send keys: the app \(pid) is not in front (active app \(active.map(String.init) ?? "none"), top window of \(top.map(String.init) ?? "none"))", 4)
+        fail("stopping: the app \(pid) is not in front (active app \(active.map(String.init) ?? "none"), top window of \(top.map(String.init) ?? "none"))", 4)
     }
 }
 
-func post(_ code: CGKeyCode, flags: CGEventFlags = []) {
+func post(_ code: CGKeyCode, flags: CGEventFlags = [], to pid: pid_t? = nil) {
     let source = CGEventSource(stateID: .hidSystemState)
     for down in [true, false] {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else {
             fail("could not create a key event")
         }
         event.flags = flags
-        event.post(tap: .cghidEventTap)
+        if let pid {
+            event.postToPid(pid)
+        } else {
+            event.post(tap: .cghidEventTap)
+        }
         usleep(15_000)
     }
 }
@@ -159,23 +164,23 @@ case "focus-text", "text-length", "read-text":
     }
 
 case "keys":
-    guard args.count == 5, let delay = useconds_t(args[3]) else { fail("usage: app-drive keys <pid> <delay-ms> <text>", 64) }
+    guard args.count == 5, let delay = useconds_t(args[3]), let target = pid_t(args[2]) else { fail("usage: app-drive keys <pid> <delay-ms> <text>", 64) }
     for character in args[4] {
         requireFront(args[2])
         let lower = Character(character.lowercased())
         guard let code = keyCodes[lower] else { fail("no key code for \"\(character)\"", 64) }
-        post(code, flags: character.isUppercase ? .maskShift : [])
+        post(code, flags: character.isUppercase ? .maskShift : [], to: target)
         usleep(delay * 1000)
     }
     print("typed \(args[4].count) keys")
 
 case "chord":
     guard args.count == 4 else { fail("usage: app-drive chord <pid> select-all|copy|delete", 64) }
-    requireFront(args[2])
+    guard let target = pid_t(args[2]) else { fail("bad pid \(args[2])", 64) }
     switch args[3] {
-    case "select-all": post(0, flags: .maskCommand)
-    case "copy": post(8, flags: .maskCommand)
-    case "delete": post(51)
+    case "select-all": post(0, flags: .maskCommand, to: target)
+    case "copy": post(8, flags: .maskCommand, to: target)
+    case "delete": post(51, to: target)
     default: fail("unknown chord \(args[3])", 64)
     }
     usleep(300_000)

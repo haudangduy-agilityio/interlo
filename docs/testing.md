@@ -9,7 +9,7 @@
 | IPC contract | `fixtures/ipc/*.json`, read by `apps/desktop/src-tauri/tests/ipc_contract.rs` and by the UI contract test | both test runners |
 | UI unit and interaction | `apps/ui/src/**/*.test.ts(x)` (vitest, Testing Library, jsdom) | `npm --prefix apps/ui test` |
 | End to end (out of the gate for now) | `apps/ui/e2e/*.spec.ts` (Playwright, installed system browser, mock transport) | `scripts/check.sh e2e` |
-| Signed app (out of the gate: needs a display and Screen Recording) | `scripts/app-check.sh` (build flags, window, sockets, memory); its pure parts are tested by `scripts/app-check.test.sh` inside the gate | `scripts/check.sh app` |
+| Signed app (out of the gate: needs a display and Screen Recording) | `scripts/app-check.sh` (build flags, window, sockets, memory; typing only with `--typing`); its pure parts are tested by `scripts/app-check.test.sh` inside the gate; evidence is text only in `docs/m0/M0b-01/evidence/`, screenshots stay outside git | `scripts/check.sh app` |
 | Latency and audio | measurement harness (M1-26) | not in the gate yet |
 
 ## What to test

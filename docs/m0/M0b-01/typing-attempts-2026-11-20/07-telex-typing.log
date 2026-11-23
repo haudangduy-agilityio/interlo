@@ -1,0 +1,77 @@
+# Typing check (AC-9, AC-10): the sentence is typed with synthetic key events through the built-in Vietnamese (Telex) input source (2026-11-20T17:49:39+0700)
+# Nothing is set into the field directly: the keys below go through the system input method into the web view.
+app pid: 2517; input source before: com.apple.keylayout.US; clipboard saved: 74 bytes (text only, not written here)
+sentence: Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé.
+keys sent (key delay 120 ms): Hoom nay minhf ranhr, cungx gawpj nhau owr quans banj nhes.
+com.apple.inputmethod.VietnameseIM.VietnameseTelex
+input source selected: com.apple.inputmethod.VietnameseIM.VietnameseTelex
+attempt 1 (2026-11-20T17:49:41+0700)
+no pressable element named "Workspace"
+pressed: Workspace
+pressed: Notes
+stopping: the app 2517 is not in front (active app 2517, top window of 15089)
+  attempt 1 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 2 (2026-11-20T17:49:45+0700)
+pressed: Workspace
+pressed: Notes
+front: 2517
+focused: text area
+sent: select-all
+sent: delete
+stopping: the app 2517 is not in front (active app 15089, top window of 15089)
+  attempt 2 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 3 (2026-11-20T17:49:50+0700)
+pressed: Workspace
+pressed: Notes
+stopping: the app 2517 is not in front (active app 15089, top window of 15089)
+  attempt 3 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 4 (2026-11-20T17:49:53+0700)
+pressed: Workspace
+pressed: Notes
+front: 2517
+focused: text area
+sent: select-all
+sent: delete
+stopping: the app 2517 is not in front (active app 15089, top window of 15089)
+  attempt 4 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 5 (2026-11-20T17:49:58+0700)
+pressed: Workspace
+pressed: Notes
+stopping: the app 2517 is not in front (active app 70027, top window of 70027)
+  attempt 5 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 6 (2026-11-20T17:50:02+0700)
+pressed: Workspace
+pressed: Notes
+stopping: the app 2517 is not in front (active app 70027, top window of 70027)
+  attempt 6 stopped with exit 4 (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)
+attempt 7 (2026-11-20T17:50:05+0700)
+pressed: Workspace
+pressed: Notes
+front: 2517
+focused: text area
+sent: select-all
+sent: delete
+typed 59 keys
+  field after typing (read with the Accessibility API): [Hôm nay á mài ản hã faj. ắ ằn ẳh r, cunags à. ả gẫ ặ ặp a ừ nẳh au ởas. aqf ủa ẫn á a ứ bầ ặn. nhéa.s à ả ã a]
+sent: select-all
+sent: copy
+$ pbpaste > 07-field.txt
+field.txt:    6170702d636865636b2d636c6970626f6172642d6d61726b6572
+sentence.txt: 48c3b46d206e6179206dc3ac6e682072e1baa36e682c2063c5a96e672067e1bab770206e68617520e1bb9f207175c3a16e2062e1baa16e206e68c3a92e
+$ diff 07-field.txt 07-sentence.txt
+1c1
+< app-check-clipboard-marker
+\ No newline at end of file
+---
+> Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé.
+\ No newline at end of file
+raw diff exit: 1
+$ diff (both files normalised to NFC with python unicodedata)
+1c1
+< app-check-clipboard-marker
+\ No newline at end of file
+---
+> Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé.
+\ No newline at end of file
+NFC diff exit: 1
+RESULT: NO (AC-10): the field text differs from the sentence; see the diff above

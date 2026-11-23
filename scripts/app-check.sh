@@ -9,9 +9,10 @@
 #   scripts/app-check.sh bundle          build the .app, sign it, verify the signature
 #   scripts/app-check.sh window          title, size and first frame within 60 s
 #   scripts/app-check.sh idle            three launches: sockets for 60 s, memory samples
-#   scripts/app-check.sh telex           types a sentence into the note field through the built-in Vietnamese (Telex)
-#                                        input source with synthetic key events (changes the input source and the clipboard
-#                                        for about a minute and needs the window in front)
+#   scripts/app-check.sh telex           OPT-IN, off by default (scripts/check.sh app --typing): types a sentence into the
+#                                        note field through the built-in Vietnamese (Telex) input source with synthetic key
+#                                        events. It changes the input source and the clipboard for about a minute. SIGINT and
+#                                        SIGTERM restore both; SIGKILL cannot be trapped (see the recovery line in its log).
 #   scripts/app-check.sh controls        negative controls: each check must be able to fail
 #   scripts/app-check.sh evidence        SUMMARY.md and SHA256SUMS
 #   scripts/app-check.sh override-guard  refuses an environment that overrides the release profile
@@ -19,7 +20,11 @@
 # Evidence: every step writes its raw output into $APP_CHECK_EVIDENCE (default
 # docs/m0/M0b-01/evidence). Nothing is summarised away: the raw files carry the
 # timestamps, pids and command lines, SUMMARY.md only quotes them and SHA256SUMS
-# covers every file. Text logs and PNGs of the Interlo window only.
+# covers every file. The repository evidence folder holds text only. Screenshots
+# (PNGs of the Interlo window) go to $APP_CHECK_SHOTS, a folder outside the
+# repository (default: ../interlo-evidence/M0b-01 next to the repository); their
+# hashes and local paths are listed in SHA256SUMS. A step fails when a file that is
+# not text appears under the evidence folder.
 #
 # Exit codes: 0 pass, 1 fail, 3 BLOCKED (a tool, a permission or an identity is
 # missing; the environment does not provide it). A blocked step is never a pass.
@@ -29,6 +34,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${APP_CHECK_DIR:-$ROOT/target/app-check}"
 EVID="${APP_CHECK_EVIDENCE:-$ROOT/docs/m0/M0b-01/evidence}"
+SHOTS="${APP_CHECK_SHOTS:-$(cd "$ROOT/.." && pwd)/interlo-evidence/M0b-01}"
 APP="$ROOT/target/release/bundle/macos/Interlo.app"
 BIN="$APP/Contents/MacOS/interlo-desktop"
 IDENTITY="${APP_CHECK_IDENTITY:-Interlo Local Signing}"
@@ -42,7 +48,7 @@ SENTENCE="Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé."
 TELEX_KEYS="Hoom nay minhf ranhr, cungx gawpj nhau owr quans banj nhes."
 TELEX_KEYS_WRONG_TONE="Hoom nay minhs ranhr, cungx gawpj nhau owr quans banj nhes."
 KEY_DELAY_MS=120
-TYPING_ATTEMPTS=5
+TYPING_ATTEMPTS=8
 TAURI_MANIFEST="apps/desktop/src-tauri/Cargo.toml"
 SELF="$ROOT/scripts/app-check.sh"
 
@@ -174,6 +180,34 @@ open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFC", data
   return "$rc"
 }
 
+# Prints every file under the directory that is not text (an image, audio, a binary).
+# Prints nothing and returns 0 when the directory holds text only.
+non_text_files() { # dir
+  local f mime found=1
+  while IFS= read -r f; do
+    mime="$(file -b --mime-type "$f")"
+    case "$mime" in
+      text/* | inode/x-empty) ;;
+      *)
+        echo "$f ($mime)"
+        found=0
+        ;;
+    esac
+  done < <(find "$1" -type f | sort)
+  [ "$found" -ne 0 ]
+}
+
+# Fails (returns 1) when the directory holds a file that is not text.
+assert_text_only() { # dir
+  local list
+  list="$(non_text_files "$1" || true)"
+  if [ -n "$list" ]; then
+    echo "the evidence folder must hold text only; found: $list"
+    return 1
+  fi
+  return 0
+}
+
 rss_values() { sed -n 's/.*rss_kb=\([0-9][0-9]*\)$/\1/p' "$1"; }
 
 # ------------------------------------------------------------------ process helpers
@@ -265,10 +299,10 @@ step_prereq() {
   cargo tauri --version >/dev/null 2>&1 || blocked "the Tauri CLI is not installed (cargo install tauri-cli --version '^2' --locked)"
   security find-identity -v -p codesigning | grep -q "$IDENTITY" ||
     blocked "the signing identity \"$IDENTITY\" is not in the keychain"
-  mkdir -p "$OUT" "$EVID/shots"
+  mkdir -p "$OUT" "$EVID" "$SHOTS"
   # A new run replaces the evidence of the last run.
   find "$EVID" -type f -delete
-  mkdir -p "$EVID/shots"
+  : >"$OUT/shots.list"
   swiftc -O -o "$HELPER" "$HELPER_SRC" || blocked "the window helper did not compile (is the Xcode command line tools install complete?)"
   swiftc -O -o "$INPUT_SOURCE" "$ROOT/scripts/app-check/input-source.swift" || blocked "the input source tool did not compile"
   swiftc -O -o "$DRIVE" "$ROOT/scripts/app-check/app-drive.swift" || blocked "the app driver did not compile"
@@ -292,6 +326,7 @@ step_prereq() {
     echo "swiftc: $(swiftc --version 2>&1 | head -1)"
     echo "signing identity used: $IDENTITY"
     echo "command: scripts/check.sh app"
+    echo "screenshots are stored outside the repository: $SHOTS"
   } >"$EVID/meta.txt"
   echo "tools, signing identity, window helper and Screen Recording: available"
   echo "evidence folder started: ${EVID#"$ROOT"/}/meta.txt"
@@ -377,7 +412,7 @@ step_bundle() {
 }
 
 step_window() {
-  local log="$EVID/02-window-poll.log" pid start now elapsed info="" first="" id title w h epoch
+  local log="$EVID/02-window-poll.log" pid start now elapsed info="" first="" id title w h epoch first_shot late_shot
   pid="$(launch_app)"
   start="$(cat "$OUT/launch.t0")"
   {
@@ -402,17 +437,21 @@ step_window() {
   w="$(echo "$first" | cut -f3)"
   h="$(echo "$first" | cut -f4)"
   epoch="$(date +%s)"
-  screencapture -x -o -l "$id" "$EVID/shots/first-frame-win${id}-t${elapsed}ms-epoch${epoch}.png" || fail "screencapture of window $id failed"
+  first_shot="$SHOTS/first-frame-win${id}-t${elapsed}ms-epoch${epoch}.png"
+  screencapture -x -o -l "$id" "$first_shot" || fail "screencapture of window $id failed"
+  echo "$first_shot" >>"$OUT/shots.list"
   echo "capture: first-frame-win${id}-t${elapsed}ms-epoch${epoch}.png taken at t=${elapsed}ms (the first poll that found the window)" >>"$log"
   sleep "$SHOT_LATE_AFTER_S"
   now="$(now_ms)"
   epoch="$(date +%s)"
   local late=$((now - start))
-  screencapture -x -o -l "$id" "$EVID/shots/after-${SHOT_LATE_AFTER_S}s-win${id}-t${late}ms-epoch${epoch}.png" || fail "second screencapture failed"
+  late_shot="$SHOTS/after-${SHOT_LATE_AFTER_S}s-win${id}-t${late}ms-epoch${epoch}.png"
+  screencapture -x -o -l "$id" "$late_shot" || fail "second screencapture failed"
+  echo "$late_shot" >>"$OUT/shots.list"
   echo "capture: after-${SHOT_LATE_AFTER_S}s-win${id}-t${late}ms-epoch${epoch}.png taken at t=${late}ms" >>"$log"
   stop_app
   local shot
-  for shot in "$EVID"/shots/*.png; do
+  for shot in "$first_shot" "$late_shot"; do
     [ -s "$shot" ] || fail "$shot is empty"
     echo "$(basename "$shot"): $(sips -g pixelWidth -g pixelHeight "$shot" | awk '/pixel/ { printf "%s ", $2 }')pixels, $(wc -c <"$shot" | tr -d ' ') bytes" >>"$log"
   done
@@ -422,7 +461,7 @@ step_window() {
   [ "$rc" -eq 0 ] || fail "$msg"
   echo "RESULT: title \"$title\", size ${w} by ${h} points, found ${elapsed} ms after launch (limit ${WINDOW_DEADLINE_MS} ms); two screenshots of window $id" >>"$log"
   grep -E '^(capture|RESULT)|pixels' "$log"
-  echo "screenshots are in ${EVID#"$ROOT"/}/shots/ (the owner views them before they are committed)"
+  echo "screenshots are stored outside the repository, in $SHOTS"
 }
 
 # One launch: sample the sockets every second for IDLE_SECONDS, then sample the memory.
@@ -517,10 +556,10 @@ step_idle() {
 
 # -------------------------------------------------------------- Telex typing
 
-# Presses the named element, waiting up to 15 s for the page to show it.
+# Presses the named element, waiting up to 60 s for the page to show it.
 press_when_ready() { # pid text
   local i rc=1
-  for i in $(seq 1 30); do
+  for i in $(seq 1 120); do
     rc=0
     "$DRIVE" press "$1" "$2" || rc=$?
     [ "$rc" -eq 0 ] && return 0
@@ -529,19 +568,20 @@ press_when_ready() { # pid text
   return "$rc"
 }
 
-# Types KEYS into the note field with synthetic key events, retrying when another
-# app takes the front during the typing (exit 4 of app-drive: nothing was sent to
-# the wrong app). Returns 0 when the keys were typed, 3 when the app could not be
-# held in front.
+# Types KEYS into the note field with synthetic key events posted to the app's pid
+# (they cannot reach another app). The input method composes only while the app is
+# in front, so the typing is repeated when another app takes the front during it
+# (exit 4 of app-drive). Returns 0 when the keys were typed, 3 when the app could
+# not be held in front.
 type_into_field() { # pid keys log
   local pid="$1" keys="$2" log="$3" attempt rc
   for attempt in $(seq 1 "$TYPING_ATTEMPTS"); do
     rc=0
     {
       echo "attempt $attempt ($(iso))"
-      "$DRIVE" raise "$pid" bounce &&
-        press_when_ready "$pid" Workspace && sleep 0.5 &&
+      press_when_ready "$pid" Workspace && sleep 0.5 &&
         press_when_ready "$pid" Notes && sleep 0.5 &&
+        "$DRIVE" raise "$pid" bounce &&
         "$DRIVE" focus-text "$pid" &&
         "$DRIVE" chord "$pid" select-all &&
         "$DRIVE" chord "$pid" delete &&
@@ -552,7 +592,7 @@ type_into_field() { # pid keys log
       echo "  field after typing (read with the Accessibility API): [$("$DRIVE" read-text "$pid")]" >>"$log"
       return 0
     fi
-    echo "  attempt $attempt stopped with exit $rc (4 means another app was in front; nothing was sent to it)" >>"$log"
+    echo "  attempt $attempt stopped with exit $rc (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)" >>"$log"
     [ "$rc" -eq 4 ] || return 1
     sleep 1
   done
@@ -567,7 +607,7 @@ copy_field() { # pid out_file log
   for attempt in $(seq 1 "$TYPING_ATTEMPTS"); do
     printf '%s' "app-check-clipboard-marker" | pbcopy
     rc=0
-    { "$DRIVE" raise "$pid" && "$DRIVE" chord "$pid" select-all && "$DRIVE" chord "$pid" copy; } >>"$log" 2>&1 || rc=$?
+    { "$DRIVE" chord "$pid" select-all && "$DRIVE" chord "$pid" copy; } >>"$log" 2>&1 || rc=$?
     if [ "$rc" -eq 0 ]; then
       pbpaste >"$outfile"
       return 0
@@ -586,18 +626,29 @@ step_telex() {
   pid="$(launch_app)"
   orig_source="$("$INPUT_SOURCE" current)"
   pbpaste >"$saved_clip" || true
+  # Restores the input source and the clipboard text, and says so in the log when a command fails.
   restore_state() {
-    "$INPUT_SOURCE" select "$orig_source" >/dev/null 2>&1 || true
-    pbcopy <"$saved_clip" || true
+    "$INPUT_SOURCE" select "$orig_source" >/dev/null 2>&1 || echo "restore: selecting $orig_source failed" >>"$log"
+    pbcopy <"$saved_clip" 2>>"$log" || echo "restore: pbcopy failed" >>"$log"
     stop_app
   }
-  trap restore_state EXIT INT TERM
+  # SIGINT and SIGTERM restore, then end the step: a trap that only restores would let the typing go on.
+  on_signal() { # name exit_code
+    echo "signal $1 received: restoring the input source and the clipboard, then stopping" >>"$log"
+    restore_state
+    trap - EXIT INT TERM
+    exit "$2"
+  }
+  trap restore_state EXIT
+  trap 'on_signal INT 130' INT
+  trap 'on_signal TERM 143' TERM
   {
     echo "# Typing check (AC-9, AC-10): the sentence is typed with synthetic key events through the built-in Vietnamese (Telex) input source ($(iso))"
     echo "# Nothing is set into the field directly: the keys below go through the system input method into the web view."
     echo "app pid: $pid; input source before: $orig_source; clipboard saved: $(wc -c <"$saved_clip" | tr -d ' ') bytes (text only, not written here)"
     echo "sentence: $SENTENCE"
     echo "keys sent (key delay ${KEY_DELAY_MS} ms): $TELEX_KEYS"
+    echo "recovery after a SIGKILL (it cannot be trapped): $INPUT_SOURCE select $orig_source; pbcopy < $saved_clip"
   } >"$log"
   # Wait for the window before anything is sent.
   local i
@@ -617,8 +668,9 @@ step_telex() {
   type_into_field "$pid" "$TELEX_KEYS" "$log" || rc=$?
   [ "$rc" -ne 3 ] || blocked "another app kept the front during $TYPING_ATTEMPTS attempts; nothing was sent to it (see 07-telex-typing.log)"
   [ "$rc" -eq 0 ] || fail "typing stopped (see 07-telex-typing.log)"
-  shot="$EVID/shots/telex-typed-win${id}-epoch$(date +%s).png"
+  shot="$SHOTS/telex-typed-win${id}-epoch$(date +%s).png"
   screencapture -x -o -l "$id" "$shot" || true
+  echo "$shot" >>"$OUT/shots.list"
   rc=0
   copy_field "$pid" "$field" "$log" || rc=$?
   [ "$rc" -ne 3 ] || blocked "another app kept the front during the copy"
@@ -687,7 +739,7 @@ step_telex() {
   } >>"$log"
   grep -E '^(field after typing|raw diff|NFC diff|RESULT|  field after)' "$log"
   grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored"
-  echo "typing check: PASS; the screenshot of the typed field is in ${EVID#"$ROOT"/}/shots/"
+  echo "typing check: PASS; the screenshot of the typed field is stored outside the repository, in $SHOTS"
 }
 
 # ------------------------------------------------------------ negative controls
@@ -825,6 +877,24 @@ step_controls() {
   outp="$(assert_rss_file "$tmp/garbled.txt" 2>&1)" || rc=$?
   control_record "memory rule: 3 numbers and 2 broken lines" refuse "$rc" "${outp//$tmp\//}"
 
+  # 5b. The text-only rule: an image under the evidence folder is refused.
+  mkdir -p "$tmp/textonly" "$tmp/withimage"
+  printf 'RESULT: text\n' >"$tmp/textonly/log.txt"
+  printf 'RESULT: text\n' >"$tmp/withimage/log.txt"
+  python3 -I -c 'import sys, zlib, struct
+def chunk(kind, data):
+    body = kind + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00")) + chunk(b"IEND", b"")
+open(sys.argv[1], "wb").write(png)' "$tmp/withimage/shot.png"
+  rc=0
+  outp="$(assert_text_only "$tmp/textonly" 2>&1 | sed "s#$tmp/##g")" || rc=$?
+  control_record "text-only rule: a folder with one text log" accept "$rc" "${outp:-text only}"
+  rc=0
+  outp="$(assert_text_only "$tmp/withimage" 2>&1 | sed "s#$tmp/##g")" || rc=$?
+  rc=$(assert_text_only "$tmp/withimage" >/dev/null 2>&1 && echo 0 || echo 1)
+  control_record "text-only rule: a folder with a PNG image" refuse "$rc" "$outp"
+
   # 6. The blocked path: a missing identity is BLOCKED, never a pass.
   rc=0
   outp="$(APP_CHECK_IDENTITY="No Such Identity" APP_CHECK_EVIDENCE="$tmp/evidence" bash "$SELF" prereq 2>&1)" || rc=$?
@@ -847,6 +917,7 @@ step_evidence() {
   commit="$(sed -n 's/^commit: //p' "$EVID/meta.txt")"
   date="$(sed -n 's/^date: //p' "$EVID/meta.txt")"
   [ -f "$EVID/05-negative-controls.txt" ] || fail "run the controls step first"
+  assert_text_only "$EVID" || fail "an image or binary file is under the repository evidence folder (screenshots belong in $SHOTS)"
 
   # Control for the checksum file: a changed file must break `shasum -c`.
   local tmp rc=0 outp
@@ -870,15 +941,28 @@ step_evidence() {
     echo "# Evidence summary"
     echo
     echo "Commit measured: \`$commit\`. Date: $date. Command: \`scripts/check.sh app\`."
-    echo "The raw files in this folder are the evidence; this page only quotes them. \`SHA256SUMS\` lists every other file."
+    echo "The raw files in this folder are the evidence; this page only quotes them. \`SHA256SUMS\` lists every other file and the hash of each screenshot with its local path."
+    echo "Screenshots are not in the repository: they are stored in \`$SHOTS\`."
     echo "Verify: \`cd docs/m0/M0b-01/evidence && shasum -a 256 -c SHA256SUMS\`."
     echo
     echo "## Quoted result lines"
     echo
     for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
       echo "- \`$f\`:"
-      grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true
+      if [ -f "$EVID/$f" ]; then
+        grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true
+      else
+        echo "  > NOT RUN (the typing check is opt-in: scripts/check.sh app --typing)"
+      fi
     done
+    echo
+    echo "## Screenshots (stored locally, not in git)"
+    echo
+    if [ -s "$OUT/shots.list" ]; then
+      while IFS= read -r f; do echo "- \`$(shasum -a 256 "$f")\`"; done <"$OUT/shots.list"
+    else
+      echo "- none in this run"
+    fi
     echo
     echo "## Negative controls (05-negative-controls.txt)"
     echo
@@ -887,13 +971,18 @@ step_evidence() {
     echo "## Limits"
     echo
     sed 's/^# //; s/^/- /' "$EVID/03-limits.txt" | tail -n +2
-    echo "- The screenshots show the window at two moments (the first poll that found it, and 5 s later); they are not a recording."
+    echo "- The screenshots show the window at two moments (the first poll that found it, and 5 s later); they are not a recording, and they are kept outside git."
     echo "- Rerun \`scripts/check.sh app\` to compare: the pass lines must repeat, the memory numbers vary (read the median and the spread)."
   } >"$sum"
 
   (cd "$EVID" && find . -type f ! -name SHA256SUMS | sort | sed 's#^\./##' | while IFS= read -r f; do shasum -a 256 "$f"; done >SHA256SUMS)
+  # The screenshots are outside the repository: their hashes carry their local path.
+  if [ -s "$OUT/shots.list" ]; then
+    while IFS= read -r f; do shasum -a 256 "$f" >>"$EVID/SHA256SUMS"; done <"$OUT/shots.list"
+  fi
+  assert_text_only "$EVID" || fail "an image or binary file is under the repository evidence folder"
   (cd "$EVID" && shasum -a 256 -c SHA256SUMS >"$OUT/sums-check.txt" 2>&1) || fail "SHA256SUMS does not verify"
-  echo "SUMMARY.md written; SHA256SUMS covers $(wc -l <"$EVID/SHA256SUMS" | tr -d ' ') files and verifies"
+  echo "SUMMARY.md written; SHA256SUMS covers $(wc -l <"$EVID/SHA256SUMS" | tr -d ' ') files (screenshots by local path) and verifies"
   du -sh "$EVID" | sed "s#$ROOT/##"
 }
 

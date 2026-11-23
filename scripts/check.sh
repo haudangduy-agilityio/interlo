@@ -4,7 +4,10 @@
 #   scripts/check.sh full    quick, then UI build, desktop build and the hook tests (the gate)
 #   scripts/check.sh supply  dependency audit: npm audit (shipped and dev tooling both block; accepted exceptions in scripts/audit-dev.mjs) and cargo deny (install: cargo install cargo-deny --locked)
 #   scripts/check.sh e2e     end-to-end journeys only (out of the gate for now)
-#   scripts/check.sh app     the signed app on this Mac: build flags, window, sockets, memory (needs a display, Screen Recording and the local signing identity; not in the gate)
+#   scripts/check.sh app [--typing]
+#                            the signed app on this Mac: build flags, window, sockets, memory (needs a display, Screen Recording and the local signing identity; not in the gate).
+#                            The typing check (synthetic key events through the Telex input source; it changes your input source and clipboard) is opt-in: only with --typing.
+#                            Screenshots go to ../interlo-evidence/M0b-01 (APP_CHECK_SHOTS), never into the repository.
 # Exit codes: 0 all steps passed, 1 a step failed, 2 a step is NOT CONFIGURED or
 # BLOCKED, 64 bad usage. A missing tool, a missing permission or a missing npm
 # script is never a pass.
@@ -14,7 +17,19 @@ MODE="${1:-}"
 case "$MODE" in
   quick | full | e2e | supply | app) ;;
   *)
-    echo "usage: scripts/check.sh quick|full|e2e|supply|app" >&2
+    echo "usage: scripts/check.sh quick|full|e2e|supply|app [--typing]" >&2
+    exit 64
+    ;;
+esac
+TYPING=0
+case "${2:-}" in
+  "") ;;
+  --typing)
+    [ "$MODE" = "app" ] || { echo "--typing applies to the app mode only" >&2; exit 64; }
+    TYPING=1
+    ;;
+  *)
+    echo "usage: scripts/check.sh quick|full|e2e|supply|app [--typing]" >&2
     exit 64
     ;;
 esac
@@ -191,7 +206,14 @@ run_app() {
   run_step "app: bundle, sign, verify" cargo bash scripts/app-check.sh bundle
   run_step "app: window title, size, first frame" "" bash scripts/app-check.sh window
   run_step "app: sockets and memory, 3 idle launches" "" bash scripts/app-check.sh idle
-  run_step "app: Vietnamese Telex typing (changes your input source and clipboard)" "" bash scripts/app-check.sh telex
+  if [ "$TYPING" -eq 1 ]; then
+    run_step "app: Vietnamese Telex typing (changes your input source and clipboard)" "" bash scripts/app-check.sh telex
+  else
+    echo
+    echo "==> app: Vietnamese Telex typing"
+    echo "    NOT RUN: opt-in (scripts/check.sh app --typing); it sends key events and changes the input source and the clipboard"
+    record "app: Vietnamese Telex typing" "NOT RUN (opt-in)" "0"
+  fi
   run_step "app: negative controls" "" bash scripts/app-check.sh controls
   run_step "app: evidence summary and checksums" "" bash scripts/app-check.sh evidence
 }
@@ -211,4 +233,8 @@ fi
 
 print_summary
 echo
-echo "ALL STEPS PASSED ($MODE)"
+if [ "$MODE" = "app" ] && [ "$TYPING" -eq 0 ]; then
+  echo "ALL STEPS PASSED (app), except the typing check: NOT RUN (opt-in: scripts/check.sh app --typing)"
+else
+  echo "ALL STEPS PASSED ($MODE)"
+fi

@@ -109,6 +109,21 @@ expect_flagged "the diff names the wrong tone" "$(nfc_diff "$NFC_DIR/wrong-tone.
 rm -f "$NFC_DIR"/*.txt
 rmdir "$NFC_DIR"
 
+# The repository evidence folder holds text only: an image under it is refused.
+TXT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-textXXXXXX")"
+mkdir -p "$TXT_DIR/ok" "$TXT_DIR/image" "$TXT_DIR/binary"
+printf 'RESULT: Hôm nay\n' >"$TXT_DIR/ok/log.txt"
+: >"$TXT_DIR/ok/empty.log"
+printf 'RESULT: text\n' >"$TXT_DIR/image/log.txt"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 -d >"$TXT_DIR/image/shot.png"
+printf '\000\001\002\003\377\376' >"$TXT_DIR/binary/data.bin"
+expect_status "a folder of text logs" 0 "$(status_of assert_text_only "$TXT_DIR/ok")"
+expect_status "a folder with a PNG image" 1 "$(status_of assert_text_only "$TXT_DIR/image")"
+expect_status "a folder with a binary file" 1 "$(status_of assert_text_only "$TXT_DIR/binary")"
+expect_flagged "the refusal names the image" "$(assert_text_only "$TXT_DIR/image" || true)" 'shot.png'
+rm -f "$TXT_DIR"/ok/* "$TXT_DIR"/image/* "$TXT_DIR"/binary/*
+rmdir "$TXT_DIR/ok" "$TXT_DIR/image" "$TXT_DIR/binary" "$TXT_DIR"
+
 if [ "$FAILURES" -ne 0 ]; then
   echo "$FAILURES failed"
   exit 1
