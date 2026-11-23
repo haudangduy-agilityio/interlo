@@ -40,7 +40,8 @@ fn denial(role: EngineRole, provider: &Provider, denied: EgressDenied) -> Engine
         EgressDenied::LocalOnly(_) => DenyCause::LocalOnly,
         EgressDenied::NoConsent(_, kind) => DenyCause::NoConsent(kind),
         // `PrivacyPolicy::check` never returns this one; it belongs to the
-        // model download path, which has no engine role.
+        // model download path, which has no engine role. Defensive fallback:
+        // a refusal never turns into an accepted engine.
         EgressDenied::ModelHostNotAllowed(_) => {
             return EngineError::Backend("model host is not an engine data path".into())
         }
@@ -65,10 +66,10 @@ pub struct EngineRegistry {
 /// One `set_*` and one `get_*` per role. `set_*` writes the slot only after the
 /// policy accepted the engine, so a refusal keeps the engine already there.
 macro_rules! role_methods {
-    ($role:ident, $field:ident, $set:ident, $get:ident, $engine:ident) => {
+    ($role:ident, $field:ident, $set:ident, $get:ident) => {
         pub fn $set(
             &mut self,
-            engine: Box<dyn $engine>,
+            engine: Box<dyn $role>,
             policy: &PrivacyPolicy,
         ) -> Result<(), EngineError> {
             admit(EngineRole::$role, engine.provider(), policy)?;
@@ -76,7 +77,7 @@ macro_rules! role_methods {
             Ok(())
         }
 
-        pub fn $get(&mut self, policy: &PrivacyPolicy) -> Result<&mut dyn $engine, EngineError> {
+        pub fn $get(&mut self, policy: &PrivacyPolicy) -> Result<&mut dyn $role, EngineError> {
             let engine = self
                 .$field
                 .as_deref_mut()
@@ -92,42 +93,12 @@ impl EngineRegistry {
         Self::default()
     }
 
-    role_methods!(Vad, vad, set_vad, get_vad, Vad);
-    role_methods!(
-        Recognizer,
-        recognizer,
-        set_recognizer,
-        get_recognizer,
-        Recognizer
-    );
-    role_methods!(
-        Translator,
-        translator,
-        set_translator,
-        get_translator,
-        Translator
-    );
-    role_methods!(
-        Synthesizer,
-        synthesizer,
-        set_synthesizer,
-        get_synthesizer,
-        Synthesizer
-    );
-    role_methods!(
-        SpeakerId,
-        speaker_id,
-        set_speaker_id,
-        get_speaker_id,
-        SpeakerId
-    );
-    role_methods!(
-        Summarizer,
-        summarizer,
-        set_summarizer,
-        get_summarizer,
-        Summarizer
-    );
+    role_methods!(Vad, vad, set_vad, get_vad);
+    role_methods!(Recognizer, recognizer, set_recognizer, get_recognizer);
+    role_methods!(Translator, translator, set_translator, get_translator);
+    role_methods!(Synthesizer, synthesizer, set_synthesizer, get_synthesizer);
+    role_methods!(SpeakerId, speaker_id, set_speaker_id, get_speaker_id);
+    role_methods!(Summarizer, summarizer, set_summarizer, get_summarizer);
 
     /// Roles with no engine loaded, in a fixed order.
     pub fn missing_roles(&self) -> Vec<EngineRole> {
@@ -150,11 +121,9 @@ impl EngineRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{DenyCause, EngineError};
     use crate::mock::{Calls, Mock};
     use crate::traits::{Recognition, SpeakerLabel};
-    use meeting_core::policy::PrivacyPolicy;
-    use meeting_core::protocol::{DataKind, Language};
+    use meeting_core::protocol::Language;
 
     const ALL_ROLES: [EngineRole; 6] = [
         EngineRole::Vad,
@@ -375,9 +344,11 @@ mod tests {
         policy.grant("p", DataKind::Text);
         for role in ALL_ROLES {
             let mut reg = EngineRegistry::new();
-            let (registered, _) = register(&mut reg, role, Some("p"), &policy);
+            let (registered, calls) = register(&mut reg, role, Some("p"), &policy);
             if role.data_kind() == DataKind::Text {
                 assert_eq!(registered, Ok(()), "{role:?}");
+                assert_eq!(get_and_call(&mut reg, role, &policy), Ok(()), "{role:?}");
+                assert_eq!(calls.count(), 1, "{role:?}");
             } else {
                 assert_eq!(
                     registered,
@@ -468,6 +439,16 @@ mod tests {
             assert_eq!(first_calls.count(), 0, "{role:?}");
             assert_eq!(second_calls.count(), 1, "{role:?}");
         }
+    }
+
+    #[test]
+    fn model_host_denial_maps_to_a_backend_error_not_a_denied_engine() {
+        let error = denial(
+            EngineRole::Vad,
+            &Provider::local("p"),
+            EgressDenied::ModelHostNotAllowed("host.example.com".into()),
+        );
+        assert!(matches!(error, EngineError::Backend(_)), "{error:?}");
     }
 
     #[test]

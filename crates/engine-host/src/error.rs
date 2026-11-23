@@ -4,11 +4,13 @@ use crate::registry::EngineRole;
 use meeting_core::protocol::DataKind;
 
 /// Why the privacy policy refused an engine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum DenyCause {
     /// Local-only mode is on and the engine is remote.
+    #[error("local-only mode is on")]
     LocalOnly,
     /// No consent for this provider and this kind of data.
+    #[error("no consent to send {0:?} data")]
     NoConsent(DataKind),
 }
 
@@ -20,7 +22,7 @@ pub enum EngineError {
     NotLoaded(EngineRole),
     /// The privacy policy refused the engine of `role`. `provider` is the
     /// provider id only; it never holds audio or text.
-    #[error("privacy policy refused the {role:?} engine of provider {provider}: {cause:?}")]
+    #[error("privacy policy refused the {role:?} engine of provider {provider}: {cause}")]
     Denied {
         role: EngineRole,
         provider: String,

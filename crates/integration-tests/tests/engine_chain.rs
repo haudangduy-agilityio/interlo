@@ -80,3 +80,14 @@ fn span_stops_with_not_loaded_when_a_chain_role_is_missing() {
         Err(EngineError::NotLoaded(EngineRole::Vad))
     );
 }
+
+#[test]
+fn span_without_speech_stops_after_voice_activity_detection() {
+    let policy = PrivacyPolicy::default();
+    let log = CallLog::new();
+    let mut reg = EngineRegistry::new();
+    reg.set_vad(Box::new(Mock::new(false).with_log(&log)), &policy)
+        .expect("local mock passes the default policy");
+    assert_eq!(run_span(&mut reg, &policy), Ok(Vec::new()));
+    assert_eq!(log.roles(), vec![EngineRole::Vad]);
+}

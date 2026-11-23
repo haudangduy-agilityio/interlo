@@ -6,7 +6,7 @@ crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
   audio-io/                devices, capture plan, output, ring buffer, resampler trait
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
-  engine-host/             engine traits, registry, segmenter, language gate
+  engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
   playback/                playback queue, speed-up, mixer
   store/                   SQLite projections, schema, full-text index
   summary-jobs/            job queue, citation check, question answerer

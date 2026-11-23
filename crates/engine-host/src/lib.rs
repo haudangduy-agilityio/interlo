@@ -4,6 +4,8 @@
 //!
 //! Must never open a network connection. Any network need goes through the
 //! policy gate in `meeting-core`.
+//! Must never hand out an engine that the privacy policy refuses: the registry
+//! asks the policy at every `set_*` and at every `get_*`.
 
 pub mod error;
 pub mod language_gate;

@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub struct Calls(Arc<AtomicUsize>);
 
 impl Calls {
+    /// Number of calls so far.
     pub fn count(&self) -> usize {
         self.0.load(Ordering::SeqCst)
     }
@@ -46,6 +47,8 @@ impl CallLog {
     }
 }
 
+/// A scripted engine that returns `value` from every call. See the module doc
+/// for which `V` serves which role.
 #[derive(Debug)]
 pub struct Mock<V> {
     provider: Provider,
@@ -77,6 +80,8 @@ impl<V> Mock<V> {
         self
     }
 
+    /// A handle on this mock's call counter; it stays valid after the mock
+    /// moves into a registry.
     pub fn calls(&self) -> Calls {
         self.calls.clone()
     }
