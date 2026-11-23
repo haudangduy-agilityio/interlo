@@ -7,14 +7,17 @@
 
 pub mod error;
 pub mod language_gate;
+#[cfg(any(test, feature = "mock"))]
+pub mod mock;
 pub mod registry;
 pub mod segmenter;
 pub mod traits;
 
-pub use error::EngineError;
+pub use error::{DenyCause, EngineError};
 pub use language_gate::owner_should_translate;
 pub use registry::{EngineRegistry, EngineRole};
 pub use segmenter::{segment, Piece, Segmenter};
 pub use traits::{
-    Recognition, Recognizer, SpeakerId, SpeakerLabel, Summarizer, Synthesizer, Translator, Vad,
+    Engine, Recognition, Recognizer, SpeakerId, SpeakerLabel, Summarizer, Synthesizer, Translator,
+    Vad,
 };
