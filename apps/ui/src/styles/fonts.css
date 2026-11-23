@@ -1,6 +1,6 @@
 /* Font faces. The files are local (src/assets/fonts) and are never loaded from the network.
-   The aliases hide the family names; the real names are in docs/tech-stack.md and in the licence
-   files beside the font files (src/assets/fonts/*-OFL.txt). A character a file does not hold falls back to the system font. */
+   The aliases hide the family names; the real names are in NOTICE, docs/tech-stack.md and in the
+   licence files beside the font files (src/assets/fonts/*-OFL.txt). A character a file does not hold falls back to the system font. */
 @font-face {
   font-family: "interlo-display";
   font-style: normal;

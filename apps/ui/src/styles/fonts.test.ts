@@ -7,6 +7,7 @@ const UI = fileURLToPath(new URL("../../", import.meta.url));
 const REPO = `${UI}../../`;
 const fontsCss = readFileSync(`${UI}src/styles/fonts.css`, "utf8");
 const techStack = readFileSync(`${REPO}docs/tech-stack.md`, "utf8");
+const notice = readFileSync(`${REPO}NOTICE`, "utf8");
 
 /** The family names of the three rows of docs/tech-stack.md. They are read from there, not repeated here. */
 const familyRows = [...techStack.matchAll(/^\| (display|text|mono)\s+\| (.+?)\s+\| SIL OFL/gm)].map(
@@ -53,6 +54,19 @@ describe("attribution (AC-06)", () => {
   it("lists the three families in docs/tech-stack.md with their licence and where the text sits", () => {
     expect(familyRows.map((r) => r.role)).toEqual(["display", "text", "mono"]);
     expect(techStack).toContain("sits beside the font files");
+  });
+
+  it("lists the three families in NOTICE with their licence and their author's copyright line", () => {
+    for (const { role, name } of familyRows) {
+      // One entry: from "F<n>. <name> (" up to the next entry or the blank line.
+      const entry = new RegExp(`^F\\d\\. ${name} \\([\\s\\S]*?(?=\\nF\\d\\. |\\n\\n)`, "m").exec(
+        notice,
+      );
+      expect(entry, `${role} entry in NOTICE`).not.toBeNull();
+      expect(entry?.[0], role).toMatch(/Copyright \d{4} The .+ Project Authors/);
+      expect(entry?.[0], role).toContain(`${role}-OFL.txt`);
+    }
+    expect(notice).toContain("SIL Open Font License");
   });
 
   it("keeps each licence text, with its author's copyright line, beside the font files", () => {
