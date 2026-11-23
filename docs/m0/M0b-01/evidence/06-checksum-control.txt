@@ -1,0 +1,5 @@
+# Control of the checksum file (2026-11-23T14:24:41+0700): a file changed by one byte must fail shasum -c
+file.txt: FAILED
+shasum: WARNING: 1 computed checksum did NOT match
+exit: 1
+RESULT: the changed file was refused

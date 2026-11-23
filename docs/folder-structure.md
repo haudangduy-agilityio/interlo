@@ -65,7 +65,8 @@ docs/                      reference files (routed from CLAUDE.md)
 fixtures/
   protocol/                journal replay files
   ipc/                     IPC contract payloads read by Rust and UI tests
-scripts/check.sh           the gate (quick, full), the e2e run (e2e) and the dependency audit (supply)
+scripts/check.sh           the gate (quick, full), the e2e run (e2e), the signed-app check (app) and the dependency audit (supply)
+scripts/app-check.sh       the steps of the signed-app check; `app-check.test.sh` tests its pure parts; `app-check/` holds the Swift helpers (window list, input source, app driver)
 .claude/                   project hooks and their tests, review agents, skills, review-scope rule
 .gitlab-ci.yml, .gitlab/   GitLab pipeline, merge request and issue templates, code owners
 .github/                   GitHub CI workflow, templates and Dependabot; used after the move to GitHub

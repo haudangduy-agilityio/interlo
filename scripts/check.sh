@@ -4,18 +4,42 @@
 #   scripts/check.sh full    quick, then UI build, desktop build and the hook tests (the gate)
 #   scripts/check.sh supply  dependency audit: npm audit (shipped and dev tooling both block; accepted exceptions in scripts/audit-dev.mjs) and cargo deny (install: cargo install cargo-deny --locked)
 #   scripts/check.sh e2e     end-to-end journeys only (out of the gate for now)
-# Exit codes: 0 all steps passed, 1 a step failed, 2 a step is NOT CONFIGURED,
-# 64 bad usage. A missing tool or a missing npm script is never a pass.
+#   scripts/check.sh app [--typing]
+#                            the signed app on this Mac: build flags, window, sockets, memory (needs a display, Screen Recording and the local signing identity; not in the gate).
+#                            The typing check (synthetic key events through the Telex input source; it needs Accessibility and changes your input source and clipboard) is opt-in: only with --typing.
+#                            Screenshots go to ../interlo-evidence/M0b-01 (APP_CHECK_SHOTS), never into the repository.
+# Exit codes: 0 all steps passed, 1 a step failed, 2 a step is NOT CONFIGURED or
+# BLOCKED, 64 bad usage. A missing tool, a missing permission or a missing npm
+# script is never a pass.
 set -euo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  quick | full | e2e | supply) ;;
+  quick | full | e2e | supply | app) ;;
   *)
-    echo "usage: scripts/check.sh quick|full|e2e|supply" >&2
+    echo "usage: scripts/check.sh quick|full|e2e|supply|app [--typing]" >&2
     exit 64
     ;;
 esac
+TYPING=0
+case "${2:-}" in
+  "") ;;
+  --typing)
+    [ "$MODE" = "app" ] || { echo "--typing applies to the app mode only" >&2; exit 64; }
+    TYPING=1
+    ;;
+  *)
+    echo "usage: scripts/check.sh quick|full|e2e|supply|app [--typing]" >&2
+    exit 64
+    ;;
+esac
+
+# scripts/app-check.test.sh sets this when it runs check.sh to test the argument parsing: a
+# parsing that wrongly accepts the arguments would start the gate, which runs that test again.
+if [ -n "${APP_CHECK_SELF_TEST:-}" ]; then
+  echo "refusing to start the gate from its own self-test" >&2
+  exit 99
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -120,6 +144,17 @@ run_step() {
   "$@" || status=$?
   local secs=$(($(date +%s) - start))
 
+  # Exit 3 from scripts/app-check.sh: the environment does not provide a tool,
+  # a permission or an identity. Reported as BLOCKED, never as a pass.
+  if [ "$status" -eq 3 ]; then
+    echo "    -> BLOCKED after ${secs}s"
+    record "$name" "BLOCKED" "$secs"
+    echo
+    echo "BLOCKED STEP: $name"
+    print_summary
+    exit 2
+  fi
+
   if [ "$status" -ne 0 ]; then
     echo "    -> FAIL after ${secs}s (exit $status)"
     record "$name" "FAIL" "$secs"
@@ -143,6 +178,7 @@ run_quick() {
   run_step "ui test" "npm:test" npm --prefix "$UI_DIR" test
   run_step "gitlab templates" node node scripts/check-templates.mjs
   run_step "gitlab templates self-test" node node --test scripts/check-templates.test.mjs
+  run_step "app-check self-test" "" bash scripts/app-check.test.sh
 }
 
 # The hook tests guard the agent safety net. A failing suite prints its output.
@@ -170,8 +206,29 @@ run_supply() {
   run_step "cargo deny check" cargo-deny cargo deny check
 }
 
+run_app() {
+  run_step "app: prerequisites" "" bash scripts/app-check.sh prereq
+  run_step "ui build" "npm:build" npm --prefix "$UI_DIR" run build
+  run_step "app: build flags of the release build" cargo bash scripts/app-check.sh build-proof
+  run_step "app: bundle, sign, verify" cargo bash scripts/app-check.sh bundle
+  run_step "app: window title, size, first frame" "" bash scripts/app-check.sh window
+  run_step "app: sockets and memory, 3 idle launches" "" bash scripts/app-check.sh idle
+  if [ "$TYPING" -eq 1 ]; then
+    run_step "app: Vietnamese Telex typing (changes your input source and clipboard)" "" bash scripts/app-check.sh telex
+  else
+    echo
+    echo "==> app: Vietnamese Telex typing"
+    echo "    NOT RUN: opt-in (scripts/check.sh app --typing); it sends key events and changes the input source and the clipboard"
+    record "app: Vietnamese Telex typing" "NOT RUN (opt-in)" "0"
+  fi
+  run_step "app: negative controls" "" bash scripts/app-check.sh controls
+  run_step "app: evidence summary and checksums" "" bash scripts/app-check.sh evidence
+}
+
 if [ "$MODE" = "e2e" ]; then
   run_step "ui e2e" "npm:e2e" npm --prefix "$UI_DIR" run e2e
+elif [ "$MODE" = "app" ]; then
+  run_app
 elif [ "$MODE" = "supply" ]; then
   run_supply
 else
@@ -183,4 +240,8 @@ fi
 
 print_summary
 echo
-echo "ALL STEPS PASSED ($MODE)"
+if [ "$MODE" = "app" ] && [ "$TYPING" -eq 0 ]; then
+  echo "ALL STEPS PASSED (app), except the typing check: NOT RUN (opt-in: scripts/check.sh app --typing)"
+else
+  echo "ALL STEPS PASSED ($MODE)"
+fi

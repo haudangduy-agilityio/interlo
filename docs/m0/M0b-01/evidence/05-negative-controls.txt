@@ -1,0 +1,138 @@
+# Negative controls: each check is run on input that it must refuse, and on input that it must accept (2026-11-23T14:24:40+0700).
+# A check that cannot fail is not evidence.
+# The profile controls use the real rustc line of 01-build-flags.txt with one flag changed: a real build with a
+# wrong profile would rebuild the whole dependency tree. The override guard is run for real.
+
+CONTROL 1: override guard with CARGO_PROFILE_RELEASE_OPT_LEVEL=1 in the environment
+  expected: refuse
+  exit: 1
+  output: FAIL: an environment variable overrides the release profile: CARGO_PROFILE_RELEASE_OPT_LEVEL
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 2: override guard in a clean environment
+  expected: accept
+  exit: 0
+  output: no profile or rustflags override in the environment, in .cargo/config* above the repository or in CARGO_HOME
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 3: rustc flags, the real bin line
+  expected: accept
+  exit: 0
+  output: 
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 4: rustc flags with -C opt-level=1
+  expected: refuse
+  exit: 1
+  output: bin target: no -C opt-level=3
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 5: rustc flags with -C codegen-units=16
+  expected: refuse
+  exit: 1
+  output: bin target: no -C codegen-units=1
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 6: rustc flags with -C lto=off
+  expected: refuse
+  exit: 1
+  output: bin target: no -C lto=thin
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 7: rustc flags without a strip flag
+  expected: refuse
+  exit: 1
+  output: bin target: no -C strip flag
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 8: rustc flags with -C panic=abort
+  expected: refuse
+  exit: 1
+  output: bin target: a -C panic flag is set (unwinding must stay the default)
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 9: socket rule on a test listener bound to 127.0.0.1:56915 (lsof: n127.0.0.1:56915 )
+  expected: accept
+  exit: 0
+  output: no violation
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 10: socket rule on a test listener bound to 0.0.0.0:56916 (lsof: n*:56916 )
+  expected: refuse
+  exit: 1
+  output: pid 77325 TCP *:56916
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 11: socket rule on a test listener bound to [::]:56917 (lsof: n*:56917 )
+  expected: refuse
+  exit: 1
+  output: pid 77329 TCP *:56917
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 12: window rule: Interlo, 1200 by 780, 1324 ms
+  expected: accept
+  exit: 0
+  output: within the limits
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 13: window rule: size 1000 by 700
+  expected: refuse
+  exit: 1
+  output: window size is 1000 by 700, expected 1200 by 780
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 14: window rule: title Other
+  expected: refuse
+  exit: 1
+  output: window title is "Other", expected "Interlo"
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 15: window rule: 61000 ms
+  expected: refuse
+  exit: 1
+  output: the window took 61000 ms (limit 60000 ms)
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 16: window rule: empty title is BLOCKED (exit 3), not a pass
+  expected: refuse:3
+  exit: 3
+  output: the window title is empty: Screen Recording is not granted to the app that runs this script
+  verdict: behaved as expected (refuse:3, exit 3)
+
+CONTROL 17: memory rule: 5 readings
+  expected: accept
+  exit: 0
+  output: 5 readings
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 18: memory rule: 3 readings
+  expected: refuse
+  exit: 1
+  output: short.txt: 3 readings, expected at least 5
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 19: memory rule: 3 numbers and 2 broken lines
+  expected: refuse
+  exit: 1
+  output: garbled.txt: 3 readings, expected at least 5
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 20: text-only rule: a folder with one text log
+  expected: accept
+  exit: 0
+  output: text only
+  verdict: behaved as expected (accept, exit 0)
+
+CONTROL 21: text-only rule: a folder with a PNG image
+  expected: refuse
+  exit: 1
+  output: the evidence folder must hold text only; found: withimage/shot.png (image/png)
+  verdict: behaved as expected (refuse, exit 1)
+
+CONTROL 22: prerequisites with a signing identity that does not exist (BLOCKED is exit 3, caused by the identity)
+  expected: refuse:3
+  exit: 3
+  output: BLOCKED: the signing identity "No Such Identity" is not in the keychain
+  verdict: behaved as expected (refuse:3, exit 3)
+
+RESULT: 22 controls, 0 wrong
