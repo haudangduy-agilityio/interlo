@@ -1,0 +1,2 @@
+AC-14 PASS attempt 1: pids that started an output stream after the trigger: 1 (see probe-1.log); PASS idle_floor=-120.0 mean_level=-120.0 max_window=-120.0 windows=100/100
+AC-14 CONTROL-OK(the target plays during the 10 s) NO idle_floor=-120.0 mean_level=-17.7 max_window=-12.0 windows=100/100

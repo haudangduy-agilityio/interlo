@@ -1,0 +1,2 @@
+AC-39 PASS 28 run logs, each with sample lines and no non-loopback address or wildcard listener (see per-run.txt)
+AC-39 CONTROL-OK(a wildcard listener is sampled) NO samples=1 violations=wildcard listener: m0b05 1 user 4u IPv4 0x1 0t0 TCP *:8080 (LISTEN)

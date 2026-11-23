@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>m0b05 test page</title>
+</head>
+<body>
+<p id="s">idle</p>
+<script>
+// Test page for the process tap spike. It keeps an audio output stream open at all times
+// (silence) so the browser's audio process exists; the harness switches what it plays.
+const ctx = new AudioContext();
+const clip = new Audio('/clip.wav');
+clip.loop = true;
+const clipGain = ctx.createGain();
+clipGain.gain.value = 0;
+ctx.createMediaElementSource(clip).connect(clipGain).connect(ctx.destination);
+const osc = ctx.createOscillator();
+osc.frequency.value = 1000;
+const toneGain = ctx.createGain();
+toneGain.gain.value = 0;
+osc.connect(toneGain).connect(ctx.destination);
+osc.start();
+clip.play().catch(() => {});
+const id = new URLSearchParams(location.search).get('id') || 'a';
+async function poll() {
+  try {
+    const st = await (await fetch('/state?id=' + id, { cache: 'no-store' })).json();
+    clipGain.gain.value = st.mode === 'clip' ? 1 : 0;
+    toneGain.gain.value = st.mode === 'tone' ? 0.3 : 0;
+    if (ctx.state !== 'running') ctx.resume();
+    document.getElementById('s').textContent = st.mode + ' ' + ctx.state;
+  } catch (e) {
+    document.getElementById('s').textContent = 'error ' + e;
+  }
+}
+setInterval(poll, 100);
+</script>
+</body>
+</html>

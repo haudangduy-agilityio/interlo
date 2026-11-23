@@ -1,0 +1,2 @@
+AC-20 PASS PASS lines=["app=missing", "route=2ch"] expected=["app=missing", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+AC-20 CONTROL-OK(the target app is running) NO lines=["route=tap"] expected=["app=missing", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)

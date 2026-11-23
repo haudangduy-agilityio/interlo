@@ -1,0 +1,2 @@
+AC-16 PASS PASS SILENT 10013 ms after TAP_START (limit 11000 ms)
+AC-16 CONTROL-OK(the target plays the whole run) NO no TAP_START or no SILENT line

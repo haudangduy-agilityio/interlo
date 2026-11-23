@@ -1,0 +1,2 @@
+AC-21 PASS both find commands exit 0 and print nothing
+AC-21 CONTROL-OK(a decoy .wav file is found) $TMPDIR/m0b-05/decoy.wav

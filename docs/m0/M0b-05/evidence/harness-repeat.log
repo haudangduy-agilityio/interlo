@@ -1,0 +1,37 @@
+1795406866162 STATE original volume=31 output_rate=48000
+1795406866185 TOUCH /tmp/m0b-05.start (the clips were made before this line)
+1795406866204 EFFECT lowering the output volume from 31 to 20 (restored on exit)
+1795406866471 SERVER loopback test page on port 59081
+1795406866492 EFFECT opening browser window 'a' with its own temporary profile (deleted on exit)
+1795406866561 EFFECT opening browser window 'b' with its own temporary profile (deleted on exit)
+1795406868317 TARGETS a: TARGET pids=11 objects=1  b: TARGET pids=11 objects=1
+1795406868335 STEP grant start
+1795406868357 EFFECT tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795406868507 PERMISSION code before the prompt: 2
+run=prompt-grant-1 pid=80359 dir=$TMPDIR/m0b-05/runs/prompt-grant-1
+1795406872063 RESULT PERMISSION-grant DONE permission code after the prompt: 0 (0 granted, 1 refused); route lines: 1
+1795406872084 STEP grant end
+1795406872104 STEP ac16r start
+run=ac16r-1 pid=80736 dir=$TMPDIR/m0b-05/runs/ac16r-1
+run=ac16r-2 pid=81565 dir=$TMPDIR/m0b-05/runs/ac16r-2
+run=ac16r-3 pid=82316 dir=$TMPDIR/m0b-05/runs/ac16r-3
+run=ac16r-4 pid=83319 dir=$TMPDIR/m0b-05/runs/ac16r-4
+run=ac16r-5 pid=83999 dir=$TMPDIR/m0b-05/runs/ac16r-5
+1795406931742 RESULT AC-16-repeat PASS SILENT after TAP_START in ms over 5 runs: n=5 median=10013 min=10006 max=10029 (limit 11000)
+1795406931761 STEP ac16r end
+1795406931780 STEP ac18r start
+run=ac18r-1 pid=84580 dir=$TMPDIR/m0b-05/runs/ac18r-1
+1795406940148 EFFECT changing the default output device sample rate from 48000 to 44100 (restored right after), repeat 1
+run=ac18r-2 pid=85410 dir=$TMPDIR/m0b-05/runs/ac18r-2
+1795406957577 EFFECT changing the default output device sample rate from 48000 to 44100 (restored right after), repeat 2
+run=ac18r-3 pid=86155 dir=$TMPDIR/m0b-05/runs/ac18r-3
+1795406975129 EFFECT changing the default output device sample rate from 48000 to 44100 (restored right after), repeat 3
+run=ac18r-4 pid=86888 dir=$TMPDIR/m0b-05/runs/ac18r-4
+1795406992660 EFFECT changing the default output device sample rate from 48000 to 44100 (restored right after), repeat 4
+run=ac18r-5 pid=87628 dir=$TMPDIR/m0b-05/runs/ac18r-5
+1795407010209 EFFECT changing the default output device sample rate from 48000 to 44100 (restored right after), repeat 5
+1795407019472 RESULT AC-18-repeat PASS over 5 runs: RESTART after RATE_CHANGE in ms: n=5 median=84 min=73 max=181 (limit 3000); first audio-present one-second window ends after RESTART in ms: n=5 median=1000 min=1000 max=2000 (limit 3000)
+1795407019488 STEP ac18r end
+1795407019688 RESTORE output volume to 31
+1795407020118 RESTORE tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795407020284 CLEANUP done

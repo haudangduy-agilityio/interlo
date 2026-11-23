@@ -1,0 +1,110 @@
+1795406907910 START pid=83319 ignore_2ch=false
+1795406908005 route=tap
+1795406908020 TAP_START rate=48000 pids=80209,80245,80247,80251,80255,80261,80270,80429,81698,81716,83278,83316,83317,83320 objects=172
+1795406908188 WIN i=1 level=-120.0 tone=-120.0 synth=1
+1795406908229 WIN i=2 level=-120.0 tone=-120.0 synth=1
+1795406908333 WIN i=3 level=-120.0 tone=-120.0 synth=1
+1795406908437 WIN i=4 level=-120.0 tone=-120.0 synth=1
+1795406908520 WIN i=5 level=-120.0 tone=-120.0 synth=1
+1795406908623 WIN i=6 level=-120.0 tone=-120.0 synth=1
+1795406908727 WIN i=7 level=-120.0 tone=-120.0 synth=1
+1795406908831 WIN i=8 level=-120.0 tone=-120.0 synth=1
+1795406908936 WIN i=9 level=-120.0 tone=-120.0 synth=1
+1795406909040 WIN i=10 level=-120.0 tone=-120.0 synth=1
+1795406909140 WIN i=11 level=-120.0 tone=-120.0 synth=1
+1795406909223 WIN i=12 level=-120.0 tone=-120.0 synth=1
+1795406909325 WIN i=13 level=-120.0 tone=-120.0 synth=1
+1795406909430 WIN i=14 level=-120.0 tone=-120.0 synth=1
+1795406909533 WIN i=15 level=-120.0 tone=-120.0 synth=1
+1795406909636 WIN i=16 level=-120.0 tone=-120.0 synth=1
+1795406909720 WIN i=17 level=-120.0 tone=-120.0 synth=1
+1795406909823 WIN i=18 level=-120.0 tone=-120.0 synth=1
+1795406909927 WIN i=19 level=-120.0 tone=-120.0 synth=1
+1795406910032 WIN i=20 level=-120.0 tone=-120.0 synth=1
+1795406910128 WIN i=21 level=-120.0 tone=-120.0 synth=1
+1795406910233 WIN i=22 level=-120.0 tone=-120.0 synth=1
+1795406910337 WIN i=23 level=-120.0 tone=-120.0 synth=1
+1795406910440 WIN i=24 level=-120.0 tone=-120.0 synth=1
+1795406910523 WIN i=25 level=-120.0 tone=-120.0 synth=1
+1795406910628 WIN i=26 level=-120.0 tone=-120.0 synth=1
+1795406910732 WIN i=27 level=-120.0 tone=-120.0 synth=1
+1795406910837 WIN i=28 level=-120.0 tone=-120.0 synth=1
+1795406910941 WIN i=29 level=-120.0 tone=-120.0 synth=1
+1795406911024 WIN i=30 level=-120.0 tone=-120.0 synth=1
+1795406911143 WIN i=31 level=-120.0 tone=-120.0 synth=1
+1795406911227 WIN i=32 level=-120.0 tone=-120.0 synth=1
+1795406911330 WIN i=33 level=-120.0 tone=-120.0 synth=1
+1795406911434 WIN i=34 level=-120.0 tone=-120.0 synth=1
+1795406911539 WIN i=35 level=-120.0 tone=-120.0 synth=1
+1795406911622 WIN i=36 level=-120.0 tone=-120.0 synth=1
+1795406911727 WIN i=37 level=-120.0 tone=-120.0 synth=1
+1795406911832 WIN i=38 level=-120.0 tone=-120.0 synth=1
+1795406911936 WIN i=39 level=-120.0 tone=-120.0 synth=1
+1795406912039 WIN i=40 level=-120.0 tone=-120.0 synth=1
+1795406912181 WIN i=41 level=-120.0 tone=-120.0 synth=1
+1795406912223 WIN i=42 level=-120.0 tone=-120.0 synth=1
+1795406912327 WIN i=43 level=-120.0 tone=-120.0 synth=1
+1795406912431 WIN i=44 level=-120.0 tone=-120.0 synth=1
+1795406912534 WIN i=45 level=-120.0 tone=-120.0 synth=1
+1795406912638 WIN i=46 level=-120.0 tone=-120.0 synth=1
+1795406912722 WIN i=47 level=-120.0 tone=-120.0 synth=1
+1795406912825 WIN i=48 level=-120.0 tone=-120.0 synth=1
+1795406912930 WIN i=49 level=-120.0 tone=-120.0 synth=1
+1795406913033 WIN i=50 level=-120.0 tone=-120.0 synth=1
+1795406913033 IDLE_FLOOR dbfs=-120.0
+1795406913033 IDLE_TONE dbfs=-120.0
+1795406913033 STAT callbacks=0 dropped=0
+1795406913189 WIN i=51 level=-120.0 tone=-120.0 synth=1
+1795406913231 WIN i=52 level=-120.0 tone=-120.0 synth=1
+1795406913335 WIN i=53 level=-120.0 tone=-120.0 synth=1
+1795406913440 WIN i=54 level=-120.0 tone=-120.0 synth=1
+1795406913523 WIN i=55 level=-120.0 tone=-120.0 synth=1
+1795406913627 WIN i=56 level=-120.0 tone=-120.0 synth=1
+1795406913731 WIN i=57 level=-120.0 tone=-120.0 synth=1
+1795406913834 WIN i=58 level=-120.0 tone=-120.0 synth=1
+1795406913938 WIN i=59 level=-120.0 tone=-120.0 synth=1
+1795406914020 WIN i=60 level=-120.0 tone=-120.0 synth=1
+1795406914190 WIN i=61 level=-120.0 tone=-120.0 synth=1
+1795406914231 WIN i=62 level=-120.0 tone=-120.0 synth=1
+1795406914336 WIN i=63 level=-120.0 tone=-120.0 synth=1
+1795406914420 WIN i=64 level=-120.0 tone=-120.0 synth=1
+1795406914524 WIN i=65 level=-120.0 tone=-120.0 synth=1
+1795406914628 WIN i=66 level=-120.0 tone=-120.0 synth=1
+1795406914731 WIN i=67 level=-120.0 tone=-120.0 synth=1
+1795406914835 WIN i=68 level=-120.0 tone=-120.0 synth=1
+1795406914939 WIN i=69 level=-120.0 tone=-120.0 synth=1
+1795406915022 WIN i=70 level=-120.0 tone=-120.0 synth=1
+1795406915201 WIN i=71 level=-120.0 tone=-120.0 synth=1
+1795406915222 WIN i=72 level=-120.0 tone=-120.0 synth=1
+1795406915328 WIN i=73 level=-120.0 tone=-120.0 synth=1
+1795406915431 WIN i=74 level=-120.0 tone=-120.0 synth=1
+1795406915533 WIN i=75 level=-120.0 tone=-120.0 synth=1
+1795406915637 WIN i=76 level=-120.0 tone=-120.0 synth=1
+1795406915721 WIN i=77 level=-120.0 tone=-120.0 synth=1
+1795406915825 WIN i=78 level=-120.0 tone=-120.0 synth=1
+1795406915929 WIN i=79 level=-120.0 tone=-120.0 synth=1
+1795406916034 WIN i=80 level=-120.0 tone=-120.0 synth=1
+1795406916210 WIN i=81 level=-120.0 tone=-120.0 synth=1
+1795406916231 WIN i=82 level=-120.0 tone=-120.0 synth=1
+1795406916336 WIN i=83 level=-120.0 tone=-120.0 synth=1
+1795406916440 WIN i=84 level=-120.0 tone=-120.0 synth=1
+1795406916522 WIN i=85 level=-120.0 tone=-120.0 synth=1
+1795406916627 WIN i=86 level=-120.0 tone=-120.0 synth=1
+1795406916730 WIN i=87 level=-120.0 tone=-120.0 synth=1
+1795406916834 WIN i=88 level=-120.0 tone=-120.0 synth=1
+1795406916938 WIN i=89 level=-120.0 tone=-120.0 synth=1
+1795406917021 WIN i=90 level=-120.0 tone=-120.0 synth=1
+1795406917126 WIN i=91 level=-120.0 tone=-120.0 synth=1
+1795406917222 WIN i=92 level=-120.0 tone=-120.0 synth=1
+1795406917327 WIN i=93 level=-120.0 tone=-120.0 synth=1
+1795406917430 WIN i=94 level=-120.0 tone=-120.0 synth=1
+1795406917534 WIN i=95 level=-120.0 tone=-120.0 synth=1
+1795406917639 WIN i=96 level=-120.0 tone=-120.0 synth=1
+1795406917723 WIN i=97 level=-120.0 tone=-120.0 synth=1
+1795406917826 WIN i=98 level=-120.0 tone=-120.0 synth=1
+1795406917929 WIN i=99 level=-120.0 tone=-120.0 synth=1
+1795406918033 WIN i=100 level=-120.0 tone=-120.0 synth=1
+1795406918033 SILENT
+1795406918033 STAT callbacks=0 dropped=0
+1795406918116 STOP
+1795406918133 EXIT code=0

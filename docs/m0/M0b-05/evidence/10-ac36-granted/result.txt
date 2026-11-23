@@ -1,0 +1,2 @@
+AC-36-app-missing PASS PASS lines=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406737237)) exit_after_start_ms=Some(107) (permission granted, target not running, 2ch ignored)
+AC-36 CONTROL-OK(the check wants a different cause list) NO lines=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406737237)) exit_after_start_ms=Some(107)

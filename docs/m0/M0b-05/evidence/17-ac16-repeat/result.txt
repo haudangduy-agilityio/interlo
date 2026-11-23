@@ -1,0 +1,1 @@
+AC-16-repeat PASS SILENT after TAP_START in ms over 5 runs: n=5 median=10013 min=10006 max=10029 (limit 11000)
