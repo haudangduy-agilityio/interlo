@@ -12,7 +12,9 @@ use crate::common::*;
 const FRAME: usize = 512;
 const CONTEXT: usize = 64;
 const THRESHOLD: f32 = 0.5;
-const SILENCE_SAMPLES: usize = 16_000;
+const SAMPLE_RATE_HZ: i64 = 16_000;
+const SILENCE_SAMPLES: usize = SAMPLE_RATE_HZ as usize;
+const STATE_SIZE: usize = 2 * 128;
 
 pub fn run(cfg: &Config) -> Res<Outcome> {
     let t_load = Instant::now();
@@ -45,7 +47,7 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
 /// Runs the detector over every full 512-sample frame, carrying its state, and returns the
 /// highest speech probability.
 fn max_probability(session: &mut Session, samples: &[f32]) -> Res<f32> {
-    let mut state = vec![0.0f32; 2 * 128];
+    let mut state = vec![0.0f32; STATE_SIZE];
     let mut context = vec![0.0f32; CONTEXT];
     let mut max = 0.0f32;
     for frame in samples.as_chunks::<FRAME>().0 {
@@ -67,7 +69,7 @@ fn max_probability(session: &mut Session, samples: &[f32]) -> Res<f32> {
             ),
             (
                 "sr",
-                Tensor::from_array(([0usize; 0], vec![16_000i64]))
+                Tensor::from_array(([0usize; 0], vec![SAMPLE_RATE_HZ]))
                     .ctx("rate tensor")?
                     .into_dyn(),
             ),

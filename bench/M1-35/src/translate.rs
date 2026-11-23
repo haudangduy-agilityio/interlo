@@ -14,9 +14,6 @@ use tokenizers::Tokenizer;
 use crate::common::*;
 
 const MAX_NEW_TOKENS: usize = 96;
-const LAYERS: usize = 6;
-const HEADS: usize = 8;
-const HEAD_DIM: usize = 64;
 
 pub fn run(cfg: &Config) -> Res<Outcome> {
     let t_load = Instant::now();
@@ -55,7 +52,8 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
 
 /// The tokenizer file declares a precompiled normalizer with no character map, which the
 /// tokenizer crate rejects with a panic. The spike drops that normalizer; the test sentence is
-/// already in composed form, so the ids do not change.
+/// already in composed form, so the ids do not change. The patch assumes the normalizer entry is
+/// a flat object (no nested braces), which holds for the file of this spike.
 fn load_tokenizer(path: &std::path::Path) -> Res<Tokenizer> {
     let text = read_text(path)?;
     let text = match text.find("\"normalizer\"") {
@@ -115,6 +113,7 @@ fn translate(
         .1
         .to_vec();
     drop(enc_out);
+    let width = hidden.len() / n;
 
     let mut decoded: Vec<i64> = vec![start];
     let mut generated: Vec<u32> = Vec::new();
@@ -135,7 +134,7 @@ fn translate(
             ),
             (
                 "encoder_hidden_states".to_string(),
-                Tensor::from_array(([1usize, n, 512], hidden.clone()))
+                Tensor::from_array(([1usize, n, width], hidden.clone()))
                     .ctx("hidden")?
                     .into_dyn(),
             ),
@@ -146,21 +145,7 @@ fn translate(
                     .into_dyn(),
             ),
         ];
-        for layer in 0..LAYERS {
-            for part in [
-                "decoder.key",
-                "decoder.value",
-                "encoder.key",
-                "encoder.value",
-            ] {
-                inputs.push((
-                    format!("past_key_values.{layer}.{part}"),
-                    Tensor::from_array(([1usize, HEADS, 0, HEAD_DIM], Vec::<f32>::new()))
-                        .ctx("empty past")?
-                        .into_dyn(),
-                ));
-            }
-        }
+        push_empty_past(&mut inputs)?;
         let outputs = decoder.run(inputs).ctx("decoder run")?;
         let (shape, logits) = outputs
             .get("logits")

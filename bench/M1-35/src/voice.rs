@@ -22,10 +22,11 @@ use crate::common::*;
 const BOS: i64 = 1;
 const EOT: i64 = 2;
 const MAX_TEXT_IDS: usize = 512;
+const CODEC_RATE_HZ: usize = 48_000;
+const LOW_PASS_HZ: f64 = 7_500.0;
 
 const MIN_FRAMES: usize = 4;
 const MAX_FRAMES: usize = 300;
-const EOA_EXTRA_FRAMES: usize = 1;
 const TEXT_TEMPERATURE: f32 = 1.0;
 const TEXT_TOPK: i64 = 50;
 const AUDIO_TEMPERATURE: f32 = 0.8;
@@ -112,15 +113,15 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
     let mut codec = load_codec(&env, &dir.join("codec"))?;
     let config = read_text(&dir.join("config.json"))?;
     let params = Params {
-        codebooks: json_int(&config, "num_codebooks")? as usize,
-        codebook_size: json_int(&config, "codebook_size")? as usize,
-        d_model: json_int(&config, "d_model")? as usize,
-        heads: json_int(&config, "n_heads")? as usize,
-        layers: json_int(&config, "n_layers")? as usize,
-        voice_queries: json_int(&config, "n_voice_queries")? as usize,
+        codebooks: json_usize(&config, "num_codebooks")?,
+        codebook_size: json_usize(&config, "codebook_size")?,
+        d_model: json_usize(&config, "d_model")?,
+        heads: json_usize(&config, "n_heads")?,
+        layers: json_usize(&config, "n_layers")?,
+        voice_queries: json_usize(&config, "n_voice_queries")?,
     };
-    let sample_rate = json_int(&config, "sample_rate")? as usize;
-    if sample_rate != 48_000 {
+    let sample_rate = json_usize(&config, "sample_rate")?;
+    if sample_rate != CODEC_RATE_HZ {
         return Err(format!("unexpected codec rate {sample_rate}"));
     }
     let tokenizer =
@@ -158,6 +159,7 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
         );
     }
 
+    refuse_file_stdout()?;
     let mut bytes = Vec::with_capacity(samples.len() * 4);
     for s in &samples {
         bytes.extend_from_slice(&s.to_le_bytes());
@@ -168,15 +170,61 @@ pub fn run(cfg: &Config) -> Res<Outcome> {
     Ok(out)
 }
 
-/// The codec graph names its external weight file in its own metadata; the file of the download
-/// list has a shorter name. Link the short name to the long one once (same bytes, no copy).
+/// The codec graph stores the name of its external weight file; the file of the download list has
+/// a shorter name. Read the stored name from the graph and link it to the short file once (same
+/// bytes, no copy), inside the models folder. A file that already has the long name must be that
+/// same file, so the checksum of the list covers what is loaded.
 fn load_codec(env: &Environment, dir: &Path) -> Res<Session> {
+    use std::os::unix::fs::MetadataExt;
+    let graph = dir.join("decode_full.onnx");
     let short = dir.join("decode_shared.data");
-    let long = dir.join("moss_audio_tokenizer_decode_shared.data");
-    if short.is_file() && !long.exists() {
-        std::fs::hard_link(&short, &long).ctx("link codec weights")?;
+    if short.is_file() && graph.is_file() {
+        let bytes = std::fs::read(&graph).ctx("read codec graph")?;
+        let name = external_data_name(&bytes).ok_or("codec graph names no weight file")?;
+        let long = dir.join(name);
+        if long.exists() {
+            let (a, b) = (
+                std::fs::metadata(&short).ctx("codec weights")?,
+                std::fs::metadata(&long).ctx("codec weights link")?,
+            );
+            if (a.dev(), a.ino()) != (b.dev(), b.ino()) {
+                return Err("codec weights link is not the listed file".to_string());
+            }
+        } else {
+            std::fs::hard_link(&short, &long).ctx("link codec weights")?;
+        }
     }
-    load_session(env, &dir.join("decode_full.onnx"))
+    load_session(env, &graph)
+}
+
+/// Finds the weight file name stored in the graph: a run of name characters that ends with
+/// `_decode_shared.data`. Only plain file names are accepted, never a path.
+fn external_data_name(graph: &[u8]) -> Option<String> {
+    const SUFFIX: &[u8] = b"_decode_shared.data";
+    let end = graph.windows(SUFFIX.len()).position(|w| w == SUFFIX)? + SUFFIX.len();
+    let start = graph[..end]
+        .iter()
+        .rposition(|b| !(b.is_ascii_alphanumeric() || *b == b'_'))
+        .map_or(0, |i| i + 1);
+    let name = std::str::from_utf8(&graph[start..end]).ok()?;
+    Some(name.to_string())
+}
+
+/// Audio is pipe-only (guardrail 2): refuse to write samples into a regular file.
+fn refuse_file_stdout() -> Res<()> {
+    use std::os::fd::AsFd;
+    let owned = std::io::stdout()
+        .as_fd()
+        .try_clone_to_owned()
+        .ctx("stdout")?;
+    let is_file = std::fs::File::from(owned)
+        .metadata()
+        .ctx("stdout")?
+        .is_file();
+    if is_file {
+        return Err("stdout is a regular file; samples go to a pipe only".to_string());
+    }
+    Ok(())
 }
 
 /// Reads raw f32 little-endian values.
@@ -187,16 +235,8 @@ fn read_f32_raw(path: &Path) -> Res<Vec<f32>> {
 
 /// Collapses white space, composes the text, and wraps the token ids as `[BOS | body | EOT]`.
 fn text_ids(tokenizer: &Tokenizer, text: &str) -> Res<Vec<i64>> {
-    use tokenizers::{NormalizedString, Normalizer};
-    let mut normalized = NormalizedString::from(text);
-    tokenizers::normalizers::NFC
-        .normalize(&mut normalized)
-        .map_err(|e| format!("normalize: {e}"))?;
-    let collapsed = normalized
-        .get()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let composed = nfc(text)?;
+    let collapsed = composed.split_whitespace().collect::<Vec<_>>().join(" ");
     let encoding = tokenizer
         .encode(collapsed, false)
         .map_err(|e| format!("tokenize: {e}"))?;
@@ -274,23 +314,18 @@ fn generate_codes(
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut seen = vec![false; p.codebooks * p.codebook_size];
     let mut frames: Vec<Vec<i32>> = Vec::new();
-    let mut tail_left: Option<usize> = None;
     let mut index = 0usize;
     loop {
-        let forbid = index < MIN_FRAMES || tail_left.is_some();
+        let forbid = index < MIN_FRAMES;
         let (is_eoa, codes) = local_call(local_decode, p, &hidden, forbid, &mut seen, &mut rng)?;
-        if tail_left.is_none() && is_eoa {
-            tail_left = Some(EOA_EXTRA_FRAMES);
-        }
-        if tail_left == Some(0) || index >= MAX_FRAMES {
+        if index >= MAX_FRAMES {
             break;
         }
-        frames.push(codes.clone());
-        if let Some(left) = tail_left.as_mut() {
-            *left -= 1;
-            if *left == 0 {
-                break;
-            }
+        // The frame that carries the end marker is kept: it is the model's own trailing frame.
+        let step_codes: Vec<i64> = codes.iter().map(|&c| c as i64).collect();
+        frames.push(codes);
+        if is_eoa {
+            break;
         }
         let next = prefix_call(
             prefix_step,
@@ -299,7 +334,7 @@ fn generate_codes(
             Step {
                 embed: vec![0.0f32; p.d_model],
                 use_embed: vec![false],
-                codes: codes.iter().map(|&c| c as i64).collect(),
+                codes: step_codes,
                 positions: vec![(v + 1 + index) as i64],
                 bidirectional: vec![false],
                 len: 1,
@@ -419,7 +454,10 @@ fn local_call(
         return Err(format!("frame has {} codes", codes.len()));
     }
     for (book, &code) in codes.iter().enumerate() {
-        let at = book * p.codebook_size + code.max(0) as usize;
+        if code < 0 || code as usize >= p.codebook_size {
+            return Err(format!("code {code} is outside the codebook"));
+        }
+        let at = book * p.codebook_size + code as usize;
         if let Some(slot) = seen.get_mut(at) {
             *slot = true;
         }
@@ -466,7 +504,7 @@ fn decode_codec(codec: &mut Session, frames: &[Vec<i32>], books: usize) -> Res<V
 /// 48 kHz to 16 kHz: a windowed-sinc low-pass filter, then every third sample.
 fn downsample_3(x: &[f32]) -> Vec<f32> {
     const TAPS: usize = 96;
-    let cutoff = 7_500.0f64 / 48_000.0;
+    let cutoff = LOW_PASS_HZ / CODEC_RATE_HZ as f64;
     let mid = (TAPS as f64 - 1.0) / 2.0;
     let mut h: Vec<f64> = (0..TAPS)
         .map(|n| {

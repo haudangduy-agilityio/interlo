@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use ort::environment::Environment;
 use ort::session::Session;
+use ort::value::{DynValue, Tensor};
+use tokenizers::{NormalizedString, Normalizer};
 
 pub type Res<T> = Result<T, String>;
 
@@ -49,7 +51,7 @@ pub struct Config {
     pub show_text: bool,
 }
 
-/// One line on stderr: the only text a role prints for the check (the pipe uses stdout).
+/// The result line on stderr (`--show-text` adds a `TEXT=` line). The sample pipe uses stdout.
 pub fn result_line(role: &str, outcome: &Outcome) -> String {
     let result = if outcome.pass { "PASS" } else { "FAIL" };
     format!(
@@ -122,6 +124,16 @@ pub fn json_int(text: &str, key: &str) -> Res<i64> {
         .map_err(|_| format!("config value is not an integer: {key}"))
 }
 
+/// Like `json_int`, for a size: it must be between 1 and 65536.
+pub fn json_usize(text: &str, key: &str) -> Res<usize> {
+    let value = json_int(text, key)?;
+    if (1..=65_536).contains(&value) {
+        Ok(value as usize)
+    } else {
+        Err(format!("config value out of range: {key}"))
+    }
+}
+
 /// The test sentence: row `vi_001` of the reading list, read at run time.
 pub fn sentence(reading_list: &Path) -> Res<String> {
     let text = read_text(reading_list)?;
@@ -134,11 +146,15 @@ pub fn sentence(reading_list: &Path) -> Res<String> {
     Err("row vi_001 not found in the reading list".to_string())
 }
 
-/// Reads 16 kHz mono f32 little-endian samples from stdin until end of file.
+/// Longest input a role reads: two minutes of 16 kHz mono f32 samples.
+const MAX_INPUT_BYTES: u64 = 16_000 * 4 * 120;
+
+/// Reads 16 kHz mono f32 little-endian samples from stdin until end of file (or the cap).
 pub fn read_samples_from_stdin() -> Res<Vec<f32>> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
+        .take(MAX_INPUT_BYTES)
         .read_to_end(&mut bytes)
         .ctx("read stdin")?;
     if bytes.is_empty() {
@@ -171,4 +187,39 @@ pub fn argmax(values: &[f32]) -> usize {
         }
     }
     best
+}
+
+/// Composes the text (NFC) with the tokenizer crate's normalizer.
+pub fn nfc(text: &str) -> Res<String> {
+    let mut normalized = NormalizedString::from(text);
+    tokenizers::normalizers::NFC
+        .normalize(&mut normalized)
+        .map_err(|e| format!("normalize: {e}"))?;
+    Ok(normalized.get().to_string())
+}
+
+/// Shape of the merged decoders of the translation and recognition models: 6 layers, 8 heads of
+/// 64 values. A step without a cache still has to feed every past tensor, with length zero.
+const DECODER_LAYERS: usize = 6;
+const DECODER_HEADS: usize = 8;
+const DECODER_HEAD_DIM: usize = 64;
+
+/// Adds the empty past tensors a merged decoder asks for when its cache branch is off.
+pub fn push_empty_past(inputs: &mut Vec<(String, DynValue)>) -> Res<()> {
+    for layer in 0..DECODER_LAYERS {
+        for part in ["decoder", "encoder"] {
+            for kind in ["key", "value"] {
+                inputs.push((
+                    format!("past_key_values.{layer}.{part}.{kind}"),
+                    Tensor::from_array((
+                        [1usize, DECODER_HEADS, 0, DECODER_HEAD_DIM],
+                        Vec::<f32>::new(),
+                    ))
+                    .ctx("empty past")?
+                    .into_dyn(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }

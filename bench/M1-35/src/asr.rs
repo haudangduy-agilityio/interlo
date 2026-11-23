@@ -13,21 +13,18 @@ use std::time::Instant;
 
 use ort::session::Session;
 use ort::value::{DynValue, Tensor};
-use tokenizers::{NormalizedString, Normalizer, Tokenizer};
+use tokenizers::Tokenizer;
 
 use crate::common::*;
 
-const SAMPLE_RATE: usize = 16_000;
+const SAMPLE_RATE_HZ: usize = 16_000;
 const N_FFT: usize = 400;
 const HOP: usize = 160;
 const N_MELS: usize = 80;
 const N_BINS: usize = N_FFT / 2 + 1;
-const WINDOW_SAMPLES: usize = 30 * SAMPLE_RATE;
+const WINDOW_SAMPLES: usize = 30 * SAMPLE_RATE_HZ;
 const FRAMES: usize = WINDOW_SAMPLES / HOP;
 const MAX_NEW_TOKENS: usize = 120;
-const LAYERS: usize = 6;
-const HEADS: usize = 8;
-const HEAD_DIM: usize = 64;
 const MIN_SHARE: f64 = 0.5;
 
 pub fn run(cfg: &Config) -> Res<Outcome> {
@@ -120,7 +117,7 @@ fn recognize(
     let hidden: Vec<f32> = enc_data.to_vec();
     drop(enc_out);
 
-    let mut decoded = prompt.clone();
+    let mut decoded = prompt;
     let mut generated: Vec<u32> = Vec::new();
     for _ in 0..MAX_NEW_TOKENS {
         let t = decoded.len();
@@ -144,21 +141,7 @@ fn recognize(
                     .into_dyn(),
             ),
         ];
-        for layer in 0..LAYERS {
-            for part in [
-                "decoder.key",
-                "decoder.value",
-                "encoder.key",
-                "encoder.value",
-            ] {
-                inputs.push((
-                    format!("past_key_values.{layer}.{part}"),
-                    Tensor::from_array(([1usize, HEADS, 0, HEAD_DIM], Vec::<f32>::new()))
-                        .ctx("empty past")?
-                        .into_dyn(),
-                ));
-            }
-        }
+        push_empty_past(&mut inputs)?;
         let outputs = decoder.run(inputs).ctx("decoder run")?;
         let (shape, logits) = outputs
             .get("logits")
@@ -252,10 +235,21 @@ fn log_mel(samples: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+/// Slaney mel scale: linear below 1 kHz, logarithmic above.
+const MEL_F_SP: f64 = 200.0 / 3.0;
+const MEL_LOG_HZ: f64 = 1000.0;
+
+fn min_log_mel() -> f64 {
+    MEL_LOG_HZ / MEL_F_SP
+}
+
+fn log_step() -> f64 {
+    6.4f64.ln() / 27.0
+}
+
 fn hz_to_mel(hz: f64) -> f64 {
-    let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
-    let min_log_mel = min_log_hz / f_sp;
-    let log_step = 6.4f64.ln() / 27.0;
+    let (f_sp, min_log_hz, min_log_mel, log_step) =
+        (MEL_F_SP, MEL_LOG_HZ, min_log_mel(), log_step());
     if hz >= min_log_hz {
         min_log_mel + (hz / min_log_hz).ln() / log_step
     } else {
@@ -264,9 +258,8 @@ fn hz_to_mel(hz: f64) -> f64 {
 }
 
 fn mel_to_hz(mel: f64) -> f64 {
-    let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
-    let min_log_mel = min_log_hz / f_sp;
-    let log_step = 6.4f64.ln() / 27.0;
+    let (f_sp, min_log_hz, min_log_mel, log_step) =
+        (MEL_F_SP, MEL_LOG_HZ, min_log_mel(), log_step());
     if mel >= min_log_mel {
         min_log_hz * (log_step * (mel - min_log_mel)).exp()
     } else {
@@ -276,12 +269,12 @@ fn mel_to_hz(mel: f64) -> f64 {
 
 /// Triangular mel filters on a Slaney scale with Slaney area normalization, 0 to 8 kHz.
 fn mel_filters() -> Vec<f64> {
-    let (mel_min, mel_max) = (hz_to_mel(0.0), hz_to_mel(SAMPLE_RATE as f64 / 2.0));
+    let (mel_min, mel_max) = (hz_to_mel(0.0), hz_to_mel(SAMPLE_RATE_HZ as f64 / 2.0));
     let points: Vec<f64> = (0..N_MELS + 2)
         .map(|i| mel_to_hz(mel_min + (mel_max - mel_min) * i as f64 / (N_MELS + 1) as f64))
         .collect();
     let bin_hz: Vec<f64> = (0..N_BINS)
-        .map(|k| (SAMPLE_RATE as f64 / 2.0) * k as f64 / (N_BINS - 1) as f64)
+        .map(|k| (SAMPLE_RATE_HZ as f64 / 2.0) * k as f64 / (N_BINS - 1) as f64)
         .collect();
     let mut filters = vec![0.0f64; N_MELS * N_BINS];
     for m in 0..N_MELS {
@@ -298,12 +291,8 @@ fn mel_filters() -> Vec<f64> {
 
 /// Lower-cases, composes, and strips punctuation; returns the set of words.
 fn words(text: &str) -> Res<HashSet<String>> {
-    let mut normalized = NormalizedString::from(text.to_lowercase());
-    tokenizers::normalizers::NFC
-        .normalize(&mut normalized)
-        .map_err(|e| format!("normalize: {e}"))?;
+    let normalized = nfc(&text.to_lowercase())?;
     let cleaned: String = normalized
-        .get()
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
         .collect();
