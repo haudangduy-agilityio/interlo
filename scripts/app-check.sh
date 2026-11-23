@@ -11,8 +11,10 @@
 #   scripts/app-check.sh idle            three launches: sockets for 60 s, memory samples
 #   scripts/app-check.sh telex           OPT-IN, off by default (scripts/check.sh app --typing): types a sentence into the
 #                                        note field through the built-in Vietnamese (Telex) input source with synthetic key
-#                                        events. It changes the input source and the clipboard for about a minute. SIGINT and
-#                                        SIGTERM restore both; SIGKILL cannot be trapped (see the recovery line in its log).
+#                                        events. It needs Accessibility for the app that runs it and the Telex input source
+#                                        enabled, and it changes the input source and the clipboard for about a minute.
+#                                        SIGINT and SIGTERM restore both; SIGKILL cannot be trapped: the recovery command
+#                                        is in its log and in target/app-check/typing-recovery.txt.
 #   scripts/app-check.sh controls        negative controls: each check must be able to fail
 #   scripts/app-check.sh evidence        SUMMARY.md and SHA256SUMS
 #   scripts/app-check.sh override-guard  refuses an environment that overrides the release profile
@@ -325,21 +327,24 @@ step_prereq() {
   if screen_is_locked <<<"$ioreg_text"; then
     blocked "the screen is locked (CGSSessionScreenIsLocked is true): unlock the Mac and run the check again"
   fi
-  mkdir -p "$OUT" "$EVID" "$SHOTS"
-  # The step deletes the files under the evidence folder, so it refuses a folder that is not one.
-  local evid_real shots_real root_real out_real
-  evid_real="$(cd "$EVID" && pwd -P)"
-  shots_real="$(cd "$SHOTS" && pwd -P)"
+  # The step deletes the files under the evidence folder, so it refuses a folder that is not one:
+  # the path is checked before anything is created. It must end in /evidence and sit under
+  # docs/m0/ of the repository or under the scratch folder, and the screenshots must stay outside git.
+  local root_real evid_abs shots_abs
   root_real="$(cd "$ROOT" && pwd -P)"
-  out_real="$(cd "$OUT" && pwd -P)"
-  case "$evid_real" in
-    "$root_real"/docs/m0/* | "$out_real"/*) ;;
-    *) fail "APP_CHECK_EVIDENCE ($evid_real) must be a folder under docs/m0/ of the repository or under $out_real" ;;
+  evid_abs="$(cd "$(dirname "$EVID")" 2>/dev/null && pwd -P)/$(basename "$EVID")" || fail "the parent of APP_CHECK_EVIDENCE does not exist"
+  shots_abs="$(cd "$(dirname "$SHOTS")" 2>/dev/null && pwd -P)/$(basename "$SHOTS")" || fail "the parent of APP_CHECK_SHOTS does not exist"
+  [ "$(basename "$evid_abs")" = "evidence" ] || fail "APP_CHECK_EVIDENCE ($evid_abs) must be a folder named evidence"
+  case "$evid_abs" in
+    "$root_real"/docs/m0/*) ;;
+    "$root_real"/target/*) ;;
+    *) fail "APP_CHECK_EVIDENCE ($evid_abs) must be under docs/m0/ or under target/ of the repository" ;;
   esac
-  [ ! -e "$evid_real/.git" ] || fail "APP_CHECK_EVIDENCE holds a .git entry"
-  case "$shots_real" in
-    "$root_real" | "$root_real"/*) fail "APP_CHECK_SHOTS ($shots_real) is inside the repository: screenshots must stay outside git" ;;
+  case "$shots_abs" in
+    "$root_real" | "$root_real"/*) fail "APP_CHECK_SHOTS ($shots_abs) is inside the repository: screenshots must stay outside git" ;;
   esac
+  mkdir -p "$OUT" "$EVID" "$SHOTS"
+  [ ! -e "$EVID/.git" ] || fail "APP_CHECK_EVIDENCE holds a .git entry"
   # A new run replaces the evidence of the last run.
   find "$EVID" -type f -delete
   : >"$OUT/shots.list"
@@ -423,7 +428,8 @@ step_bundle() {
   trap restore_manifest EXIT
   # The signing and notarization variables of the Tauri bundler are removed: this build is signed locally only.
   env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE \
-    -u APPLE_CERTIFICATE_PASSWORD -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
+    -u APPLE_CERTIFICATE_PASSWORD -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH -u APPLE_PROVIDER_SHORT_NAME \
+    -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD -u TAURI_SIGNING_PRIVATE_KEY_PATH \
     cargo tauri build --bundles app --config '{"bundle":{"active":true}}' >"$OUT/bundle.log" 2>&1 || {
     tail -20 "$OUT/bundle.log"
     fail "cargo tauri build failed"
@@ -650,8 +656,8 @@ press_when_ready() { # pid text
 # Types KEYS into the note field with synthetic key events posted to the app's pid
 # (they cannot reach another app). The input method composes only while the app is
 # in front, so the typing is repeated when another app takes the front during it
-# (exit 4 of app-drive). Returns 0 when the keys were typed, 3 when the app could
-# not be held in front.
+# (exit 4 of app-drive). Returns 0 when the keys were typed, EXIT_BLOCKED when
+# Accessibility is missing or the app could not be held in front, 1 on any other failure.
 type_into_field() { # pid keys log
   local pid="$1" keys="$2" log="$3" attempt rc
   for attempt in $(seq 1 "$TYPING_ATTEMPTS"); do
@@ -668,7 +674,7 @@ type_into_field() { # pid keys log
     } >>"$log" 2>&1 || rc=$?
     if [ "$rc" -eq 0 ]; then
       sleep 0.7
-      echo "  field after typing (read with the Accessibility API): [$("$DRIVE" read-text "$pid")]" >>"$log"
+      echo "  field after typing (read with the Accessibility API): [$("$DRIVE" read-text "$pid" | head -c 300)]" >>"$log"
       return 0
     fi
     echo "  attempt $attempt stopped with exit $rc ($EXIT_NOT_FRONT means the app was not in front; the keys go to its pid only, the field is cleared and typed again)" >>"$log"
@@ -701,7 +707,7 @@ copy_field() { # pid out_file log
 
 step_telex() {
   export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-  local log="$EVID/07-telex-typing.log" pid orig_source saved_clip="$OUT/clipboard.saved" rc info id shot
+  local log="$EVID/07-telex-typing.log" pid orig_source saved_clip="$OUT/clipboard.saved" saved_hash rc info id shot
   local field="$EVID/07-field.txt" sentence="$EVID/07-sentence.txt" wrong="$EVID/07-field-wrong-tone.txt" outp
   echo "NOTICE: the next step changes your input source and your clipboard for about a minute, brings the Interlo window to the front and types with synthetic key events. Do not use the keyboard or the mouse until it ends. Only the clipboard TEXT is restored (an image, a file or a concealed password marker is not): do not run it with a secret copied. To stop it, send SIGTERM or SIGINT to the whole process group."
   # Only this opt-in step needs Accessibility and the Telex input source.
@@ -709,20 +715,27 @@ step_telex() {
   swiftc -O -o "$DRIVE" "$ROOT/scripts/app-check/app-drive.swift" || blocked "the app driver did not compile"
   "$DRIVE" trusted >/dev/null || blocked "Accessibility is not granted to the app that runs this script (AXIsProcessTrusted() is false)"
   "$INPUT_SOURCE" list | grep -q "^$TELEX_SOURCE" || blocked "the input source $TELEX_SOURCE is not enabled (System Settings, Keyboard, Input Sources)"
-  pid="$(launch_app)"
-  orig_source="$("$INPUT_SOURCE" current)"
   # A leftover saved file means an earlier run was killed before it could restore: it is not overwritten.
+  # These checks and the save come before the app is launched, so a refusal leaves nothing running.
   if [ -e "$saved_clip" ]; then
     blocked "$saved_clip exists: an earlier typing run did not restore the clipboard. Restore it by hand (pbcopy < that file), then delete the file"
   fi
   if [ "$(pbpaste)" = "app-check-clipboard-marker" ]; then
     blocked "the clipboard holds the marker text of an earlier killed run: copy your own text back first"
   fi
+  orig_source="$("$INPUT_SOURCE" current)"
   (umask 077 && pbpaste >"$saved_clip") || blocked "the clipboard could not be saved, so it could not be restored"
+  saved_hash="$(shasum -a 256 <"$saved_clip" | cut -d' ' -f1)"
+  pid="$(launch_app)"
   # Restores the input source and the clipboard text, and says so in the log when a command fails.
+  # The saved copy is deleted only when the clipboard was restored from it.
   restore_state() {
     "$INPUT_SOURCE" select "$orig_source" >/dev/null 2>&1 || echo "restore: selecting $orig_source failed" >>"$log"
-    pbcopy <"$saved_clip" 2>>"$log" || echo "restore: pbcopy failed" >>"$log"
+    if pbcopy <"$saved_clip" 2>>"$log"; then
+      rm -f "$saved_clip" "$OUT/typing-recovery.txt"
+    else
+      echo "restore: pbcopy failed; the saved text stays in $saved_clip" >>"$log"
+    fi
     stop_app
   }
   # SIGINT and SIGTERM restore, then end the step: a trap that only restores would let the typing go on.
@@ -741,7 +754,7 @@ step_telex() {
     echo "app pid: $pid; input source before: $orig_source; clipboard saved: $(wc -c <"$saved_clip" | tr -d ' ') bytes (text only, not written here)"
     echo "sentence: $SENTENCE"
     echo "keys sent (key delay ${KEY_DELAY_MS} ms): $TELEX_KEYS"
-    echo "recovery after a SIGKILL (it cannot be trapped): $INPUT_SOURCE select $orig_source; pbcopy < $saved_clip"
+    echo "recovery after a SIGKILL (it cannot be trapped): $INPUT_SOURCE select $orig_source; pbcopy < $saved_clip" | redact
   } >"$log"
   echo "$INPUT_SOURCE select $orig_source; pbcopy < $saved_clip" >"$OUT/typing-recovery.txt"
   # Wait for the window before anything is sent.
@@ -760,7 +773,7 @@ step_telex() {
   # 1. The sentence.
   rc=0
   type_into_field "$pid" "$TELEX_KEYS" "$log" || rc=$?
-  [ "$rc" -ne 3 ] || blocked "another app kept the front during $TYPING_ATTEMPTS attempts; nothing was sent to it (see 07-telex-typing.log)"
+  [ "$rc" -ne "$EXIT_BLOCKED" ] || blocked "the typing could not run: Accessibility is missing, or another app kept the front during $TYPING_ATTEMPTS attempts (nothing was sent to it); see 07-telex-typing.log"
   [ "$rc" -eq 0 ] || fail "typing stopped (see 07-telex-typing.log)"
   shot="$SHOTS/telex-typed-win${id}-epoch$(date +%s).png"
   if screencapture -x -o -l "$id" "$shot" && [ -s "$shot" ]; then
@@ -770,7 +783,7 @@ step_telex() {
   fi
   rc=0
   copy_field "$pid" "$field" "$log" || rc=$?
-  [ "$rc" -ne 3 ] || blocked "another app kept the front during the copy"
+  [ "$rc" -ne "$EXIT_BLOCKED" ] || blocked "the copy could not run: Accessibility is missing, or another app kept the front; see 07-telex-typing.log"
   [ "$rc" -eq 0 ] || fail "the copy failed (see 07-telex-typing.log)"
   printf '%s' "$SENTENCE" >"$sentence"
   {
@@ -803,16 +816,17 @@ step_telex() {
   } >>"$log"
   rc=0
   type_into_field "$pid" "$TELEX_KEYS_WRONG_TONE" "$log" || rc=$?
-  [ "$rc" -ne 3 ] || blocked "another app kept the front during the negative control"
+  [ "$rc" -ne "$EXIT_BLOCKED" ] || blocked "the negative control could not type: Accessibility is missing, or another app kept the front; see 07-telex-typing.log"
   [ "$rc" -eq 0 ] || fail "typing the negative control stopped (see 07-telex-typing.log)"
   rc=0
   copy_field "$pid" "$wrong" "$log" || rc=$?
+  [ "$rc" -ne "$EXIT_BLOCKED" ] || blocked "the copy of the negative control could not run: Accessibility is missing, or another app kept the front; see 07-telex-typing.log"
   [ "$rc" -eq 0 ] || fail "the copy of the negative control failed"
   rc=0
   outp="$(nfc_diff "$wrong" "$sentence")" || rc=$?
   {
     echo "\$ diff (NFC) 07-field-wrong-tone.txt 07-sentence.txt"
-    echo "$outp"
+    echo "$outp" | head -20 | cut -c1-300
     echo "NFC diff exit: $rc"
   } >>"$log"
   if [ "$rc" -eq 0 ]; then
@@ -828,15 +842,14 @@ step_telex() {
     echo
     echo "# Restore"
     echo "input source after: $("$INPUT_SOURCE" current) (before: $orig_source)"
-    if [ "$("$INPUT_SOURCE" current)" = "$orig_source" ] && [ "$(pbpaste | shasum -a 256 | cut -d' ' -f1)" = "$(shasum -a 256 <"$saved_clip" | cut -d' ' -f1)" ]; then
+    if [ "$("$INPUT_SOURCE" current)" = "$orig_source" ] && [ "$(pbpaste | shasum -a 256 | cut -d' ' -f1)" = "$saved_hash" ]; then
       echo "RESULT: the input source and the clipboard text are back as before"
     else
       echo "RESULT: WRONG: the input source or the clipboard was not restored"
     fi
   } >>"$log"
   grep -E '^(field after typing|raw diff|NFC diff|RESULT|  field after)' "$log"
-  grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored (the saved clipboard text stays in $saved_clip)"
-  rm -f "$saved_clip"
+  grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored (see 07-telex-typing.log; a saved copy of the clipboard text may remain in $saved_clip)"
   echo "typing check: PASS; the screenshot of the typed field is stored outside the repository, in $SHOTS"
 }
 
@@ -849,8 +862,13 @@ CONTROL_BAD=0
 control_record() { # name expected rc output
   local name="$1" expected="$2" rc="$3" outp="$4" verdict
   CONTROL_N=$((CONTROL_N + 1))
-  if { [ "$expected" = "refuse" ] && [ "$rc" -ne 0 ]; } || { [ "$expected" = "accept" ] && [ "$rc" -eq 0 ]; } ||
-    { [ "${expected%%:*}" = "refuse" ] && [ "$expected" != "refuse" ] && [ "$rc" -eq "${expected#refuse:}" ]; }; then
+  local ok=1
+  case "$expected" in
+    accept) [ "$rc" -eq 0 ] && ok=0 ;;
+    refuse) [ "$rc" -ne 0 ] && ok=0 ;;
+    refuse:*) [ "$rc" -eq "${expected#refuse:}" ] && ok=0 ;;
+  esac
+  if [ "$ok" -eq 0 ]; then
     verdict="behaved as expected ($expected, exit $rc)"
   else
     verdict="WRONG (expected $expected, exit $rc)"
@@ -946,7 +964,7 @@ step_controls() {
     rc=0
     [ -z "$outp" ] || rc=1
     # lsof must have listed the listener itself: an empty reading is not a clean one.
-    echo "$raw" | grep -q "^n.*:$lport" || fail "lsof did not list the test listener $kind on port $lport (lsof: ${raw:-nothing}; stderr: $(cat "$OUT/lsof.err"))"
+    grep -q "^n.*:$lport" <<<"$raw" || fail "lsof did not list the test listener $kind on port $lport (lsof: ${raw:-nothing}; stderr: $(cat "$OUT/lsof.err"))"
     case "$kind" in
       loop4) control_record "socket rule on a test listener bound to 127.0.0.1:$lport (lsof: $(echo "$raw" | grep '^n' | tr '\n' ' '))" accept "$rc" "${outp:-no violation}" ;;
       wild4) control_record "socket rule on a test listener bound to 0.0.0.0:$lport (lsof: $(echo "$raw" | grep '^n' | tr '\n' ' '))" refuse "$rc" "$outp" ;;
@@ -1006,7 +1024,9 @@ open(sys.argv[1], "wb").write(png)' "$tmp/withimage/shot.png"
   # 6. The blocked path: a missing identity is BLOCKED, never a pass.
   rc=0
   outp="$(APP_CHECK_IDENTITY="No Such Identity" APP_CHECK_EVIDENCE="$tmp/evidence" bash "$SELF" prereq 2>&1)" || rc=$?
-  control_record "prerequisites with a signing identity that does not exist (BLOCKED is exit 3)" refuse:3 "$rc" "$outp"
+  # Exit 3 alone is not enough: any other missing tool or a locked screen also gives 3. The cause must be the identity.
+  grep -q "No Such Identity" <<<"$outp" || rc=1
+  control_record "prerequisites with a signing identity that does not exist (BLOCKED is exit 3, caused by the identity)" refuse:3 "$rc" "$outp"
 
   find "$tmp" -type f -delete
   find "$tmp" -type d -empty -delete 2>/dev/null || true

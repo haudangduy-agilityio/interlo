@@ -34,6 +34,13 @@ case "${2:-}" in
     ;;
 esac
 
+# scripts/app-check.test.sh sets this when it runs check.sh to test the argument parsing: a
+# parsing that wrongly accepts the arguments would start the gate, which runs that test again.
+if [ -n "${APP_CHECK_SELF_TEST:-}" ]; then
+  echo "refusing to start the gate from its own self-test" >&2
+  exit 99
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 

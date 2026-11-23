@@ -102,7 +102,7 @@ func post(_ code: CGKeyCode, flags: CGEventFlags = [], to pid: pid_t) {
 }
 
 let args = CommandLine.arguments
-guard args.count >= 2 else { fail("usage: app-drive raise|press|focus-text|text-length|keys|chord|dump ...", 64) }
+guard args.count >= 2 else { fail("usage: app-drive raise|press|focus-text|read-text|keys|chord|trusted|dump ...", 64) }
 guard AXIsProcessTrusted() else { fail("BLOCKED: AXIsProcessTrusted() is false for the app that runs this tool", 3) }
 
 switch args[1] {

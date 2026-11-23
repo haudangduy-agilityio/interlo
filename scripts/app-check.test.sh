@@ -108,8 +108,8 @@ rmdir "$BOUNDARY_DIR"
 
 # scripts/check.sh: the typing flag belongs to the app mode only, and a bad second word is refused.
 CHECK_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check.sh"
-expect_status "--typing with quick is refused" 64 "$(status_of bash "$CHECK_SH" quick --typing)"
-expect_status "an unknown second word is refused" 64 "$(status_of bash "$CHECK_SH" app --bogus)"
+expect_status "--typing with quick is refused" 64 "$(APP_CHECK_SELF_TEST=1 status_of bash "$CHECK_SH" quick --typing)"
+expect_status "an unknown second word is refused" 64 "$(APP_CHECK_SELF_TEST=1 status_of bash "$CHECK_SH" app --bogus)"
 # A control that expects refuse:3 counts exit 3 as right and any other refusal as wrong.
 wrong_controls() { # expected rc... -> prints how many controls were wrong
   local expected="$1" rc
@@ -126,6 +126,7 @@ expect_equal "refuse:3 with exit 3 is right" "0" "$(wrong_controls refuse:3 3)"
 expect_equal "refuse:3 with exit 1 is wrong" "1" "$(wrong_controls refuse:3 1)"
 expect_equal "refuse:3 with exit 0 is wrong" "1" "$(wrong_controls refuse:3 0)"
 expect_equal "refuse accepts any non-zero exit" "0" "$(wrong_controls refuse 1 3)"
+expect_equal "refuse with exit 0 is wrong" "1" "$(wrong_controls refuse 0)"
 
 # The typing check compares in Unicode form NFC.
 NFC_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-nfcXXXXXX")"
