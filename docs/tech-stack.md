@@ -39,6 +39,10 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | ort | M1 engine tasks | ONNX Runtime in process (D-14 rule: final at the M0-19 memo) |
 | tokio | M1 coordinator tasks | Async tasks outside the audio callback |
 | tauri-cli | M0b-01 | `cargo tauri dev` and the signed local bundle for permission spikes; a build tool, not shipped. Installed on 2026-11-20 with the owner's approval, pinned to `^2.12` with `--locked`. Any other install or version change needs the owner's approval again |
+| objc2 0.6.5 | M0b-05 | Objective-C runtime types for the Core Audio process tap spike; exact pin, used only in `bench/M0b-05/` (MIT) |
+| objc2-foundation 0.3.2 | M0b-05 | Foundation arrays, numbers, strings and dictionaries for the tap description and the aggregate device; exact pin, `bench/M0b-05/` only (MIT) |
+| objc2-core-audio 0.3.2 | M0b-05 | Core Audio bindings, including the process tap (`CATapDescription`, `AudioHardwareCreateProcessTap`); exact pin, `bench/M0b-05/` only (Zlib OR Apache-2.0 OR MIT) |
+| objc2-core-audio-types 0.3.2 | M0b-05 | Core Audio buffer and format types used by the capture callback; exact pin, `bench/M0b-05/` only (Zlib OR Apache-2.0 OR MIT) |
 
 ## UI
 

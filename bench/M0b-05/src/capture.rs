@@ -377,6 +377,11 @@ impl TonePlayer {
     /// Play a 1 kHz sine of the given peak amplitude on the default output device.
     pub fn start(amplitude: f32) -> Result<Self, String> {
         let device = ca::default_output_device().ok_or("no default output device")?;
+        Self::start_on(device, amplitude)
+    }
+
+    /// Play a 1 kHz sine on a given output device.
+    pub fn start_on(device: AudioObjectID, amplitude: f32) -> Result<Self, String> {
         let format = ca::get_value::<AudioStreamBasicDescription>(
             device,
             kAudioStreamPropertyVirtualFormat,

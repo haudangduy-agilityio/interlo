@@ -22,27 +22,16 @@ toneGain.gain.value = 0;
 osc.connect(toneGain).connect(ctx.destination);
 osc.start();
 clip.play().catch(() => {});
-let sinkDone = '';
+const id = new URLSearchParams(location.search).get('id') || 'a';
 async function poll() {
   try {
-    const st = await (await fetch('/state', { cache: 'no-store' })).json();
+    const st = await (await fetch('/state?id=' + id, { cache: 'no-store' })).json();
     clipGain.gain.value = st.mode === 'clip' ? 1 : 0;
     toneGain.gain.value = st.mode === 'tone' ? 0.3 : 0;
     if (ctx.state !== 'running') ctx.resume();
-    if (st.sink && st.sink !== sinkDone) {
-      sinkDone = st.sink;
-      await routeToSink(st.sink);
-    }
-    document.getElementById('s').textContent = st.mode + ' ' + ctx.state + ' ' + sinkDone;
+    document.getElementById('s').textContent = st.mode + ' ' + ctx.state;
   } catch (e) {
     document.getElementById('s').textContent = 'error ' + e;
-  }
-}
-async function routeToSink(marker) {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const out = devices.find((d) => d.kind === 'audiooutput' && d.label.includes(marker));
-  if (out) {
-    await ctx.setSinkId(out.deviceId);
   }
 }
 setInterval(poll, 100);

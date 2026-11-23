@@ -297,9 +297,20 @@ fn status_lines(log: &Log) -> Vec<&Line> {
         .iter()
         .skip_while(|l| l.event != "START")
         .skip(1)
-        .take_while(|l| !matches!(l.event.as_str(), "TAP_START" | "DEVICE_START" | "WIN"))
+        .take_while(|l| {
+            !matches!(
+                l.event.as_str(),
+                "TAP_START" | "DEVICE_START" | "WIN" | "EXIT"
+            )
+        })
         .filter(|l| l.event != "PERMISSION_PROMPT")
         .collect()
+}
+
+/// The exit code of the run, from its `EXIT code=<n>` line, and the time of that line.
+fn exit_of(log: &Log) -> Option<(i32, u64)> {
+    let line = log.first("EXIT")?;
+    Some((line.field("code")?.parse().ok()?, line.ms))
 }
 
 /// AC-17, AC-20, AC-40: the expected status lines, in order, each within 2 s of `START`, and a
@@ -318,17 +329,19 @@ pub fn check_route_lines(log: &Log, expected: &[&str]) -> Verdict {
         .first("TAP_START")
         .or_else(|| log.first("DEVICE_START"))
         .is_some();
+    let exit = exit_of(log).map(|(code, _)| code);
     let detail = format!(
-        "lines={names:?} expected={expected:?} late_lines={late} capture_started={started}"
+        "lines={names:?} expected={expected:?} late_lines={late} capture_started={started} exit_code={exit:?}"
     );
-    if names == expected && late == 0 && started {
+    if names == expected && late == 0 && started && exit == Some(0) {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
     }
 }
 
-/// AC-36: the causes, then `NO_CAPTURE_ROUTE 2ch=missing` within 2 s, and no capture started.
+/// AC-36: the causes, then `NO_CAPTURE_ROUTE 2ch=missing` within 2 s, no capture started and a
+/// non-zero exit within 2 s.
 pub fn check_no_route(log: &Log, causes: &[&str]) -> Verdict {
     let Some(start) = log.first("START").map(|l| l.ms) else {
         return Verdict::no("no START line");
@@ -349,10 +362,14 @@ pub fn check_no_route(log: &Log, causes: &[&str]) -> Verdict {
         .first("TAP_START")
         .or_else(|| log.first("DEVICE_START"))
         .is_some();
+    let exit = exit_of(log);
+    let exit_ms = exit.map(|(_, ms)| ms.saturating_sub(start));
     let detail = format!(
-        "lines={names:?} expected={expected:?} late_lines={late} capture_started={started}"
+        "lines={names:?} expected={expected:?} late_lines={late} capture_started={started} exit={exit:?} exit_after_start_ms={exit_ms:?}"
     );
-    if names == expected && late == 0 && !started {
+    let failing_exit =
+        exit.is_some_and(|(code, ms)| code != 0 && ms.saturating_sub(start) <= STATUS_DEADLINE_MS);
+    if names == expected && late == 0 && !started && failing_exit {
         Verdict::yes(detail)
     } else {
         Verdict::no(detail)
@@ -657,14 +674,34 @@ mod tests {
         let mut b = B::new(0);
         b.line(100, "PERMISSION_REFUSED")
             .line(110, "route=2ch")
-            .line(500, "DEVICE_START rate=48000");
+            .line(500, "DEVICE_START rate=48000")
+            .line(6_000, "STOP")
+            .line(6_010, "EXIT code=0");
         assert!(check_route_lines(&b.log(), &["PERMISSION_REFUSED", "route=2ch"]).pass);
         assert!(!check_route_lines(&b.log(), &["route=2ch"]).pass);
         let mut late = B::new(0);
         late.line(2_500, "PERMISSION_REFUSED")
             .line(2_510, "route=2ch")
-            .line(2_600, "DEVICE_START rate=48000");
+            .line(2_600, "DEVICE_START rate=48000")
+            .line(7_000, "EXIT code=0");
         assert!(!check_route_lines(&late.log(), &["PERMISSION_REFUSED", "route=2ch"]).pass);
+    }
+
+    #[test]
+    fn route_lines_need_a_clean_exit_after_the_stop_signal() {
+        let mut b = B::new(0);
+        b.line(100, "app=missing")
+            .line(110, "route=2ch")
+            .line(300, "DEVICE_START rate=48000");
+        assert!(
+            !check_route_lines(&b.log(), &["app=missing", "route=2ch"]).pass,
+            "no EXIT line"
+        );
+        b.line(6_000, "EXIT code=1");
+        assert!(
+            !check_route_lines(&b.log(), &["app=missing", "route=2ch"]).pass,
+            "exit code 1"
+        );
     }
 
     #[test]
@@ -673,17 +710,35 @@ mod tests {
         b.line(50, "PERMISSION_PROMPT waiting for the system dialog")
             .line(100, "app=missing")
             .line(110, "route=2ch");
-        b.line(300, "DEVICE_START rate=48000");
+        b.line(300, "DEVICE_START rate=48000")
+            .line(6_000, "EXIT code=0");
         assert!(check_route_lines(&b.log(), &["app=missing", "route=2ch"]).pass);
     }
 
     #[test]
-    fn no_route_needs_the_causes_the_refusal_and_no_capture() {
+    fn no_route_needs_the_causes_the_refusal_a_fast_failing_exit_and_no_capture() {
         let mut b = B::new(0);
         b.line(100, "PERMISSION_REFUSED")
             .line(110, "app=missing")
-            .line(120, "NO_CAPTURE_ROUTE 2ch=missing");
+            .line(120, "NO_CAPTURE_ROUTE 2ch=missing")
+            .line(130, "EXIT code=2");
         assert!(check_no_route(&b.log(), &["PERMISSION_REFUSED", "app=missing"]).pass);
+        let mut slow = B::new(0);
+        slow.line(100, "app=missing")
+            .line(120, "NO_CAPTURE_ROUTE 2ch=missing")
+            .line(2_500, "EXIT code=2");
+        assert!(
+            !check_no_route(&slow.log(), &["app=missing"]).pass,
+            "exit after 2 s"
+        );
+        let mut zero = B::new(0);
+        zero.line(100, "app=missing")
+            .line(120, "NO_CAPTURE_ROUTE 2ch=missing")
+            .line(130, "EXIT code=0");
+        assert!(
+            !check_no_route(&zero.log(), &["app=missing"]).pass,
+            "exit code 0"
+        );
         b.line(500, "TAP_START rate=48000");
         assert!(!check_no_route(&b.log(), &["PERMISSION_REFUSED", "app=missing"]).pass);
     }

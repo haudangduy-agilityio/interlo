@@ -38,9 +38,18 @@ fn main() {
             code
         }
         Some("rate") => cli::rate(rest()),
+        Some("play-to-2ch") => cli::play_to_2ch(rest()),
+        Some("target") => cli::target(rest()),
         Some("probe-output") => cli::probe_output(rest()),
         _ => match opts::parse(&args) {
-            Ok(o) => spike::run(&o),
+            Ok(o) => {
+                let code = spike::run(&o);
+                log::emit(&format!("EXIT code={code}"));
+                if let Some(path) = &o.exitfile {
+                    let _ = std::fs::write(path, code.to_string());
+                }
+                code
+            }
             Err(e) => {
                 eprintln!("m0b05: {e}");
                 cli::EXIT_USAGE

@@ -64,6 +64,54 @@ impl Monitor {
     }
 }
 
+/// A capture whose source stopped its output stream delivers no callbacks at all. That is
+/// silence, so the monitor is fed one silent window per 100 ms while no callbacks arrive.
+#[derive(Debug)]
+pub struct SilenceFill {
+    last_window_ms: u64,
+    last_callbacks: u64,
+    last_callback_change_ms: u64,
+}
+
+/// No callback for this long means the stream is not running (ms, starting value).
+pub const NO_CALLBACK_MS: u64 = 150;
+
+impl SilenceFill {
+    pub fn new(now_ms: u64) -> Self {
+        Self {
+            last_window_ms: now_ms,
+            last_callbacks: 0,
+            last_callback_change_ms: now_ms,
+        }
+    }
+
+    /// A real window arrived at this time.
+    pub fn on_window(&mut self, now_ms: u64) {
+        self.last_window_ms = now_ms;
+    }
+
+    /// True when one silent window should be fed now.
+    pub fn poll(&mut self, now_ms: u64, callbacks: u64) -> bool {
+        if callbacks != self.last_callbacks {
+            self.last_callbacks = callbacks;
+            self.last_callback_change_ms = now_ms;
+            return false;
+        }
+        let window_ms = u64::from(crate::levels::WINDOW_MS);
+        if now_ms.saturating_sub(self.last_callback_change_ms) < NO_CALLBACK_MS
+            || now_ms.saturating_sub(self.last_window_ms) < window_ms
+        {
+            return false;
+        }
+        self.last_window_ms = if now_ms - self.last_window_ms >= 2 * window_ms {
+            now_ms
+        } else {
+            self.last_window_ms + window_ms
+        };
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +196,39 @@ mod tests {
         let mut m = Monitor::new();
         feed(&mut m, 50, -90.0, -90.0);
         assert!(feed(&mut m, 200, -30.0, -30.0).is_empty());
+    }
+
+    #[test]
+    fn no_callbacks_feed_one_silent_window_per_hundred_ms() {
+        let mut f = SilenceFill::new(1_000);
+        assert!(!f.poll(1_100, 0), "callback silence is not long enough yet");
+        assert!(f.poll(1_200, 0));
+        assert!(!f.poll(1_250, 0), "one window per 100 ms");
+        assert!(f.poll(1_300, 0));
+    }
+
+    #[test]
+    fn running_callbacks_never_feed_silence() {
+        let mut f = SilenceFill::new(0);
+        for step in 1..=50u64 {
+            assert!(!f.poll(step * 20, step * 2), "callbacks advance every poll");
+        }
+    }
+
+    #[test]
+    fn real_windows_hold_the_fill_back_and_callbacks_resuming_stop_it() {
+        let mut f = SilenceFill::new(0);
+        assert!(f.poll(300, 0));
+        assert!(f.poll(400, 0));
+        assert!(!f.poll(420, 5), "a callback arrived");
+        f.on_window(500);
+        assert!(!f.poll(520, 5), "just after a real window");
+    }
+
+    #[test]
+    fn a_long_gap_does_not_burst_silent_windows() {
+        let mut f = SilenceFill::new(0);
+        assert!(f.poll(5_000, 0));
+        assert!(!f.poll(5_010, 0));
     }
 }

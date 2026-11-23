@@ -3,6 +3,7 @@
 //! processes have an output stream running, by pid only).
 
 use crate::analysis::{self, Log, Verdict};
+use crate::capture::TonePlayer;
 use crate::log::{emit, epoch_ms};
 use crate::{ca, targets};
 use std::time::{Duration, Instant};
@@ -148,6 +149,50 @@ pub fn probe_output(args: &[String]) -> i32 {
     0
 }
 
+/// `play-to-2ch <seconds>`: write a 1 kHz tone into the 2-channel virtual device, so that its
+/// input side has something to capture (AC-19). Nothing is audible and nothing is stored.
+pub fn play_to_2ch(args: &[String]) -> i32 {
+    let Some(secs) = args.first().and_then(|s| s.parse::<u64>().ok()) else {
+        return EXIT_USAGE;
+    };
+    let Some(device) = ca::find_two_ch_device() else {
+        println!("PLAY_ERROR no 2-channel virtual device");
+        return 2;
+    };
+    match TonePlayer::start_on(device, 0.2) {
+        Ok(_player) => {
+            emit("PLAY_2CH start");
+            std::thread::sleep(Duration::from_secs(secs));
+            emit("PLAY_2CH end");
+            0
+        }
+        Err(e) => {
+            println!("PLAY_ERROR {e}");
+            2
+        }
+    }
+}
+
+/// `target <text>`: count the pids and Core Audio process objects of the target app. Exit 0
+/// when at least one process object exists (the target app is using audio), else 1.
+pub fn target(args: &[String]) -> i32 {
+    let Some(marker) = args.first() else {
+        return EXIT_USAGE;
+    };
+    let text = std::process::Command::new("/bin/ps")
+        .args(["-axww", "-o", "pid=,ppid=,command="])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let pids = targets::select_target_pids(&targets::parse_ps(&text), marker, std::process::id());
+    let objects = pids
+        .iter()
+        .filter_map(|p| ca::process_object_for_pid(*p))
+        .count();
+    println!("TARGET pids={} objects={objects}", pids.len());
+    i32::from(objects == 0)
+}
+
 fn join(v: &[u32]) -> String {
     v.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
 }
@@ -183,7 +228,7 @@ mod tests {
     #[test]
     fn analyze_route_splits_the_expected_lines_on_commas() {
         let read = reader(
-            "100 START pid=1\n110 app=missing\n120 route=2ch\n300 DEVICE_START rate=48000\n",
+            "100 START pid=1\n110 app=missing\n120 route=2ch\n300 DEVICE_START rate=48000\n6000 EXIT code=0\n",
         );
         let (code, _) = analyze(&args(&["route", "run.log", "app=missing,route=2ch"]), &read);
         assert_eq!(code, 0);

@@ -15,6 +15,9 @@ pub struct Opts {
     pub control_include_self: bool,
     /// Write the pid of the spike to this file at start.
     pub pidfile: Option<PathBuf>,
+    /// Write the exit code to this file just before exit (the bundle is started through
+    /// `open`, which does not hand the exit code back).
+    pub exitfile: Option<PathBuf>,
 }
 
 /// Parse the arguments after the program name (the capture run, not a subcommand).
@@ -32,6 +35,9 @@ pub fn parse(args: &[String]) -> Result<Opts, String> {
             }
             "--pidfile" => {
                 opts.pidfile = Some(PathBuf::from(it.next().ok_or("--pidfile needs a value")?));
+            }
+            "--exitfile" => {
+                opts.exitfile = Some(PathBuf::from(it.next().ok_or("--exitfile needs a value")?));
             }
             "--ignore-2ch" => opts.ignore_2ch = true,
             "--self-tone" => opts.self_tone = true,
@@ -74,6 +80,13 @@ mod tests {
         assert!(o.self_tone);
         assert!(!o.control_include_self);
         assert_eq!(o.pidfile, Some(PathBuf::from("/p")));
+    }
+
+    #[test]
+    fn reads_the_exit_file() {
+        let o = parse(&a(&["--exitfile", "/e"])).unwrap_or_default();
+        assert_eq!(o.exitfile, Some(PathBuf::from("/e")));
+        assert!(parse(&a(&["--exitfile"])).is_err());
     }
 
     #[test]

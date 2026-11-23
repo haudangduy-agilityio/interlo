@@ -2,8 +2,9 @@
 //! readings. Writes no audio anywhere; the only output is text on stdout.
 
 use crate::capture::{Capture, RateWatch, TonePlayer};
+use crate::levels::{WindowLevels, FLOOR_DBFS};
 use crate::log::emit;
-use crate::monitor::{Monitor, MonitorEvent};
+use crate::monitor::{Monitor, MonitorEvent, SilenceFill};
 use crate::opts::Opts;
 use crate::ring::StatsRing;
 use crate::route::{choose_route, Permission, Route, RouteInputs};
@@ -102,6 +103,12 @@ pub fn run(opts: &Opts) -> i32 {
         std::process::id(),
         opts.ignore_2ch
     ));
+    // The folders that the AC-21 scan looks in exist from the start; nothing is written into them.
+    let _ = std::fs::create_dir_all(std::env::temp_dir().join("m0b-05"));
+    if let Some(home) = std::env::var_os("HOME") {
+        let cache = std::path::Path::new(&home).join("Library/Caches/app.interlo.bench.m0b05");
+        let _ = std::fs::create_dir_all(cache);
+    }
     if let Some(path) = &opts.pidfile {
         let _ = std::fs::write(path, std::process::id().to_string());
     }
@@ -195,13 +202,30 @@ pub fn run(opts: &Opts) -> i32 {
     let mut index = 0u64;
     let mut tone_end: Option<Instant> = None;
     let mut last_stat = Instant::now();
+    let clock = Instant::now();
+    let mut fill = SilenceFill::new(0);
 
     while !sig::stopped() {
+        let now_ms = clock.elapsed().as_millis() as u64;
+        let mut batch: Vec<(WindowLevels, bool)> = Vec::new();
         while let Some(w) = ring.pop() {
+            fill.on_window(now_ms);
+            batch.push((w, false));
+        }
+        if fill.poll(now_ms, ring.callbacks()) {
+            let silent = WindowLevels {
+                rms_dbfs: FLOOR_DBFS,
+                tone_dbfs: FLOOR_DBFS,
+            };
+            batch.push((silent, true));
+        }
+        for (w, synth) in batch {
             index += 1;
             emit(&format!(
-                "WIN i={index} level={:.1} tone={:.1}",
-                w.rms_dbfs, w.tone_dbfs
+                "WIN i={index} level={:.1} tone={:.1}{}",
+                w.rms_dbfs,
+                w.tone_dbfs,
+                if synth { " synth=1" } else { "" }
             ));
             for ev in monitor.push(w) {
                 match ev {

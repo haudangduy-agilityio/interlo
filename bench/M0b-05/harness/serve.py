@@ -2,14 +2,15 @@
 """Loopback test server for the process tap spike.
 
 Serves page.html and the test clip, and reports the playback mode that the harness wrote
-to a state file. Binds to 127.0.0.1 only. Usage: serve.py <state_file> <clip_dir> <port_file>
+to a state file per page instance (`<state_prefix>-<id>.json`). Binds to 127.0.0.1 only.
+Usage: serve.py <state_prefix> <clip_dir> <port_file>
 """
 import http.server
 import json
 import os
 import sys
 
-STATE_FILE, CLIP_DIR, PORT_FILE = sys.argv[1:4]
+STATE_PREFIX, CLIP_DIR, PORT_FILE = sys.argv[1:4]
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "page.html")
 
 
@@ -26,15 +27,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path, _, query = self.path.partition("?")
+        if path in ("/", "/index.html"):
             with open(PAGE, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
-        elif self.path == "/clip.wav":
+        elif path == "/clip.wav":
             with open(os.path.join(CLIP_DIR, "speech.wav"), "rb") as f:
                 self._send(200, f.read(), "audio/wav")
-        elif self.path == "/state":
+        elif path == "/state":
+            ident = "".join(c for c in query.replace("id=", "") if c.isalnum()) or "a"
             try:
-                with open(STATE_FILE) as f:
+                with open(f"{STATE_PREFIX}-{ident}.json") as f:
                     state = json.loads(f.read() or "{}")
             except (OSError, ValueError):
                 state = {}
