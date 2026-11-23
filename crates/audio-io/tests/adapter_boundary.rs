@@ -22,6 +22,10 @@ const RING_SAMPLES: usize = 2_048;
 const SMALL_RING_SAMPLES: usize = 1_024;
 /// Samples a source pushes in the overrun test, far above the small ring.
 const OVERRUN_SAMPLES: usize = 4_096;
+/// Block size of the process-tap fake.
+const TAP_BLOCK_SAMPLES: usize = 160;
+/// Block size of the virtual-device fake.
+const VIRTUAL_DEVICE_BLOCK_SAMPLES: usize = 480;
 /// Samples the thread source pushes per block.
 const THREAD_BLOCK_SAMPLES: usize = 160;
 /// Pause between thread blocks, so the push overlaps the test thread.
@@ -75,9 +79,7 @@ impl FixtureSource {
             stop_error: None,
         }
     }
-}
 
-impl FixtureSource {
     fn failing_start(mut self, error: CaptureError) -> Self {
         self.start_error = Some(error);
         self
@@ -164,7 +166,9 @@ struct SinkLog {
     calls: usize,
 }
 
-/// A sink that records every frame it accepts, with optional faults.
+/// A sink that records every frame it accepts, with optional faults. It locks
+/// and grows a `Vec` in `write_frames`, so it fits a control-side chain only,
+/// never a real-time callback test.
 struct FakeSink {
     log: Arc<Mutex<SinkLog>>,
     /// Most frames taken per call; `None` takes all.
@@ -174,7 +178,6 @@ struct FakeSink {
     /// `write_frames` answers `Ok(0)` for every non-empty write.
     take_nothing: bool,
     flush_error: Option<OutputError>,
-    calls: usize,
 }
 
 impl FakeSink {
@@ -187,7 +190,6 @@ impl FakeSink {
                 fail_from_call: None,
                 take_nothing: false,
                 flush_error: None,
-                calls: 0,
             },
             log,
         )
@@ -196,10 +198,13 @@ impl FakeSink {
 
 impl AudioOutput for FakeSink {
     fn write_frames(&mut self, frames: &[f32]) -> Result<usize, OutputError> {
-        self.calls += 1;
-        self.log.lock().unwrap().calls = self.calls;
+        let call = {
+            let mut log = self.log.lock().unwrap();
+            log.calls += 1;
+            log.calls
+        };
         if let Some((from, error)) = &self.fail_from_call {
-            if self.calls >= *from {
+            if call >= *from {
                 return Err(error.clone());
             }
         }
@@ -256,11 +261,28 @@ fn run_chain(
     Ok(consumer.dropped_total())
 }
 
+/// Runs the chain on a helper thread and fails the test if it does not finish
+/// inside `HANG_GUARD`. Returns the chain result and the frames the sink took.
+fn run_chain_guarded(
+    mut source: FixtureSource,
+    mut sink: FakeSink,
+    ring_capacity: usize,
+) -> (Result<u64, AudioIoError>, usize) {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = run_chain(&mut source, &mut sink, ring_capacity);
+        let frames = sink.log.lock().unwrap().frames.len();
+        let _ = tx.send((result, frames));
+    });
+    rx.recv_timeout(HANG_GUARD)
+        .expect("the chain finished inside the hang guard")
+}
+
 #[test]
 fn two_different_sources_give_the_same_output_on_a_fixture() {
     let sources = [
-        FixtureSource::tap(fixture(), 160),
-        FixtureSource::virtual_device(fixture(), 480),
+        FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES),
+        FixtureSource::virtual_device(fixture(), VIRTUAL_DEVICE_BLOCK_SAMPLES),
     ];
     for mut source in sources {
         let (mut sink, log) = FakeSink::new();
@@ -278,7 +300,7 @@ fn two_different_sinks_give_the_same_frames_when_writes_are_partial() {
     let (mut chunked, chunked_log) = FakeSink::new();
     chunked.max_per_call = Some(SINK_CHUNK_FRAMES);
     for sink in [&mut whole, &mut chunked] {
-        let mut source = FixtureSource::tap(fixture(), 160);
+        let mut source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES);
         run_chain(&mut source, sink, RING_SAMPLES).unwrap();
     }
     for log in [&whole_log, &chunked_log] {
@@ -294,7 +316,7 @@ fn a_sink_error_stops_the_chain_and_no_frame_is_written_twice() {
     let (mut sink, log) = FakeSink::new();
     sink.max_per_call = Some(SINK_CHUNK_FRAMES);
     sink.fail_from_call = Some((2, OutputError::NotImplemented));
-    let mut source = FixtureSource::tap(fixture(), 160);
+    let mut source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES);
     let result = run_chain(&mut source, &mut sink, RING_SAMPLES);
     assert_eq!(
         result,
@@ -303,20 +325,14 @@ fn a_sink_error_stops_the_chain_and_no_frame_is_written_twice() {
     assert_eq!(log.lock().unwrap().frames, fixture()[..SINK_CHUNK_FRAMES]);
 }
 
+/// Checks the chain's guard against `Ok(0)`: no sink in `audio-io` returns
+/// `Stalled` yet, so this covers the chain, not a production sink.
 #[test]
 fn a_sink_that_accepts_nothing_returns_stalled_and_does_not_hang() {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let (mut sink, log) = FakeSink::new();
-        sink.take_nothing = true;
-        let mut source = FixtureSource::tap(fixture(), 160);
-        let result = run_chain(&mut source, &mut sink, RING_SAMPLES);
-        let frames = log.lock().unwrap().frames.len();
-        let _ = tx.send((result, frames));
-    });
-    let (result, frames) = rx
-        .recv_timeout(HANG_GUARD)
-        .expect("the chain finished instead of hanging on a sink that takes nothing");
+    let (mut sink, _log) = FakeSink::new();
+    sink.take_nothing = true;
+    let source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES);
+    let (result, frames) = run_chain_guarded(source, sink, RING_SAMPLES);
     assert_eq!(result, Err(AudioIoError::Output(OutputError::Stalled)));
     assert_eq!(frames, 0);
 }
@@ -325,7 +341,7 @@ fn a_sink_that_accepts_nothing_returns_stalled_and_does_not_hang() {
 fn a_failing_flush_is_returned_after_every_frame_was_written() {
     let (mut sink, log) = FakeSink::new();
     sink.flush_error = Some(OutputError::NotImplemented);
-    let mut source = FixtureSource::tap(fixture(), 160);
+    let mut source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES);
     let result = run_chain(&mut source, &mut sink, RING_SAMPLES);
     assert_eq!(
         result,
@@ -337,7 +353,8 @@ fn a_failing_flush_is_returned_after_every_frame_was_written() {
 #[test]
 fn a_source_that_cannot_start_returns_its_error_and_writes_nothing() {
     let (mut sink, log) = FakeSink::new();
-    let mut source = FixtureSource::tap(fixture(), 160).failing_start(CaptureError::NoCaptureRoute);
+    let mut source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES)
+        .failing_start(CaptureError::NoCaptureRoute);
     let result = run_chain(&mut source, &mut sink, RING_SAMPLES);
     assert_eq!(
         result,
@@ -365,7 +382,8 @@ fn the_placeholder_source_returns_not_implemented_and_writes_nothing() {
 #[test]
 fn a_failing_stop_is_returned_and_nothing_is_written() {
     let (mut sink, log) = FakeSink::new();
-    let mut source = FixtureSource::tap(fixture(), 160).failing_stop(CaptureError::NotImplemented);
+    let mut source =
+        FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES).failing_stop(CaptureError::NotImplemented);
     let result = run_chain(&mut source, &mut sink, RING_SAMPLES);
     assert_eq!(
         result,
@@ -377,7 +395,7 @@ fn a_failing_stop_is_returned_and_nothing_is_written() {
 #[test]
 fn a_source_that_overruns_the_ring_loses_the_newest_samples_and_counts_them() {
     let (mut sink, log) = FakeSink::new();
-    let mut source = FixtureSource::tap(fixture(), 160);
+    let mut source = FixtureSource::tap(fixture(), TAP_BLOCK_SAMPLES);
     let dropped = run_chain(&mut source, &mut sink, SMALL_RING_SAMPLES).unwrap();
     assert_eq!(log.lock().unwrap().frames, fixture()[..SMALL_RING_SAMPLES]);
     assert_eq!(dropped, (FIXTURE_SAMPLES - SMALL_RING_SAMPLES) as u64);
@@ -386,27 +404,22 @@ fn a_source_that_overruns_the_ring_loses_the_newest_samples_and_counts_them() {
 #[test]
 fn a_push_that_exactly_fills_the_ring_loses_nothing() {
     let (mut sink, log) = FakeSink::new();
-    let mut source = FixtureSource::tap(fixture()[..SMALL_RING_SAMPLES].to_vec(), 160);
+    let mut source =
+        FixtureSource::tap(fixture()[..SMALL_RING_SAMPLES].to_vec(), TAP_BLOCK_SAMPLES);
     let dropped = run_chain(&mut source, &mut sink, SMALL_RING_SAMPLES).unwrap();
     assert_eq!(log.lock().unwrap().frames, fixture()[..SMALL_RING_SAMPLES]);
     assert_eq!(dropped, 0);
 }
 
+/// The fake pushes inside `start`, so this guards the ring (a full ring must
+/// never block a push), not the trait signature.
 #[test]
 fn start_returns_while_the_consumer_has_not_read_a_single_sample() {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let (mut sink, log) = FakeSink::new();
-        let mut source = FixtureSource::tap(vec![0.5; OVERRUN_SAMPLES], 160);
-        let dropped = run_chain(&mut source, &mut sink, SMALL_RING_SAMPLES);
-        let frames = log.lock().unwrap().frames.len();
-        let _ = tx.send((dropped, frames));
-    });
-    let (dropped, frames) = rx
-        .recv_timeout(HANG_GUARD)
-        .expect("start returned without waiting for the consumer");
+    let (sink, _log) = FakeSink::new();
+    let source = FixtureSource::tap(vec![0.5; OVERRUN_SAMPLES], TAP_BLOCK_SAMPLES);
+    let (result, frames) = run_chain_guarded(source, sink, SMALL_RING_SAMPLES);
     assert_eq!(frames, SMALL_RING_SAMPLES);
-    assert_eq!(dropped, Ok((OVERRUN_SAMPLES - SMALL_RING_SAMPLES) as u64));
+    assert_eq!(result, Ok((OVERRUN_SAMPLES - SMALL_RING_SAMPLES) as u64));
 }
 
 #[test]

@@ -30,6 +30,10 @@ pub enum CaptureMethod {
 ///   newest samples and counts them; a slow consumer never stalls capture.
 /// - `start` on a source that cannot run returns a `CaptureError`.
 /// - After `stop` returns, `Ok` or `Err`, the source pushes nothing more.
+/// - `start` is called once per producer; a restart takes a new producer.
+/// - Rate conversion in a callback uses scratch space allocated before
+///   `start`. The source drops the producer in `stop`, off the callback thread,
+///   so the ring is never freed inside a callback.
 pub trait CaptureSource: Send {
     fn method(&self) -> &CaptureMethod;
     fn start(&mut self, sink: RingProducer) -> Result<(), CaptureError>;

@@ -29,6 +29,10 @@ pub enum OutputError {
 ///   allowed, more is not. The caller writes the rest again.
 /// - A non-empty write that takes no frame returns `Err(OutputError::Stalled)`,
 ///   never `Ok(0)`.
+/// - `Stalled` means the sink has no room now. Whether to retry, and how long
+///   to wait, is the caller's policy; M1-08 and M1-12 settle it for a real sink.
+/// - `write_frames` runs on a control-side worker thread, never inside an
+///   audio callback, and returns without waiting for the device.
 /// - `flush` ends a stream.
 pub trait AudioOutput: Send {
     /// Returns the number of frames accepted.
