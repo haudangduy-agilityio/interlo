@@ -1,5 +1,5 @@
-//! Log format v1: header lines that start with `#`, then one tab-separated line per event
-//! (`<t_us> <stage> <event> <key>=<n> ...`). Every field value is a number, so a stage cannot
+//! Log format v1: header lines that start with `#`, then one line per event, fields separated
+//! by one tab (`<t_us>\t<stage>\t<event>\t<key>=<n>...`). Every field value is a number, so a stage cannot
 //! write text into the log (guardrail 6).
 
 use std::io::Write;
@@ -97,10 +97,6 @@ impl<'a> LogWriter<'a> {
     pub fn failed(&self) -> bool {
         self.failed
     }
-
-    pub fn last_us(&self) -> u64 {
-        self.last_us
-    }
 }
 
 /// The sink of one stage: every event gets the stage name.
@@ -134,6 +130,48 @@ mod tests {
             format_line(0, "energy_ref", "stage_start", &[]),
             "0\tenergy_ref\tstage_start"
         );
+    }
+
+    /// A clock that returns the listed readings, one per call.
+    struct ScriptedClock(std::cell::RefCell<std::vec::IntoIter<u64>>);
+
+    impl Clock for ScriptedClock {
+        fn now_us(&self) -> u64 {
+            self.0.borrow_mut().next().unwrap_or(0)
+        }
+    }
+
+    #[test]
+    fn event_time_never_goes_down_when_the_clock_does() {
+        let clock = ScriptedClock(std::cell::RefCell::new(
+            vec![100, 150, 140, 200].into_iter(),
+        ));
+        let mut out: Vec<u8> = Vec::new();
+        let mut log = LogWriter::new(&mut out, &clock);
+        assert_eq!(log.emit_for("harness", "a", &[]), 50);
+        assert_eq!(log.emit_for("harness", "b", &[]), 50);
+        assert_eq!(log.emit_for("harness", "c", &[]), 100);
+    }
+
+    struct BrokenWriter;
+
+    impl Write for BrokenWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failed_write_sets_the_failed_flag() {
+        let clock = crate::clock::fake::FakeClock::new(1);
+        let mut out = BrokenWriter;
+        let mut log = LogWriter::new(&mut out, &clock);
+        assert!(!log.failed());
+        log.emit_for("harness", "a", &[]);
+        assert!(log.failed());
     }
 
     #[test]

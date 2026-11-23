@@ -2,7 +2,7 @@
 //! session clock only through the log writer, so the stage and the runner share one clock.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 
 use crate::args::{self, Command, RunArgs};
@@ -128,6 +128,20 @@ fn create_new(path: &Path) -> Result<File, String> {
         .map_err(|e| format!("cannot create {}: {e}", path.display()))
 }
 
+/// The largest input file the harness reads (about 2 hours of 16 kHz audio). A bigger file, or
+/// a device that never ends, is an `error_io` run and not an out-of-memory crash.
+const MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Read a whole file, but refuse one that is longer than `max` bytes.
+fn read_limited(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    File::open(path)?.take(max + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Err(std::io::Error::other("input file is too large"));
+    }
+    Ok(bytes)
+}
+
 fn synth_command(out: &Path, stderr: &mut dyn Write) -> u8 {
     let mut file = match create_new(out) {
         Ok(file) => file,
@@ -164,7 +178,7 @@ fn run_command(run: RunArgs, env: &Env, stdout: &mut dyn Write, stderr: &mut dyn
         pace: run.pace.as_str(),
         id: run.id.as_deref(),
     });
-    let input = std::fs::read(&run.file);
+    let input = read_limited(&run.file, MAX_INPUT_BYTES);
     if run_session(&mut log, &mut *stage, input, run.pace, env.sleeper) {
         0
     } else {
@@ -177,8 +191,6 @@ mod tests {
     use super::*;
     use crate::clock::fake::{FakeClock, FakeSleeper};
     use crate::log::EventSink;
-    use crate::stage;
-    use crate::synth;
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -307,7 +319,7 @@ mod tests {
         assert_eq!(seen.len(), 175);
         for (i, t) in seen.iter().enumerate() {
             assert!(
-                *t >= t0 + 20_000 * i as u64,
+                *t >= t0 + CHUNK_US * i as u64,
                 "chunk {i} came at {t}, open at {t0}"
             );
         }
@@ -330,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn run_twice_gives_equal_event_order() {
+    fn run_fast_and_realtime_give_equal_event_order() {
         let first_clock = FakeClock::new(7);
         let second_clock = FakeClock::new(333);
         let s1 = FakeSleeper::new(&first_clock);
@@ -380,8 +392,6 @@ mod tests {
         }
     }
 
-    // ---- execute: exit codes and the files it makes ----
-
     static COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn temp_dir() -> PathBuf {
@@ -412,6 +422,16 @@ mod tests {
 
     fn path_str(p: &Path) -> &str {
         p.to_str().unwrap()
+    }
+
+    #[test]
+    fn read_limited_accepts_max_bytes_and_refuses_one_more() {
+        let dir = temp_dir();
+        let file = dir.join("ten.bin");
+        std::fs::write(&file, [7u8; 10]).unwrap();
+        assert_eq!(read_limited(&file, 10).unwrap().len(), 10);
+        assert!(read_limited(&file, 9).is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

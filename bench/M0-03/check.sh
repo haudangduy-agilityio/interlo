@@ -17,19 +17,25 @@ cargo test --locked
 # name list, so the name scan skips it; the language scan reads it.
 NAMES='(whisper|silero|piper|kokoro|zoom|slack|chrome|safari|firefox|github|gitlab|google|microsoft|onnx|ort)'
 SCOPE=("$HERE" "$ROOT/docs/m0/M0-03.md")
-if rg -n -i -w "$NAMES" "${SCOPE[@]}" --glob '!Cargo.lock' --glob '!target' --glob '!check.sh'; then
-  echo "a name from the forbidden list is in the files above" >&2
-  exit 1
-fi
-if rg -n '[^\x00-\x7F]' "${SCOPE[@]}" --glob '!target'; then
-  echo "non-ASCII text is in the files above" >&2
-  exit 1
-fi
+[ -f "$ROOT/docs/m0/M0-03.md" ] || { echo "missing $ROOT/docs/m0/M0-03.md" >&2; exit 1; }
+
+# scan <what> <rg args...>: rg exits 0 on a match, 1 on no match and 2 on an error. Only 1 passes.
+scan() {
+  local what="$1" rc=0
+  shift
+  rg "$@" || rc=$?
+  case "$rc" in
+    0) echo "$what is in the files above" >&2; exit 1 ;;
+    1) ;;
+    *) echo "rg failed (exit $rc) while checking $what" >&2; exit 1 ;;
+  esac
+}
+scan "a name from the forbidden list" -n -i -w "$NAMES" "${SCOPE[@]}" --glob '!Cargo.lock' --glob '!target' --glob '!check.sh'
+scan "non-ASCII text" -n '[^\x00-\x7F]' "${SCOPE[@]}" --glob '!target'
 
 # No media or model file is tracked or staged in the crate or its note.
 MEDIA='\.(wav|png|jpe?g|gif|mp3|m4a|flac|ogg|pcm|raw|onnx|bin)$'
-if (git -C "$ROOT" ls-files bench/M0-03 docs/m0/M0-03.md; git -C "$ROOT" ls-files -o --exclude-standard bench/M0-03 docs/m0/M0-03.md) | rg -i "$MEDIA"; then
-  echo "a media or model file is in the repository" >&2
-  exit 1
-fi
+FILES="$( (git -C "$ROOT" ls-files bench/M0-03 docs/m0/M0-03.md; git -C "$ROOT" ls-files -o --exclude-standard bench/M0-03 docs/m0/M0-03.md) )"
+[ -n "$FILES" ] || { echo "git listed no files for bench/M0-03" >&2; exit 1; }
+printf '%s\n' "$FILES" | scan "a media or model file" -i "$MEDIA"
 echo "ALL STEPS PASSED (bench/M0-03)"

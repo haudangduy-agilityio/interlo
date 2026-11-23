@@ -100,27 +100,25 @@ fn cli_run_prints_the_nine_events() {
 fn cli_replay_twice_gives_empty_diff_of_event_streams() {
     let dir = temp_dir();
     let wav = synth(&dir);
-    let (p1, p2, p3) = (dir.join("p1.log"), dir.join("p2.log"), dir.join("p3.log"));
+    let (p1, p2) = (dir.join("p1.log"), dir.join("p2.log"));
     assert_eq!(run(&wav, &p1, &[]).status.code(), Some(0));
     assert_eq!(run(&wav, &p2, &[]).status.code(), Some(0));
-    assert_eq!(
-        run(&wav, &p3, &["--pace", "realtime"]).status.code(),
-        Some(0)
-    );
     assert_eq!(order(&p1), order(&p2));
-    assert_eq!(order(&p1), order(&p3));
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// One real 3.5 s paced run: same event order as the fast run, and the input ends late enough.
 #[test]
-fn cli_realtime_input_end_is_at_least_3480000_us_after_open() {
+fn cli_realtime_gives_same_order_and_input_end_at_least_3480000_us_after_open() {
     let dir = temp_dir();
     let wav = synth(&dir);
-    let log = dir.join("p3.log");
+    let (p1, log) = (dir.join("p1.log"), dir.join("p3.log"));
+    assert_eq!(run(&wav, &p1, &[]).status.code(), Some(0));
     assert_eq!(
         run(&wav, &log, &["--pace", "realtime"]).status.code(),
         Some(0)
     );
+    assert_eq!(order(&p1), order(&log));
     let lines = events(&log);
     let open = lines.iter().find(|l| l.contains("\tinput_open")).unwrap();
     let end = lines.iter().find(|l| l.contains("\tinput_end")).unwrap();

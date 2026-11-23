@@ -3,6 +3,11 @@
 
 pub const RATE_HZ: u32 = 16_000;
 const HEADER_BYTES: usize = 44;
+/// The bytes of the RIFF size field that are not sample data: header minus the 8 bytes of
+/// `RIFF` and the size field itself.
+const RIFF_FIXED_BYTES: u32 = HEADER_BYTES as u32 - 8;
+/// One more than the largest 16-bit sample, so -32768 maps to -1.0.
+const I16_FULL_SCALE: f32 = 32768.0;
 
 /// Why a file was refused. `BadWav` is not a usable WAV file; `BadFormat` is a WAV file in a
 /// format the harness does not read.
@@ -49,7 +54,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<f32>, WavError> {
                 .as_chunks::<2>()
                 .0
                 .iter()
-                .map(|b| f32::from(i16::from_le_bytes(*b)) / 32768.0)
+                .map(|b| f32::from(i16::from_le_bytes(*b)) / I16_FULL_SCALE)
                 .collect());
         }
         pos = body + size + (size & 1);
@@ -67,10 +72,10 @@ fn le_u32(b: &[u8]) -> u32 {
 
 /// Encode 16-bit mono 16 kHz samples as a WAV file (44 header bytes, then the samples).
 pub fn encode(samples: &[i16]) -> Vec<u8> {
-    let data_len = u32::try_from(samples.len() * 2).unwrap_or(u32::MAX);
-    let mut out = Vec::with_capacity(HEADER_BYTES + samples.len() * 2);
+    let data_len = u32::try_from(samples.len().saturating_mul(2)).unwrap_or(u32::MAX);
+    let mut out = Vec::with_capacity(HEADER_BYTES.saturating_add(samples.len().saturating_mul(2)));
     out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(&RIFF_FIXED_BYTES.saturating_add(data_len).to_le_bytes());
     out.extend_from_slice(b"WAVEfmt ");
     out.extend_from_slice(&16u32.to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes());
@@ -98,7 +103,7 @@ pub fn make_wav(
 ) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + declared).to_le_bytes());
+    out.extend_from_slice(&(RIFF_FIXED_BYTES + declared).to_le_bytes());
     out.extend_from_slice(b"WAVE");
     out.extend_from_slice(b"fmt ");
     out.extend_from_slice(&16u32.to_le_bytes());
@@ -172,12 +177,40 @@ mod tests {
     }
 
     #[test]
+    fn wav_rejects_fmt_chunk_of_15_bytes() {
+        let mut wav = make_wav(1, 1, 16000, 16, &data(&[0]), 2);
+        wav[16..20].copy_from_slice(&15u32.to_le_bytes());
+        assert_eq!(parse(&wav), Err(WavError::BadWav));
+    }
+
+    #[test]
+    fn wav_rejects_data_chunk_of_odd_size() {
+        let wav = make_wav(1, 1, 16000, 16, &[1, 2, 3], 3);
+        assert_eq!(parse(&wav), Err(WavError::BadWav));
+    }
+
+    #[test]
+    fn wav_skips_unknown_chunk_of_odd_size_with_its_pad_byte() {
+        let plain = make_wav(1, 1, 16000, 16, &data(&[0, 16384]), 4);
+        // Put a 3-byte `junk` chunk plus its pad byte between the fmt chunk and the data chunk.
+        let mut wav = plain[..36].to_vec();
+        wav.extend_from_slice(b"junk");
+        wav.extend_from_slice(&3u32.to_le_bytes());
+        wav.extend_from_slice(&[9, 9, 9, 0]);
+        wav.extend_from_slice(&plain[36..]);
+        assert_eq!(parse(&wav).unwrap(), vec![0.0, 0.5]);
+    }
+
+    #[test]
     fn encode_then_parse_gives_the_same_samples() {
         let input = [0i16, 1, -1, 32767, -32768];
         let bytes = encode(&input);
         assert_eq!(bytes.len(), 44 + 10);
         let back = parse(&bytes).unwrap();
-        let expected: Vec<f32> = input.iter().map(|s| f32::from(*s) / 32768.0).collect();
+        let expected: Vec<f32> = input
+            .iter()
+            .map(|s| f32::from(*s) / I16_FULL_SCALE)
+            .collect();
         assert_eq!(back, expected);
     }
 }

@@ -74,7 +74,7 @@ tab-separated fields:
 # stage=<name>
 # pace=<fast|realtime>
 # id=<id>                     (only with --id)
-<t_us> <stage> <event> <key>=<n> <key>=<n> ...
+<t_us>TAB<stage>TAB<event>TAB<key>=<n>TAB<key>=<n> ...      (TAB is one tab character)
 ```
 
 - `t_us`: microseconds since the start of the session, from a monotonic clock. The clock is read
@@ -105,19 +105,36 @@ run compares equal to a `--pace fast` run in the same way.
 1. Make a type that implements `Stage` (`src/stage.rs`): `name`, `on_chunk` and `finish`. A stage
    gets 320-sample chunks (20 ms) and a sink. It reports with `sink.emit("event_name", &[("key", number)])`.
    The sink adds the time and the stage name. A stage cannot choose its own time.
-2. Add its name to `find` in `src/stage.rs`.
-3. Add tests like the ones in `src/energy_ref.rs`: feed chunks to the stage and check the events.
+2. Add tests like the ones in `src/energy_ref.rs`: feed chunks to the stage and check the events.
+3. To run the stage with the `m0-03` command, add its name to `find` in `src/stage.rs`.
 
 A stage in another bench crate depends on this crate by path (`m0-03 = { path = "../M0-03" }`) and
-passes its own stage to `run_session` in `src/run.rs`. A stage that needs text output keeps it in a
-channel of its own; the log carries only names, times and numbers (guardrail 6).
+does not need `find`. It builds the session itself:
+
+```rust
+use m0_03::clock::{MonotonicClock, ThreadSleeper};
+use m0_03::log::{Header, LogWriter};
+use m0_03::run::{run_session, Pace};
+
+let clock = MonotonicClock::new();
+let mut out = std::io::stdout();
+let mut log = LogWriter::new(&mut out, &clock); // time zero is this call
+log.write_header(&Header { wall_start_epoch_ms, stage: "my_stage", pace: "fast", id: None });
+let finished = run_session(&mut log, &mut my_stage, std::fs::read(path), Pace::Fast, &ThreadSleeper);
+```
+
+`run_session` reads the clock only through the log writer and takes the sleeper as an argument, so
+a test can pass a fake clock and a fake sleeper. Create the log file with `create_new` so a run
+never overwrites an old log. A stage that needs text output keeps it in a channel of its own; the
+log carries only names, times and numbers (guardrail 6).
 
 ## Limits
 
 - One stage and one file per run. No chain of stages, no virtual device, no "first sound" event
   (M0-09, M1-26).
 - `--pace realtime` keeps a lower bound: a chunk is never early, but it may be late on a busy Mac.
-- WAV input only, one format, no resampling. The reading list is not read; an ID is only copied to
+- WAV input only, one format, no resampling, at most 256 MiB per file (a larger file or a
+  device that never ends gives `error_io`). The reading list is not read; an ID is only copied to
   the header.
 - No word error rate and no percentiles. The log is the input of the scripts of M0-04 to M0-09.
 

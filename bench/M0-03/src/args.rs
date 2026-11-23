@@ -162,6 +162,10 @@ mod tests {
         let id = format!("a{}", "1".repeat(31));
         assert_eq!(id.len(), 32);
         assert!(run_args(&["--id", &id]).is_ok());
+    }
+
+    #[test]
+    fn args_accept_id_with_letters_digits_and_underscores() {
         assert!(valid_id("en_us_001"));
     }
 
@@ -178,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn args_reject_id_starting_with_digit() {
+    fn args_reject_id_not_starting_with_lower_case_letter() {
         assert!(run_args(&["--id", "1abc"]).is_err());
         assert!(run_args(&["--id", "_abc"]).is_err());
         assert!(run_args(&["--id", "Abc"]).is_err());
