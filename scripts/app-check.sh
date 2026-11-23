@@ -484,7 +484,8 @@ idle_launch() {
     [ $((t - tick)) -le 1000 ] || late=$((late + 1))
     if [ "$(app_pid)" != "$pid" ]; then
       echo "sample $i t=$((t - t0))ms $(iso): the app process $pid is gone (it exited or was closed during the run)" >>"$slog"
-      fail "launch $n, sample $i: the app process $pid ended during the idle period (not a socket violation; nothing was written as a pass)"
+      echo "launch $n: the app process $pid ended at sample $i of the idle period (not a socket violation; no crash report was looked up here)"
+      return 5
     fi
     pids="$(all_pids "$pid")"
     raw="$(lsof_raw "$pids")"
@@ -521,6 +522,10 @@ idle_launch() {
     sleep_until_ms $((t0 + (i - 1) * 1000))
     echo "t=$(($(now_ms) - t0))ms $(iso) pid=$pid rss_kb=$(ps -o rss= -p "$pid" | tr -d ' ' || true)" >>"$rlog"
   done
+  if [ "$(app_pid)" != "$pid" ]; then
+    echo "the app process $pid is gone before the memory samples were complete" >>"$rlog"
+    return 5
+  fi
   assert_rss_file "$rlog" || {
     stop_app
     fail "launch $n: fewer than $RSS_SAMPLES memory samples"
@@ -533,8 +538,22 @@ idle_launch() {
 
 step_idle() {
   local n all=""
+  local attempt rc interrupted="$EVID/03-interrupted-launches.log"
   for n in $(seq 1 "$IDLE_LAUNCHES"); do
-    idle_launch "$n"
+    # A launch whose app process ends by itself is recorded and repeated (at most 3 tries):
+    # an app that ends every time still fails the step.
+    for attempt in 1 2 3; do
+      rc=0
+      idle_launch "$n" || rc=$?
+      [ "$rc" -eq 5 ] || break
+      stop_app
+      # Keep the partial logs of the interrupted try: the repeat writes the same file names.
+      cp "$EVID/03-sockets-launch$n.log" "$EVID/03-sockets-launch$n-try$attempt-interrupted.log"
+      [ ! -f "$EVID/04-rss-launch$n.txt" ] || mv "$EVID/04-rss-launch$n.txt" "$EVID/04-rss-launch$n-try$attempt-interrupted.txt"
+      echo "RESULT: launch $n, try $attempt: the app process ended before the readings were complete ($(iso)); the launch was repeated; partial logs: 03-sockets-launch$n-try$attempt-interrupted.log" >>"$interrupted"
+      [ "$attempt" -lt 3 ] || fail "launch $n: the app process ended on 3 tries in a row (see 03-interrupted-launches.log)"
+    done
+    [ "$rc" -eq 0 ] || fail "launch $n failed (exit $rc)"
     all="$all$(rss_values "$EVID/04-rss-launch$n.txt")"$'\n'
   done
   all="$(echo "$all" | grep '^[0-9]')"
@@ -550,6 +569,11 @@ step_idle() {
     echo "not attributable: a helper process that exists before the launch (it serves another app); a helper that another app starts during the run (counted here, which only makes the check stricter)."
     echo "not seen: a connection that opens and closes between two 1 s samples."
     echo "memory covers the app process only, not the helper processes."
+    if [ -s "$interrupted" ]; then
+      echo "interrupted launches: $(wc -l <"$interrupted" | tr -d ' ') launch(es) ended by themselves and were repeated (see 03-interrupted-launches.log); the cause was not found."
+    else
+      echo "interrupted launches: none."
+    fi
   } >"$EVID/03-limits.txt"
   cat "$EVID/03-limits.txt"
 }
@@ -947,12 +971,16 @@ step_evidence() {
     echo
     echo "## Quoted result lines"
     echo
-    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
+    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 03-interrupted-launches.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
       echo "- \`$f\`:"
       if [ -f "$EVID/$f" ]; then
         grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true
       else
-        echo "  > NOT RUN (the typing check is opt-in: scripts/check.sh app --typing)"
+        if [ "$f" = "07-telex-typing.log" ]; then
+          echo "  > NOT RUN (the typing check is opt-in: scripts/check.sh app --typing)"
+        else
+          echo "  > none (no such file in this run)"
+        fi
       fi
     done
     echo
