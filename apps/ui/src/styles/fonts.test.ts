@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 const UI = fileURLToPath(new URL("../../", import.meta.url));
 const REPO = `${UI}../../`;
 const fontsCss = readFileSync(`${UI}src/styles/fonts.css`, "utf8");
-const notice = readFileSync(`${REPO}NOTICE`, "utf8");
 const techStack = readFileSync(`${REPO}docs/tech-stack.md`, "utf8");
 
-/** The family names that NOTICE lists as F1, F2, F3. They are read from there, not repeated here. */
-const familyNames = [...notice.matchAll(/^F\d\. (.+?) \(/gm)].map((m) => m[1]);
+/** The family names of the three rows of docs/tech-stack.md. They are read from there, not repeated here. */
+const familyRows = [...techStack.matchAll(/^\| (display|text|mono)\s+\| (.+?)\s+\| SIL OFL/gm)].map(
+  (m) => ({ role: m[1], name: m[2].trim() }),
+);
+const familyNames = familyRows.map((r) => r.name);
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -48,13 +50,18 @@ describe("font faces (AC-05)", () => {
 });
 
 describe("attribution (AC-06)", () => {
-  it("lists three families in NOTICE and in docs/tech-stack.md with their licence", () => {
-    expect(familyNames).toHaveLength(3);
-    for (const name of familyNames) {
-      expect(techStack, name).toContain(name);
+  it("lists the three families in docs/tech-stack.md with their licence and where the text sits", () => {
+    expect(familyRows.map((r) => r.role)).toEqual(["display", "text", "mono"]);
+    expect(techStack).toContain("sits beside the font files");
+  });
+
+  it("keeps each licence text, with its author's copyright line, beside the font files", () => {
+    for (const { role, name } of familyRows) {
+      const text = readFileSync(`${UI}src/assets/fonts/${role}-OFL.txt`, "utf8");
+      expect(text.split("\n")[0], role).toMatch(/^Copyright \d{4} The .+ Project Authors/);
+      expect(text.split("\n")[0], role).toContain(name);
+      expect(text, role).toContain("SIL OPEN FONT LICENSE Version 1.1");
     }
-    expect(notice).toContain("SIL Open Font License");
-    expect(techStack).toContain("SIL OFL");
   });
 
   it("keeps the real family names out of the UI source and index.html", () => {

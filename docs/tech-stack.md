@@ -75,13 +75,20 @@ Ranges are in `package.json`; the lock file pins the exact version.
 Three families from the design system `tokens.json`, as local `woff2` files in
 `apps/ui/src/assets/fonts/`, declared under the aliases `interlo-display`, `interlo-text` and
 `interlo-mono` in `apps/ui/src/styles/fonts.css`. No font is loaded from the network. The
-family names appear only here and in `NOTICE` (guardrail 3).
+family names appear only here and in the licence files beside the font files (guardrail 3).
 
 | Role    | Family              | Licence     | Ranges bundled                    | Use                                     |
 | ------- | ------------------- | ----------- | --------------------------------- | --------------------------------------- |
 | display | Bricolage Grotesque | SIL OFL 1.1 | Latin, Latin extended, Vietnamese | Headings, the brand, the large subtitle |
 | text    | Instrument Sans     | SIL OFL 1.1 | Latin, Latin extended             | Body text, buttons, tables              |
 | mono    | JetBrains Mono      | SIL OFL 1.1 | Latin, Latin extended, Vietnamese | Timers, timestamps, tags, key caps      |
+
+The licence text of each family, with its author's copyright line, sits beside the font files, as
+the licence requires for redistributed fonts: `apps/ui/src/assets/fonts/display-OFL.txt`,
+`text-OFL.txt` and `mono-OFL.txt`. The font files are the `woff2` files that Google Fonts serves
+for the Latin, Latin extended and (where the family has it) Vietnamese ranges, downloaded on
+2026-11-20 from `fonts.gstatic.com` with the owner's approval. The licence files are the
+`OFL.txt` of each family's own repository, read on 2026-11-23.
 
 Instrument Sans has no glyph for 96 letters the Vietnamese interface needs (checked on
 2026-11-20 against the 149 code points of the Vietnamese alphabet with tones; the display and mono
