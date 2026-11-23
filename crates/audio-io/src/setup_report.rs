@@ -1,5 +1,5 @@
-//! The setup report: eight rows, each with a state, a detail line, a typed fix
-//! when the row is not ok, and a warning where one applies (FR-01, FR-43).
+//! The setup report: eight items, each with a state, a detail line, a typed fix
+//! when the item is not ok, and a warning where one applies (FR-01, FR-43).
 //!
 //! A pure function of facts. Where a fact comes from (the system tool, the
 //! permission probe, the model manager) is not decided here.
@@ -38,7 +38,7 @@ pub enum SetupState {
     Error,
 }
 
-/// What the owner does about a row that is not ok. The English text lives in the UI.
+/// What the owner does about an item that is not ok. The English text lives in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SetupFix {
@@ -151,7 +151,7 @@ pub fn microphone(devices: &[DeviceInfo]) -> Option<&DeviceInfo> {
         .or_else(|| devices.iter().find(usable))
 }
 
-fn mic_row(facts: &SetupFacts) -> SetupItem {
+fn mic_item(facts: &SetupFacts) -> SetupItem {
     let Some(device) = microphone(&facts.devices.devices) else {
         return item(
             SetupItemId::Mic,
@@ -184,7 +184,7 @@ fn mic_row(facts: &SetupFacts) -> SetupItem {
 }
 
 /// Decided order (D-15): the process tap, then the 2-channel virtual device.
-fn capture_row(facts: &SetupFacts) -> SetupItem {
+fn capture_item(facts: &SetupFacts) -> SetupItem {
     if facts.tap_available {
         return item(SetupItemId::Capture, SetupState::Ok, "Process tap", None);
     }
@@ -210,7 +210,7 @@ fn capture_row(facts: &SetupFacts) -> SetupItem {
     }
 }
 
-fn vmic_row(facts: &SetupFacts) -> SetupItem {
+fn vmic_item(facts: &SetupFacts) -> SetupItem {
     let present = facts
         .devices
         .devices
@@ -233,7 +233,7 @@ fn vmic_row(facts: &SetupFacts) -> SetupItem {
     }
 }
 
-fn phones_row(facts: &SetupFacts) -> SetupItem {
+fn phones_item(facts: &SetupFacts) -> SetupItem {
     let output = facts.devices.devices.iter().find(|d| d.is_default_output);
     let mut r = match output {
         Some(d) if d.kind == DeviceKind::Headphones => item(
@@ -255,7 +255,7 @@ fn phones_row(facts: &SetupFacts) -> SetupItem {
     r
 }
 
-fn model_row(id: SetupItemId, state: ModelState, label: &str) -> SetupItem {
+fn model_item(id: SetupItemId, state: ModelState, label: &str) -> SetupItem {
     match state {
         ModelState::Ok => item(id, SetupState::Ok, label, None),
         ModelState::Missing => item(
@@ -279,21 +279,21 @@ fn model_row(id: SetupItemId, state: ModelState, label: &str) -> SetupItem {
     }
 }
 
-/// Builds the eight rows in the order `mic`, `capture`, `vmic`, `phones`, `sr`,
+/// Builds the eight items in the order `mic`, `capture`, `vmic`, `phones`, `sr`,
 /// `tr`, `enV`, `viV`. Headphones never block readiness; the report has no
 /// field that says so, because that rule belongs to the start gate.
 pub fn build_report(facts: &SetupFacts) -> SetupReport {
     let [sr, tr, en_v, vi_v] = facts.models;
     SetupReport {
         items: vec![
-            mic_row(facts),
-            capture_row(facts),
-            vmic_row(facts),
-            phones_row(facts),
-            model_row(SetupItemId::Sr, sr, "Speech recognition model"),
-            model_row(SetupItemId::Tr, tr, "Translation model"),
-            model_row(SetupItemId::EnV, en_v, "English voice model"),
-            model_row(SetupItemId::ViV, vi_v, "Vietnamese voice model"),
+            mic_item(facts),
+            capture_item(facts),
+            vmic_item(facts),
+            phones_item(facts),
+            model_item(SetupItemId::Sr, sr, "Speech recognition model"),
+            model_item(SetupItemId::Tr, tr, "Translation model"),
+            model_item(SetupItemId::EnV, en_v, "English voice model"),
+            model_item(SetupItemId::ViV, vi_v, "Vietnamese voice model"),
         ],
     }
 }
@@ -354,11 +354,11 @@ mod tests {
             .items
             .iter()
             .find(|r| r.id == id)
-            .expect("row present")
+            .expect("item present")
     }
 
     #[test]
-    fn all_ok_gives_eight_rows_in_order() {
+    fn all_ok_gives_eight_items_in_order() {
         let report = build_report(&all_ok());
         let ids: Vec<SetupItemId> = report.items.iter().map(|r| r.id).collect();
         assert_eq!(
@@ -519,10 +519,10 @@ mod tests {
                 let devices = if with_2ch { vec![v2()] } else { vec![] };
                 let mut f = facts_with(devices.clone());
                 f.tap_available = tap;
-                let row_ok =
+                let item_ok =
                     find_item(&build_report(&f), SetupItemId::Capture).state == SetupState::Ok;
                 let plan_ok = crate::capture_plan(tap, "meeting.app", devices.first()).is_ok();
-                assert_eq!(row_ok, plan_ok, "tap {tap}, 2ch {with_2ch}");
+                assert_eq!(item_ok, plan_ok, "tap {tap}, 2ch {with_2ch}");
             }
         }
     }
@@ -564,7 +564,7 @@ mod tests {
         assert_eq!(find_item(&r, SetupItemId::Vmic).state, SetupState::Ok);
     }
 
-    fn phones_row_for(output: Option<DeviceInfo>) -> SetupItem {
+    fn phones_item_for(output: Option<DeviceInfo>) -> SetupItem {
         let mut devices = vec![mic(), v2(), v16()];
         devices.extend(output);
         find_item(&build_report(&facts_with(devices)), SetupItemId::Phones).clone()
@@ -574,7 +574,7 @@ mod tests {
     fn phones_is_ok_for_headphones_bluetooth_and_usb_outputs() {
         for transport in [Transport::BuiltIn, Transport::Bluetooth, Transport::Usb] {
             let d = dev("H", DeviceKind::Headphones, 0, 2, transport).with_defaults(false, true);
-            let r = phones_row_for(Some(d));
+            let r = phones_item_for(Some(d));
             assert_eq!((r.state, r.fix), (SetupState::Ok, None), "{transport:?}");
         }
     }
@@ -587,7 +587,7 @@ mod tests {
             dev("D", DeviceKind::Other, 0, 2, Transport::Display).with_defaults(false, true);
         let virtual_out = v16().with_defaults(false, true);
         for output in [Some(speakers), Some(display), Some(virtual_out), None] {
-            let r = phones_row_for(output);
+            let r = phones_item_for(output);
             assert_eq!(
                 (r.state, r.fix),
                 (SetupState::Missing, Some(SetupFix::ConnectHeadphones))
@@ -598,20 +598,23 @@ mod tests {
     #[test]
     fn phones_ignores_a_headphone_device_that_is_not_the_default_output() {
         let not_default = dev("H", DeviceKind::Headphones, 0, 2, Transport::Usb);
-        assert_eq!(phones_row_for(Some(not_default)).state, SetupState::Missing);
+        assert_eq!(
+            phones_item_for(Some(not_default)).state,
+            SetupState::Missing
+        );
     }
 
     #[test]
     fn bluetooth_output_warns_and_other_outputs_do_not() {
         let bt =
             dev("B", DeviceKind::Headphones, 1, 2, Transport::Bluetooth).with_defaults(false, true);
-        let r = phones_row_for(Some(bt));
+        let r = phones_item_for(Some(bt));
         assert_eq!(
             (r.state, r.warning),
             (SetupState::Ok, Some(SetupWarning::BluetoothOutput))
         );
         let usb = dev("U", DeviceKind::Headphones, 0, 2, Transport::Usb).with_defaults(false, true);
-        assert_eq!(phones_row_for(Some(usb)).warning, None);
+        assert_eq!(phones_item_for(Some(usb)).warning, None);
     }
 
     #[test]

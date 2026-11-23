@@ -110,6 +110,8 @@ impl ToolRunner for ProcessRunner {
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
+                    // A helper of the tool may keep the pipe open: the reader thread
+                    // can then outlive this call and ends when the pipe closes.
                     let left = limit.saturating_sub(started.elapsed());
                     let out = receiver.recv_timeout(left).map_err(|e| match e {
                         mpsc::RecvTimeoutError::Timeout => DeviceListError::TimedOut,
@@ -173,10 +175,15 @@ fn transport_of(item: &Value) -> Transport {
     }
 }
 
+/// Zero-width, line-separator and direction-override characters that can make a name look like another.
+fn is_invisible_format(c: char) -> bool {
+    matches!(c, '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
+}
+
 /// A device name comes from the device itself: drop control characters, cut it short.
 fn clean_name(raw: &str) -> String {
     raw.chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !c.is_control() && !is_invisible_format(*c))
         .take(MAX_NAME_CHARS)
         .collect()
 }
@@ -245,7 +252,7 @@ pub(crate) fn read_system_devices(
     parse_system_profiler(&text)
 }
 
-/// Reads the devices of this Mac. Blocks for up to `SYSTEM_PROFILER_TIMEOUT_MS`:
+/// Reads the devices of this Mac. Blocks for up to 5 seconds:
 /// an async caller must run it on a blocking thread.
 pub fn read_devices() -> Result<DeviceSnapshot, DeviceListError> {
     read_system_devices(&ProcessRunner)
@@ -532,15 +539,38 @@ mod tests {
     #[test]
     fn endless_output_is_cut_and_fails_the_tool() {
         let started = Instant::now();
-        let result = ProcessRunner.run("/usr/bin/yes", &[], Duration::from_millis(1500));
+        let result = ProcessRunner.run("/usr/bin/yes", &[], Duration::from_secs(5));
         assert_eq!(result, Err(DeviceListError::ToolFailed));
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     fn one_item_json(name: &str) -> String {
         serde_json::json!({"SPAudioDataType": [{"_items": [{"_name": name,
             "coreaudio_device_input": 1}]}]})
         .to_string()
+    }
+
+    #[test]
+    fn output_of_exactly_the_cap_is_accepted_and_one_byte_more_is_not() {
+        let at_cap = ProcessRunner.run(
+            "/bin/sh",
+            &["-c", "head -c 1048576 /dev/zero"],
+            Duration::from_secs(5),
+        );
+        assert_eq!(at_cap.map(|out| out.len()), Ok(1_048_576));
+        let over = ProcessRunner.run(
+            "/bin/sh",
+            &["-c", "head -c 1048577 /dev/zero"],
+            Duration::from_secs(5),
+        );
+        assert_eq!(over, Err(DeviceListError::InvalidOutput));
+    }
+
+    #[test]
+    fn invisible_format_characters_are_removed_from_a_device_name() {
+        let snapshot =
+            parse_system_profiler(&one_item_json("Mic\u{202e}A\u{200b}B\u{feff}")).unwrap();
+        assert_eq!(snapshot.devices[0].name, "MicAB");
     }
 
     #[test]

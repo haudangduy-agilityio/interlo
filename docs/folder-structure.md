@@ -6,7 +6,7 @@ crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
   audio-io/                devices, device list, setup report, capture plan, output, ring buffer, resampler trait
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
-    src/setup_report.rs      the eight setup rows with typed fixes and the Bluetooth warning
+    src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
     examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
   engine-host/             engine traits, registry, segmenter, language gate
