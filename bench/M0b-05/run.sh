@@ -19,7 +19,7 @@ set -euo pipefail
 NAME="${1:?usage: run.sh <run-name> [spike options...]}"
 shift
 case "$NAME" in
-  '' | *[!A-Za-z0-9._-]*) echo "run.sh: the run name may hold only letters, digits, dot, dash and underscore" >&2; exit 2 ;;
+  '' | . | .. | *[!A-Za-z0-9._-]*) echo "run.sh: the run name may hold only letters, digits, dot, dash and underscore" >&2; exit 2 ;;
 esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="${M0B05_APP:-$HERE/target/bundle/m0b05.app}"

@@ -69,6 +69,8 @@ cleanup() {
     kill_spike_pid "$(cat "$BASE/runs/$CURRENT_RUN/pid")"
   fi
   pkill -f "$CLIPS/" 2>/dev/null
+  [ -n "${PROBE_PID:-}" ] && kill "$PROBE_PID" 2>/dev/null
+  pkill -f "m0b05.app/Contents/MacOS/m0b05 play-to-2ch" 2>/dev/null
   if [ -n "$ORIG_RATE" ]; then
     cur="$("$BIN" rate get 2>/dev/null | sed -n 's/.*hz=\([0-9.]*\).*/\1/p')"
     if [ -n "$cur" ] && [ "${cur%.*}" != "${ORIG_RATE%.*}" ]; then
@@ -84,14 +86,19 @@ cleanup() {
     hlog "RESTORE output volume to $ORIG_VOLUME"
     osascript -e "set volume output volume $ORIG_VOLUME" >/dev/null 2>&1 || hlog "WARN the output volume could not be restored: set it back to $ORIG_VOLUME"
   fi
-  if [ -n "$ORIG_MUTED" ] && [ "$ORIG_MUTED" = false ]; then
+  if [ "$ORIG_MUTED" = true ]; then
+    osascript -e "set volume with output muted" >/dev/null 2>&1
+  elif [ "$ORIG_MUTED" = false ]; then
     osascript -e "set volume without output muted" >/dev/null 2>&1
   fi
-  hlog "RESTORE tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)"
+  hlog "RESTORE tccutil reset AudioCapture and Microphone for app.interlo.bench.m0b05 (the spike's own permissions only)"
   tccutil reset AudioCapture app.interlo.bench.m0b05 >/dev/null 2>&1
+  tccutil reset Microphone app.interlo.bench.m0b05 >/dev/null 2>&1
   cp "$WORK/serve.log" "$OUT/page-server.log" 2>/dev/null
   rm -rf "$PROF_A" "$PROF_B" "$WORK" 2>/dev/null
   hlog "CLEANUP done"
+  # The per-user temporary folder names the account: replace it in the text logs of this run.
+  find "$OUT" -type f \( -name '*.log' -o -name '*.txt' -o -name '*.md' -o -name '*.json' \) -exec sed -i '' "s#$TMPB#\$TMPDIR#g" {} + 2>/dev/null
 }
 # A signal runs the cleanup and then stops the script, so no later step plays sound at the
 # restored volume.
@@ -135,7 +142,7 @@ stop_run() { # send SIGINT, wait for the EXIT line, kill the spike if it does no
   local pid
   pid="$(cat "$RUN/pid" 2>/dev/null)"
   case "$pid" in '' | *[!0-9]*) pid="" ;; esac
-  [ -n "$pid" ] && [ "$pid" -gt 1 ] && kill -INT "$pid" 2>/dev/null
+  [ -n "$pid" ] && [ "$pid" -gt 1 ] && ps -p "$pid" -o command= 2>/dev/null | grep -q "/m0b05.app/" && kill -INT "$pid" 2>/dev/null
   local i=0
   while ! grep -q "EXIT code=" "$RUN/spike.log" 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
   if [ "$i" -ge 100 ]; then
@@ -194,7 +201,7 @@ setup_env() {
   mkdir -p "$WORK" "$BASE" "$CLIPS"
   ORIG_VOLUME="$(osascript -e 'output volume of (get volume settings)' 2>/dev/null)"
   ORIG_MUTED="$(osascript -e 'output muted of (get volume settings)' 2>/dev/null)"
-  case "$ORIG_VOLUME" in '' | *[!0-9]*) hlog "ABORT the output volume cannot be read ($ORIG_VOLUME), so it could not be restored"; exit 2 ;; esac
+  case "$ORIG_VOLUME" in '' | *[!0-9]*) hlog "ABORT the output volume cannot be read ($ORIG_VOLUME), so it could not be restored"; ORIG_VOLUME=""; ORIG_MUTED=""; exit 2 ;; esac
   ORIG_RATE="$("$BIN" rate get | sed -n 's/.*hz=\([0-9.]*\).*/\1/p')"
   hlog "STATE original volume=$ORIG_VOLUME output_rate=$ORIG_RATE"
   if [ ! -s "$CLIPS/speech.wav" ]; then

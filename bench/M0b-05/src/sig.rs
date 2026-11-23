@@ -31,9 +31,15 @@ pub fn stopped() -> bool {
 mod tests {
     use super::*;
 
+    extern "C" {
+        fn raise(sig: i32) -> i32;
+    }
+
     #[test]
-    fn the_handler_sets_the_stop_flag() {
-        on_signal(2);
+    fn sigint_after_install_sets_the_stop_flag() {
+        install();
+        // SAFETY: raises SIGINT in this process; the handler installed above only sets a flag.
+        unsafe { raise(2) };
         assert!(stopped());
     }
 }

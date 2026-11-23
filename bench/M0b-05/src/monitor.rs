@@ -222,8 +222,14 @@ mod tests {
         assert!(f.poll(300, 0));
         assert!(f.poll(400, 0));
         assert!(!f.poll(420, 5), "a callback arrived");
-        f.on_window(500);
-        assert!(!f.poll(520, 5), "just after a real window");
+    }
+
+    #[test]
+    fn a_real_window_alone_holds_the_fill_back() {
+        let mut f = SilenceFill::new(0);
+        f.on_window(950);
+        assert!(!f.poll(1_000, 0), "a real window arrived 50 ms ago");
+        assert!(f.poll(1_050, 0), "100 ms after the real window");
     }
 
     #[test]

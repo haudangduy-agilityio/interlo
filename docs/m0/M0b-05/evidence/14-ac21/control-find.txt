@@ -1,1 +1,1 @@
-/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/decoy.wav
+$TMPDIR/m0b-05/decoy.wav

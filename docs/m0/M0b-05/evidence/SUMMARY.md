@@ -51,7 +51,7 @@ A control runs the same check on input that must fail. CONTROL-OK means the chec
 | AC-36 | CONTROL-OK(the check wants a different cause list) | `10-ac36-granted/result.txt` | NO lines=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=fa... |
 | AC-36 | CONTROL-OK(the check wants app=missing too) | `13-ac36-refused/result.txt` | NO lines=["PERMISSION_REFUSED", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_sta... |
 | AC-40 | CONTROL-OK(the check wants one cause only) | `12-ac40/result.txt` | NO lines=["PERMISSION_REFUSED", "app=missing", "route=2ch"] expected=["PERMISSION_REFUSED", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0) |
-| AC-21 | CONTROL-OK(a decoy .wav file is found) | `14-ac21/result.txt` | /var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/decoy.wav |
+| AC-21 | CONTROL-OK(a decoy .wav file is found) | `14-ac21/result.txt` | $TMPDIR/m0b-05/decoy.wav |
 | AC-22 | CONTROL-OK(the bench manifest read directly lists a bench package) | `15-ac22/result.txt` | packages under bench/: 1 |
 | AC-39 | CONTROL-OK(a wildcard listener is sampled) | `16-ac39/result.txt` | NO samples=1 violations=wildcard listener: m0b05 1 user 4u IPv4 0x1 0t0 TCP *:8080 (LISTEN) |
 

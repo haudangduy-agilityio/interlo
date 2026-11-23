@@ -944,4 +944,70 @@ mod tests {
         assert!(check_ac14(&build(MIN_PERIOD_WINDOWS).log(), "notify").pass);
         assert!(!check_ac14(&build(MIN_PERIOD_WINDOWS - 1).log(), "notify").pass);
     }
+
+    #[test]
+    fn ac14_fails_on_a_raised_mean_even_when_no_window_is_over_the_single_limit() {
+        let mut b = B::new(0);
+        b.idle(-120.0, -120.0);
+        let s = b.t;
+        b.line(s, "MARK notify");
+        // every window 5 dB above the floor: under the 10 dB single-window limit, over the 3 dB mean limit
+        b.wins(100, -115.0, -120.0);
+        let v = check_ac14(&b.log(), "notify");
+        assert!(!v.pass, "{}", v.detail);
+    }
+
+    #[test]
+    fn tone_check_needs_nearly_all_windows_inclusive() {
+        let build = |n: usize| {
+            let mut b = B::new(0);
+            b.idle(-120.0, -120.0);
+            let s = b.t;
+            b.line(s, "MARK tone_start");
+            b.wins(n, -120.0, -120.0);
+            b
+        };
+        let need = 100;
+        assert!(
+            check_ac13(
+                &build(need - WINDOW_COUNT_TOLERANCE).log(),
+                "tone_start",
+                10
+            )
+            .pass
+        );
+        assert!(
+            !check_ac13(
+                &build(need - WINDOW_COUNT_TOLERANCE - 1).log(),
+                "tone_start",
+                10
+            )
+            .pass
+        );
+    }
+
+    #[test]
+    fn ac11_quiet_period_needs_nearly_all_windows_inclusive() {
+        let build = |quiet: usize| {
+            let mut b = B::new(0);
+            b.idle(-120.0, -120.0);
+            let start = b.t;
+            b.line(start, "MARK clip_start");
+            b.wins(100, -20.0, -90.0);
+            let end = b.t;
+            b.line(end + 50, "SOURCE_END");
+            b.t = end + 50 + QUIET_FROM_MS;
+            b.wins(quiet, -120.0, -120.0);
+            b
+        };
+        let need = 30;
+        assert!(check_ac11(&build(need - WINDOW_COUNT_TOLERANCE).log(), "clip_start").pass);
+        assert!(
+            !check_ac11(
+                &build(need - WINDOW_COUNT_TOLERANCE - 1).log(),
+                "clip_start"
+            )
+            .pass
+        );
+    }
 }
