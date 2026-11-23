@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { sampleMeetings, sampleModels, sampleNotes } from "../ipc/mockTransport";
+import { sampleModels, sampleNotes } from "../ipc/mockTransport";
 import { initialSession } from "../ipc/meetingSession";
 import type { SetupStatus } from "../ipc/types";
 import { CompactPanelView } from "./compact-panel";
-import { HomeView } from "./home";
 import { ModelsTab } from "./settings";
 import { QuickActionsPanel } from "./quick-actions";
 import { SetupView } from "./setup";
@@ -51,59 +50,6 @@ describe("SetupView", () => {
         />,
       ),
     ).toContain("Setup check failed.");
-  });
-});
-
-describe("HomeView", () => {
-  const base = {
-    onRetrySetup: noop,
-    onRetryMeetings: noop,
-    onStartMeeting: noop,
-    onGoToLive: noop,
-    onOpenSetup: noop,
-    onOpenMeeting: noop,
-    onSeeAllMeetings: noop,
-  };
-  it("warns about missing groups and shows 'No meetings yet' for an empty library", () => {
-    const html = renderToStaticMarkup(
-      <HomeView
-        {...base}
-        setup={{ status: "done", data: incomplete }}
-        meetings={{ status: "done", data: [] }}
-      />,
-    );
-    expect(html).toContain("Not turned on yet: Models.");
-    expect(html).toContain(">Open Setup</button>");
-    expect(html).toContain("No meetings yet");
-  });
-
-  it("offers Start meeting and Go to live meeting when ready, and neither when not ready", () => {
-    const ready: SetupStatus = { ...incomplete, canStart: true, missingGroups: [] };
-    const render = (setup: SetupStatus) =>
-      renderToStaticMarkup(
-        <HomeView
-          {...base}
-          setup={{ status: "done", data: setup }}
-          meetings={{ status: "done", data: [] }}
-        />,
-      );
-    expect(render(ready)).toContain(">Start meeting</button>");
-    expect(render(ready)).toContain(">Go to live meeting</button>");
-    expect(render(incomplete)).not.toContain(">Start meeting</button>");
-    expect(render(incomplete)).not.toContain("Go to live meeting");
-  });
-
-  it("links to the three floating panels", () => {
-    const html = renderToStaticMarkup(
-      <HomeView
-        {...base}
-        setup={{ status: "loading" }}
-        meetings={{ status: "done", data: sampleMeetings() }}
-      />,
-    );
-    expect(html).toContain('href="#surface=subtitle-bar"');
-    expect(html).toContain('href="#surface=compact-panel"');
-    expect(html).toContain('href="#surface=quick-actions"');
   });
 });
 

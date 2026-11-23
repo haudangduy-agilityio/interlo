@@ -42,8 +42,8 @@ function Refusal({ failure }: { failure: StartFailure }) {
   );
 }
 
-/** The per-meeting checks the owner confirms at every Start (D-44). Without hooks. */
-export function StartPanel({
+/** The fields and buttons of the per-meeting checks (D-44). The panel and the dialog wrap them. */
+export function StartPanelBody({
   form,
   onChange,
   failure,
@@ -55,7 +55,7 @@ export function StartPanel({
 }: StartPanelProps) {
   const t = useT();
   return (
-    <Section title={t("start.title")}>
+    <>
       {failure ? <Refusal failure={failure} /> : null}
       {mode !== undefined && onModeChange ? (
         <label className="field">
@@ -105,6 +105,16 @@ export function StartPanel({
         </Button>
         <Button onClick={onCancel}>{t("common.cancel")}</Button>
       </div>
+    </>
+  );
+}
+
+/** The per-meeting checks the owner confirms at every Start (D-44), as a card. */
+export function StartPanel(props: StartPanelProps) {
+  const t = useT();
+  return (
+    <Section title={t("start.title")}>
+      <StartPanelBody {...props} />
     </Section>
   );
 }
