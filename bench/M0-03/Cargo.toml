@@ -1,0 +1,28 @@
+# Bench harness M0-03. Its own workspace: it is never a member of the root workspace and
+# no product crate depends on it (D-190). No dependency beyond the standard library.
+[workspace]
+
+[package]
+name = "m0-03"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "m0_03"
+path = "src/lib.rs"
+
+[[bin]]
+name = "m0-03"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
