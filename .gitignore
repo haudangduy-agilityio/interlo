@@ -17,6 +17,7 @@ dist/
 
 # Models and audio never go into git (docs/guardrails.md rule 7, X-07)
 /models/
+/bench/*/models/
 *.onnx
 *.gguf
 *.bin
