@@ -1,0 +1,2 @@
+AC-12 PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=50/50 limit_db=3
+AC-12 CONTROL-OK(own process included in the tap) NO idle_tone=-120.0 mean_tone=-17.1 windows=49/50 limit_db=3

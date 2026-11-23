@@ -1,0 +1,134 @@
+1795406385174 STATE original volume=31 output_rate=48000
+1795406385194 TOUCH /tmp/m0b-05.start (the clips were made before this line)
+1795406385211 EFFECT lowering the output volume from 31 to 20 (restored on exit)
+1795406385478 SERVER loopback test page on port 49398
+1795406385498 EFFECT opening browser window 'a' with its own temporary profile (deleted on exit)
+1795406385568 EFFECT opening browser window 'b' with its own temporary profile (deleted on exit)
+1795406388131 TARGETS a: TARGET pids=11 objects=1  b: TARGET pids=11 objects=1
+1795406388152 STEP meta start
+1795406388490 META written
+1795406388510 STEP meta end
+1795406388529 STEP grant start
+1795406388552 EFFECT tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795406388705 PERMISSION code before the prompt: 2
+run=prompt-grant-1 pid=53242 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/prompt-grant-1
+1795406392495 RESULT PERMISSION-grant DONE permission code after the prompt: 0 (0 granted, 1 refused); route lines: 1
+1795406392513 STEP grant end
+1795406392531 STEP ac11 start
+run=ac11 pid=53674 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac11
+1795406415704 RESULT AC-11 PASS exit=0 PASS idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-18.1, -23.1, -18.5, -18.4, -17.3, -16.3, -14.1, -18.2, -16.2, -16.3]; quiet_windows=30/30 windows_outside_3dB=0 max_level=-120.0
+run=ac11-control pid=55013 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac11-control
+1795406438665 RESULT AC-11 CONTROL-OK(no sound plays) NO idle_floor=-120.0 present_seconds=0/10 unmeasured_seconds=0 means_dbfs=[-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0]; quiet_windows=30/30 windows_outside_3dB=0 max_level=-120.0
+1795406438683 STEP ac11 end
+1795406438702 STEP ac12 start
+1795406438805 EFFECT the spike plays a 1 kHz tone on the default output for 5 s
+run=ac12 pid=56205 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac12
+1795406453027 RESULT AC-12 PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=50/50 limit_db=3
+1795406453047 EFFECT negative control: the same tone with the spike's own process put into the tap
+run=ac12-control pid=57178 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac12-control
+1795406467063 RESULT AC-12 CONTROL-OK(own process included in the tap) NO idle_tone=-120.0 mean_tone=-17.1 windows=49/50 limit_db=3
+1795406467082 STEP ac12 end
+1795406467100 STEP ac13 start
+1795406467206 EFFECT a 1 kHz tone plays for 10 s from the second browser instance
+run=ac13-b pid=57968 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac13-b
+1795406486596 RESULT AC-13-browser PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=100/100 limit_db=3
+run=ac13-b-audible pid=59014 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac13-b-audible
+1795406504604 RESULT AC-13-browser-audible PASS source heard when tapped at its own process: NO idle_tone=-120.0 mean_tone=-13.5 windows=100/100 limit_db=3
+1795406504624 EFFECT a 1 kHz tone plays for 10 s from another app
+run=ac13-app pid=59747 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac13-app
+1795406525991 RESULT AC-13-app PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=100/100 limit_db=3
+1795406526034 RESULT AC-13-app-audible-probe PASS pids that started an output stream during the run: 1 (see app-probe.log)
+run=ac13-app-audible pid=60891 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac13-app-audible
+1795406545523 RESULT AC-13-app-audible PASS source heard when tapped at its own process: NO idle_tone=-120.0 mean_tone=-13.7 windows=100/100 limit_db=3
+run=ac13-control pid=61619 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac13-control
+1795406563549 RESULT AC-13 CONTROL-OK(tone plays from the target) NO idle_tone=-120.0 mean_tone=-13.7 windows=99/100 limit_db=3
+1795406563569 STEP ac13 end
+1795406563588 STEP ac14 start
+1795406563699 EFFECT a system notification sound is triggered once (osascript display notification, sound Glass), attempt 1
+run=ac14-1 pid=62367 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac14-1
+1795406585158 RESULT AC-14 PASS attempt 1: pids that started an output stream after the trigger: 1 (see probe-1.log); PASS idle_floor=-120.0 mean_level=-120.0 max_window=-120.0 windows=100/100
+run=ac14-control pid=63322 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac14-control
+1795406603189 RESULT AC-14 CONTROL-OK(the target plays during the 10 s) NO idle_floor=-120.0 mean_level=-17.7 max_window=-12.0 windows=100/100
+1795406603209 STEP ac14 end
+1795406603228 STEP ac16 start
+run=ac16 pid=64071 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac16
+1795406615255 RESULT AC-16 PASS PASS SILENT 10013 ms after TAP_START (limit 11000 ms)
+run=ac16-control pid=64655 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac16-control
+1795406633058 RESULT AC-16 CONTROL-OK(the target plays the whole run) NO no TAP_START or no SILENT line
+1795406633080 STEP ac16 end
+1795406633100 STEP ac18 start
+run=ac18 pid=65472 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac18
+1795406641447 EFFECT changing the default output device sample rate from 48000 to 44100 (restored on exit)
+1795406646841 EFFECT restoring the default output device sample rate to 48000
+1795406652669 RESULT AC-18 PASS PASS restart_after_rate_change_ms=181 first_present_window_end_ms_after_restart=1000 idle_floor=-120.0
+run=ac18-control pid=66459 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac18-control
+1795406668465 RESULT AC-18 CONTROL-OK(the rate does not change) NO no RATE_CHANGE or no RESTART line
+1795406668484 STEP ac18 end
+1795406668503 STEP ac35 start
+run=ac35 pid=67118 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac35
+1795406686671 RESULT AC-35 PASS PASS route=Some("route=tap") want=route=tap no_capture_route=false; idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-18.6, -15.0, -16.4, -16.5, -15.3, -16.7, -14.9, -16.0, -16.8, -21.0]
+1795406686700 RESULT AC-35 CONTROL-OK(the check wants route=2ch on a tap run) NO route=Some("route=tap") want=route=2ch no_capture_route=false; idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-18.6, -15.0, -16.4, -16.5, -15.3, -16.7, -14.9, -16.0, -16.8, -21.0]
+1795406686720 STEP ac35 end
+1795406686739 STEP ac19 start
+run=ac19 pid=67985 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac19
+1795406704886 RESULT AC-19 PASS substitute source (tone written into the 2-channel device): PASS route=Some("route=2ch") want=route=2ch no_capture_route=false; idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-17.4, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0]
+1795406704913 RESULT AC-19 CONTROL-OK(the check wants route=tap on a 2ch run) NO route=Some("route=2ch") want=route=tap no_capture_route=false; idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-17.4, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0, -17.0]
+run=ac19-control pid=68933 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac19-control
+1795406722812 RESULT AC-19 CONTROL-OK(nothing plays into the 2-channel device) NO route=Some("route=2ch") want=route=2ch no_capture_route=false; idle_floor=-120.0 present_seconds=0/10 unmeasured_seconds=0 means_dbfs=[-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0]
+1795406722831 STEP ac19 end
+1795406722850 STEP ac20 start
+run=ac20 pid=69740 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac20
+1795406729946 RESULT AC-20 PASS PASS lines=["app=missing", "route=2ch"] expected=["app=missing", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+run=ac20-control pid=70055 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac20-control
+1795406736946 RESULT AC-20 CONTROL-OK(the target app is running) NO lines=["route=tap"] expected=["app=missing", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+1795406736963 STEP ac20 end
+1795406736980 STEP ac36g start
+run=ac36g pid=70386 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac36g
+1795406742774 RESULT AC-36-app-missing PASS PASS lines=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406737237)) exit_after_start_ms=Some(107) (permission granted, target not running, 2ch ignored)
+1795406742799 RESULT AC-36 CONTROL-OK(the check wants a different cause list) NO lines=["app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406737237)) exit_after_start_ms=Some(107)
+1795406742816 STEP ac36g end
+1795406742833 STEP deny start
+1795406742851 EFFECT tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795406743021 PERMISSION code before the prompt: 2
+run=prompt-deny-2 pid=70627 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/prompt-deny-2
+1795406747255 RESULT PERMISSION-deny DONE permission code after the prompt: 1 (0 granted, 1 refused); route lines: 1
+1795406747273 STEP deny end
+1795406747291 STEP ac17 start
+run=ac17 pid=70911 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac17
+1795406754386 RESULT AC-17 PASS PASS lines=["PERMISSION_REFUSED", "route=2ch"] expected=["PERMISSION_REFUSED", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+1795406754413 RESULT AC-17 CONTROL-OK(the check wants the no-cause route line) NO lines=["PERMISSION_REFUSED", "route=2ch"] expected=["route=tap"] late_lines=0 capture_started=true exit_code=Some(0)
+1795406754432 STEP ac17 end
+1795406754451 STEP ac40 start
+run=ac40 pid=71314 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac40
+1795406761535 RESULT AC-40 PASS PASS lines=["PERMISSION_REFUSED", "app=missing", "route=2ch"] expected=["PERMISSION_REFUSED", "app=missing", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+1795406761562 RESULT AC-40 CONTROL-OK(the check wants one cause only) NO lines=["PERMISSION_REFUSED", "app=missing", "route=2ch"] expected=["PERMISSION_REFUSED", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+1795406761581 STEP ac40 end
+1795406761600 STEP ac36r start
+run=ac36r-both pid=71746 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac36r-both
+1795406767386 RESULT AC-36-both-causes PASS PASS lines=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406761836)) exit_after_start_ms=Some(98)
+run=ac36r-perm pid=71993 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/ac36r-perm
+1795406773087 RESULT AC-36-permission-only PASS PASS lines=["PERMISSION_REFUSED", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406767568)) exit_after_start_ms=Some(112)
+1795406773119 RESULT AC-36 CONTROL-OK(the check wants app=missing too) NO lines=["PERMISSION_REFUSED", "NO_CAPTURE_ROUTE 2ch=missing"] expected=["PERMISSION_REFUSED", "app=missing", "NO_CAPTURE_ROUTE 2ch=missing"] late_lines=0 capture_started=false exit=Some((2, 1795406767568)) exit_after_start_ms=Some(112)
+1795406773139 STEP ac36r end
+1795406773158 STEP grant start
+1795406773181 EFFECT tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795406773380 PERMISSION code before the prompt: 2
+run=prompt-grant-3 pid=72354 dir=/var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/runs/prompt-grant-3
+1795406777391 RESULT PERMISSION-grant DONE permission code after the prompt: 0 (0 granted, 1 refused); route lines: 1
+1795406777411 STEP grant end
+1795406777431 STEP ac21 start
+1795406777471 AC-21 find exit codes: bench=0 runtime=0; bytes printed: bench=0 runtime=0
+1795406777494 RESULT AC-21 PASS both find commands exit 0 and print nothing
+1795406777527 RESULT AC-21 CONTROL-OK(a decoy .wav file is found) /var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/decoy.wav
+1795406777546 STEP ac21 end
+1795406777566 STEP ac22 start
+1795406791680 RESULT AC-22-gate PASS check.sh quick exit 0, last line 'ALL STEPS PASSED (quick)'; packages under bench/ in the root metadata: 0
+1795406791755 RESULT AC-22 CONTROL-OK(the bench manifest read directly lists a bench package) packages under bench/: 1
+1795406791774 STEP ac22 end
+1795406791792 STEP ac39 start
+1795406792122 RESULT AC-39 PASS 28 run logs, each with sample lines and no non-loopback address or wildcard listener (see per-run.txt)
+1795406792167 RESULT AC-39 CONTROL-OK(a wildcard listener is sampled) NO samples=1 violations=wildcard listener: m0b05 1 user 4u IPv4 0x1 0t0 TCP *:8080 (LISTEN)
+1795406792187 STEP ac39 end
+1795406792415 RESTORE output volume to 31
+1795406792795 RESTORE tccutil reset AudioCapture app.interlo.bench.m0b05 (the spike's own permission only)
+1795406793012 CLEANUP done

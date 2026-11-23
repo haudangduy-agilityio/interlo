@@ -31,6 +31,9 @@ ROWS = [
     "AC-22",
     "AC-39",
 ]
+NOTES = {
+    "AC-19": "DEVIATION: the source is a tone written into the 2-channel device by a helper, not the browser output (see docs/m0/M0b-05.md)",
+}
 MANUAL = {
     "AC-15": (
         "BLOCKED",
@@ -51,11 +54,11 @@ def read_results(root):
         if not os.path.isfile(path):
             continue
         for line in open(path, encoding="utf-8"):
-            parts = line.rstrip("\n").split(" ", 2)
-            if len(parts) >= 2:
-                results.append(
-                    (parts[0], parts[1], parts[2] if len(parts) > 2 else "", step)
-                )
+            m = re.match(
+                r"(\S+) (CONTROL-(?:OK|FAILED)\([^)]*\)|\S+) ?(.*)", line.rstrip("\n")
+            )
+            if m:
+                results.append((m.group(1), m.group(2), m.group(3), step))
     return results
 
 
@@ -125,6 +128,10 @@ def main():
         for c in lines:
             if c[1].startswith("CONTROL"):
                 controls.append(c)
+    out.append("\n## Repeated timings (median and spread)\n")
+    for ac, status, detail, step in results:
+        if ac.endswith("-repeat"):
+            out.append(f"- {ac} {status}: {clip(detail, 400)} (`{step}/result.txt`)")
     out.append("\n## Negative controls\n")
     out.append(
         "A control runs the same check on input that must fail. CONTROL-OK means the check reported NO.\n"

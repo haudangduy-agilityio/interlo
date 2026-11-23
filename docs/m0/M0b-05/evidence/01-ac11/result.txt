@@ -1,0 +1,2 @@
+AC-11 PASS exit=0 PASS idle_floor=-120.0 present_seconds=10/10 unmeasured_seconds=0 means_dbfs=[-18.1, -23.1, -18.5, -18.4, -17.3, -16.3, -14.1, -18.2, -16.2, -16.3]; quiet_windows=30/30 windows_outside_3dB=0 max_level=-120.0
+AC-11 CONTROL-OK(no sound plays) NO idle_floor=-120.0 present_seconds=0/10 unmeasured_seconds=0 means_dbfs=[-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0]; quiet_windows=30/30 windows_outside_3dB=0 max_level=-120.0

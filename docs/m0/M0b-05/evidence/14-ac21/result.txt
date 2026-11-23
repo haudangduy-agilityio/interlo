@@ -1,0 +1,2 @@
+AC-21 PASS both find commands exit 0 and print nothing
+AC-21 CONTROL-OK(a decoy .wav file is found) /var/folders/x8/qxtlpplj6mv3j38pnp06r9qm0000gn/T/m0b-05/decoy.wav

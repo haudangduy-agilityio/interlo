@@ -1,0 +1,2 @@
+AC-22-gate PASS check.sh quick exit 0, last line 'ALL STEPS PASSED (quick)'; packages under bench/ in the root metadata: 0
+AC-22 CONTROL-OK(the bench manifest read directly lists a bench package) packages under bench/: 1

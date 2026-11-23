@@ -44,6 +44,8 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | objc2-core-audio 0.3.2 | M0b-05 | Core Audio bindings, including the process tap (`CATapDescription`, `AudioHardwareCreateProcessTap`); exact pin, `bench/M0b-05/` only (Zlib OR Apache-2.0 OR MIT) |
 | objc2-core-audio-types 0.3.2 | M0b-05 | Core Audio buffer and format types used by the capture callback; exact pin, `bench/M0b-05/` only (Zlib OR Apache-2.0 OR MIT) |
 
+The four `objc2` crates pull in `block2`, `dispatch2`, `libc`, `bitflags`, `objc2-core-foundation` and `objc2-encode` as transitive dependencies. They are pinned by `bench/M0b-05/Cargo.lock` (built with `--locked`) and never enter the root workspace.
+
 ## UI
 
 | Item | Value | Status |

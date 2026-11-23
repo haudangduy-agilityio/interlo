@@ -3,7 +3,7 @@
 #
 # Usage: M0B05_BROWSER=<path of a browser app that accepts --user-data-dir> \
 #          bench/M0b-05/harness/evidence.sh <out-dir> [step ...]
-# Steps: meta grant deny ac11 ac12 ac13 ac14 ac16 ac18 ac35 ac19 ac20 ac36g ac17 ac40 ac36r ac21 ac22 ac39
+# Steps: meta grant deny ac16r ac18r ac11 ac12 ac13 ac14 ac16 ac18 ac35 ac19 ac20 ac36g ac17 ac40 ac36r ac21 ac22 ac39
 #        (default: all of them in the order meta grant ac11 .. ac36g deny ac17 ac40 ac36r grant ac21 ac22 ac39).
 #        `grant` and `deny` reset the spike's permission and wait for its system dialog to be
 #        answered from outside (Allow, or Don't Allow); the checks before `deny` need it granted,
@@ -43,7 +43,7 @@ VOLUME_TEST=20
 AUDIO_TYPES=(-name '*.wav' -o -name '*.caf' -o -name '*.aif*' -o -name '*.m4a' -o -name '*.mp3' -o -name '*.flac' -o -name '*.ogg' -o -name '*.pcm' -o -name '*.raw' -o -size +1M)
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-H="$OUT/harness.log"
+H="$OUT/${M0B05_HARNESS_LOG:-harness.log}"
 
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
 hlog() { echo "$(now_ms) $*" | tee -a "$H"; }
@@ -624,6 +624,8 @@ d = json.load(open(sys.argv[1]))
 print(sum(1 for p in d["packages"] if "/bench/" in p["manifest_path"]))
 PY
 )"
+  # The home directory of the person who ran this is replaced, so no user name is committed.
+  sed -i '' "s#$HOME#\$HOME#g" "$D/check-quick.log" "$D/cargo-metadata-root.json"
   echo "root packages=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['packages']))" "$D/cargo-metadata-root.json") packages_under_bench=$m" > "$D/metadata-summary.txt"
   if [ "$c" = 0 ] && [ "$last" = "ALL STEPS PASSED (quick)" ] && [ "$m" = 0 ]; then
     result "$R" AC-22-gate PASS "check.sh quick exit 0, last line '$last'; packages under bench/ in the root metadata: $m"
@@ -632,6 +634,7 @@ PY
   fi
   # negative control: the bench manifest, read directly, does list a package under bench/
   ( cd "$ROOT" && cargo metadata --no-deps --format-version 1 --manifest-path bench/M0b-05/Cargo.toml ) > "$D/control-metadata-bench.json" 2>/dev/null
+  sed -i '' "s#$HOME#\$HOME#g" "$D/control-metadata-bench.json"
   local cm; cm="$(python3 - "$D/control-metadata-bench.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -686,6 +689,71 @@ prompt_step() { # grant|deny
 }
 step_grant() { prompt_step grant; }
 step_deny() { prompt_step deny; }
+
+# median, min and max of the numbers given as arguments
+spread() {
+  python3 - "$@" <<'PY'
+import statistics, sys
+v = sorted(int(x) for x in sys.argv[1:])
+print(f"n={len(v)} median={statistics.median(v)} min={v[0]} max={v[-1]}")
+PY
+}
+
+REPS=5
+
+# AC-16 timing, repeated: the time from TAP_START to SILENT varies a little from run to run.
+step_ac16r() {
+  step_dir 17-ac16-repeat
+  local R="$D/result.txt"
+  : > "$R"
+  if ! need_granted; then result "$R" AC-16-repeat BLOCKED "permission is not granted"; return; fi
+  local n out ms list=() bad=0
+  for n in $(seq 1 "$REPS"); do
+    start_run "ac16r-$n" --target-arg "$MARK_A"
+    wait_log SILENT 25 || hlog "no SILENT within 25 s"
+    stop_run; save_run "$D" "run$n"
+    out="$(analyze ac16 "$D/run$n-spike.log")"
+    case "$out" in PASS*) ms="$(echo "$out" | sed -n 's/.*SILENT \([0-9]*\) ms.*/\1/p')"; list+=("$ms") ;; *) bad=$((bad + 1)) ;; esac
+  done
+  if [ "$bad" = 0 ]; then
+    result "$R" AC-16-repeat PASS "SILENT after TAP_START in ms over $REPS runs: $(spread "${list[@]}") (limit 11000)"
+  else
+    result "$R" AC-16-repeat NO "$bad of $REPS runs failed"
+  fi
+}
+
+# AC-18 timing, repeated: restart delay and time to the first audio-present window.
+step_ac18r() {
+  step_dir 18-ac18-repeat
+  local R="$D/result.txt"
+  : > "$R"
+  if ! need_granted; then result "$R" AC-18-repeat BLOCKED "permission is not granted"; return; fi
+  local n out restarts=() presents=() bad=0
+  for n in $(seq 1 "$REPS"); do
+    start_run "ac18r-$n" --target-arg "$MARK_A"
+    wait_log IDLE_TONE 20
+    set_mode a clip
+    sleep 3
+    effect "changing the default output device sample rate from $ORIG_RATE to 44100 (restored right after), repeat $n"
+    "$BIN" rate set 44100 >> "$D/rate-change.log"
+    wait_log RESTART 10 || hlog "no RESTART line"
+    sleep 4
+    "$BIN" rate set "${ORIG_RATE%.*}" >> "$D/rate-change.log"
+    sleep 3
+    set_mode a off
+    stop_run; save_run "$D" "run$n"
+    out="$(analyze ac18 "$D/run$n-spike.log")"
+    case "$out" in
+      PASS*) restarts+=("$(echo "$out" | sed -n 's/.*restart_after_rate_change_ms=\([0-9]*\).*/\1/p')"); presents+=("$(echo "$out" | sed -n 's/.*after_restart=\([0-9]*\).*/\1/p')") ;;
+      *) bad=$((bad + 1)) ;;
+    esac
+  done
+  if [ "$bad" = 0 ]; then
+    result "$R" AC-18-repeat PASS "over $REPS runs: RESTART after RATE_CHANGE in ms: $(spread "${restarts[@]}") (limit 3000); first audio-present one-second window ends after RESTART in ms: $(spread "${presents[@]}") (limit 3000)"
+  else
+    result "$R" AC-18-repeat NO "$bad of $REPS runs failed"
+  fi
+}
 
 # --- main --------------------------------------------------------------------------------
 [ -x "$BIN" ] || { echo "evidence.sh: build the bundle first: bench/M0b-05/bundle.sh" >&2; exit 2; }

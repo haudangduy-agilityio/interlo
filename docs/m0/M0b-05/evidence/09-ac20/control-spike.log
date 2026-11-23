@@ -1,0 +1,59 @@
+1795406730019 START pid=70055 ignore_2ch=false
+1795406730133 route=tap
+1795406730147 TAP_START rate=48000 pids=52999,53048,53051,53055,53060,53063,53071,53334,54594,54600,70044,70051,70052,70056 objects=171
+1795406730315 WIN i=1 level=-120.0 tone=-120.0 synth=1
+1795406730357 WIN i=2 level=-120.0 tone=-120.0 synth=1
+1795406730462 WIN i=3 level=-120.0 tone=-120.0 synth=1
+1795406730566 WIN i=4 level=-120.0 tone=-120.0 synth=1
+1795406730650 WIN i=5 level=-120.0 tone=-120.0 synth=1
+1795406730755 WIN i=6 level=-120.0 tone=-120.0 synth=1
+1795406730859 WIN i=7 level=-120.0 tone=-120.0 synth=1
+1795406730963 WIN i=8 level=-120.0 tone=-120.0 synth=1
+1795406731047 WIN i=9 level=-120.0 tone=-120.0 synth=1
+1795406731152 WIN i=10 level=-120.0 tone=-120.0 synth=1
+1795406731253 WIN i=11 level=-120.0 tone=-120.0 synth=1
+1795406731357 WIN i=12 level=-120.0 tone=-120.0 synth=1
+1795406731460 WIN i=13 level=-120.0 tone=-120.0 synth=1
+1795406731564 WIN i=14 level=-120.0 tone=-120.0 synth=1
+1795406731647 WIN i=15 level=-120.0 tone=-120.0 synth=1
+1795406731750 WIN i=16 level=-120.0 tone=-120.0 synth=1
+1795406731854 WIN i=17 level=-120.0 tone=-120.0 synth=1
+1795406731958 WIN i=18 level=-120.0 tone=-120.0 synth=1
+1795406732063 WIN i=19 level=-120.0 tone=-120.0 synth=1
+1795406732167 WIN i=20 level=-120.0 tone=-120.0 synth=1
+1795406732252 WIN i=21 level=-120.0 tone=-120.0 synth=1
+1795406732357 WIN i=22 level=-120.0 tone=-120.0 synth=1
+1795406732462 WIN i=23 level=-120.0 tone=-120.0 synth=1
+1795406732565 WIN i=24 level=-120.0 tone=-120.0 synth=1
+1795406732650 WIN i=25 level=-120.0 tone=-120.0 synth=1
+1795406732753 WIN i=26 level=-120.0 tone=-120.0 synth=1
+1795406732858 WIN i=27 level=-120.0 tone=-120.0 synth=1
+1795406732963 WIN i=28 level=-120.0 tone=-120.0 synth=1
+1795406733067 WIN i=29 level=-120.0 tone=-120.0 synth=1
+1795406733149 WIN i=30 level=-120.0 tone=-120.0 synth=1
+1795406733268 WIN i=31 level=-120.0 tone=-120.0 synth=1
+1795406733351 WIN i=32 level=-120.0 tone=-120.0 synth=1
+1795406733455 WIN i=33 level=-120.0 tone=-120.0 synth=1
+1795406733560 WIN i=34 level=-120.0 tone=-120.0 synth=1
+1795406733664 WIN i=35 level=-120.0 tone=-120.0 synth=1
+1795406733748 WIN i=36 level=-120.0 tone=-120.0 synth=1
+1795406733851 WIN i=37 level=-120.0 tone=-120.0 synth=1
+1795406733955 WIN i=38 level=-120.0 tone=-120.0 synth=1
+1795406734060 WIN i=39 level=-120.0 tone=-120.0 synth=1
+1795406734165 WIN i=40 level=-120.0 tone=-120.0 synth=1
+1795406734262 WIN i=41 level=-120.0 tone=-120.0 synth=1
+1795406734367 WIN i=42 level=-120.0 tone=-120.0 synth=1
+1795406734450 WIN i=43 level=-120.0 tone=-120.0 synth=1
+1795406734554 WIN i=44 level=-120.0 tone=-120.0 synth=1
+1795406734658 WIN i=45 level=-120.0 tone=-120.0 synth=1
+1795406734763 WIN i=46 level=-120.0 tone=-120.0 synth=1
+1795406734868 WIN i=47 level=-120.0 tone=-120.0 synth=1
+1795406734951 WIN i=48 level=-120.0 tone=-120.0 synth=1
+1795406735055 WIN i=49 level=-120.0 tone=-120.0 synth=1
+1795406735159 WIN i=50 level=-120.0 tone=-120.0 synth=1
+1795406735159 IDLE_FLOOR dbfs=-120.0
+1795406735159 IDLE_TONE dbfs=-120.0
+1795406735159 STAT callbacks=0 dropped=0
+1795406735285 WIN i=51 level=-120.0 tone=-120.0 synth=1
+1795406735305 STOP
+1795406735312 EXIT code=0
