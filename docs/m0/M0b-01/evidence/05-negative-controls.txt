@@ -1,4 +1,4 @@
-# Negative controls: each check is run on input that it must refuse, and on input that it must accept (2026-11-23T10:28:41+0700).
+# Negative controls: each check is run on input that it must refuse, and on input that it must accept (2026-11-23T14:24:40+0700).
 # A check that cannot fail is not evidence.
 # The profile controls use the real rustc line of 01-build-flags.txt with one flag changed: a real build with a
 # wrong profile would rebuild the whole dependency tree. The override guard is run for real.
@@ -51,22 +51,22 @@ CONTROL 8: rustc flags with -C panic=abort
   output: bin target: a -C panic flag is set (unwinding must stay the default)
   verdict: behaved as expected (refuse, exit 1)
 
-CONTROL 9: socket rule on a test listener bound to 127.0.0.1:57448 (lsof: n127.0.0.1:57448 )
+CONTROL 9: socket rule on a test listener bound to 127.0.0.1:56915 (lsof: n127.0.0.1:56915 )
   expected: accept
   exit: 0
   output: no violation
   verdict: behaved as expected (accept, exit 0)
 
-CONTROL 10: socket rule on a test listener bound to 0.0.0.0:57449 (lsof: n*:57449 )
+CONTROL 10: socket rule on a test listener bound to 0.0.0.0:56916 (lsof: n*:56916 )
   expected: refuse
   exit: 1
-  output: pid 81144 TCP *:57449
+  output: pid 77325 TCP *:56916
   verdict: behaved as expected (refuse, exit 1)
 
-CONTROL 11: socket rule on a test listener bound to [::]:57450 (lsof: n*:57450 )
+CONTROL 11: socket rule on a test listener bound to [::]:56917 (lsof: n*:56917 )
   expected: refuse
   exit: 1
-  output: pid 81148 TCP *:57450
+  output: pid 77329 TCP *:56917
   verdict: behaved as expected (refuse, exit 1)
 
 CONTROL 12: window rule: Interlo, 1200 by 780, 1324 ms

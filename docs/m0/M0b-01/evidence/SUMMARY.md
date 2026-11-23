@@ -1,6 +1,6 @@
 # Evidence summary
 
-Commit measured: `132db79ef10f4ed3d5ca7b18b6ff2f737902deea`. Date: 2026-11-23T10:23:30+0700. Command: `scripts/check.sh app`.
+Commit measured: `d685bf22c023497c4cb97c2886c2bb489d78809c`. Date: 2026-11-23T14:19:07+0700. Command: `scripts/check.sh app`.
 The raw files in this folder are the evidence; this page only quotes them. `SHA256SUMS` lists every other file and the hash of each screenshot with its local path.
 Screenshots are not in the repository: they are stored in `/Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01`.
 Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | shasum -a 256 -c`. The lines that start with an absolute path are the screenshots: they verify only on the machine that holds them.
@@ -15,25 +15,25 @@ Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | 
   > FLAGS bin: -C opt-level=3 -C lto=thin -C codegen-units=1 -C strip=symbols 
   > RESULT: 2 rustc commands (lib bin) have opt-level=3, codegen-units=1, a strip flag, no panic flag; the bin has lto=thin; no profile or rustflags override found
 - `02-window-poll.log`:
-  > RESULT: title "Interlo", size 1200 by 780 points, found 755 ms after launch (limit 60000 ms); two screenshots of window 1157
+  > RESULT: title "Interlo", size 1200 by 780 points, found 1054 ms after launch (limit 60000 ms); two screenshots of window 2164
 - `02-interrupted-windows.log`:
   > none (no such file in this run)
 - `03-sockets-launch1.log`:
-  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 68365,68379,68380,68381, sockets seen: 0, no wildcard listener and no non-loopback address
+  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 65288,65301,65302,65303, sockets seen: 0, no wildcard listener and no non-loopback address
 - `03-sockets-launch2.log`:
-  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 72275,72304,72305,72306, sockets seen: 0, no wildcard listener and no non-loopback address
+  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 68411,68423,68424,68425, sockets seen: 0, no wildcard listener and no non-loopback address
 - `03-sockets-launch3.log`:
-  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 77113,77145,77146,77147, sockets seen: 0, no wildcard listener and no non-loopback address
+  > RESULT: 60 samples in 60 s (0 late by more than 1 s), pids 72085,72097,72098,72099, sockets seen: 0, no wildcard listener and no non-loopback address
 - `03-interrupted-launches.log`:
-  > RESULT: launch 3, try 1: the app process ended before the readings were complete (2026-11-23T10:27:37+0700); the launch was repeated; partial logs: 03-sockets-launch3-try1-interrupted.log
+  > none (no such file in this run)
 - `04-rss-launch1.txt`:
-  > RESULT: launch 1, 5 samples: 87520 87520 87520 87520 87520 median 87520 KB, min 87520 KB, max 87520 KB
+  > RESULT: launch 1, 5 samples: 97760 97872 97984 98000 98000 median 97984 KB, min 97760 KB, max 98000 KB
 - `04-rss-launch2.txt`:
-  > RESULT: launch 2, 5 samples: 71408 72096 72080 72480 72432 median 72096 KB, min 71408 KB, max 72480 KB
+  > RESULT: launch 2, 5 samples: 84752 84752 84752 84752 84752 median 84752 KB, min 84752 KB, max 84752 KB
 - `04-rss-launch3.txt`:
-  > RESULT: launch 3, 5 samples: 70480 70048 68704 68336 67216 median 68704 KB, min 67216 KB, max 70480 KB
+  > RESULT: launch 3, 5 samples: 79792 79936 79936 79936 79936 median 79936 KB, min 79792 KB, max 79936 KB
 - `04-rss-all-launches.txt`:
-  > RESULT: 15 samples over 3 launches: median 72096 KB, min 67216 KB, max 87520 KB, spread 20304 KB
+  > RESULT: 15 samples over 3 launches: median 84752 KB, min 79792 KB, max 98000 KB, spread 18208 KB
 - `05-negative-controls.txt`:
   > RESULT: 22 controls, 0 wrong
 - `06-checksum-control.txt`:
@@ -43,8 +43,8 @@ Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | 
 
 ## Screenshots (stored locally, not in git)
 
-- `f52b901cef9e674c44ba2d62700340561416f51b6d6c9969193eb0a77581d049  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/first-frame-win1157-t755ms-epoch1795404318.png`
-- `3102defbad126068a1a5a207688d80cb7cb5e785551263ff984891ba0ad5e704  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/after-5s-win1157-t5950ms-epoch1795404323.png`
+- `9ec153d834dd27d83870c919b7c2574c6b5e4c4293b8a788a14705f6e5a81df6  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/first-frame-win2164-t1054ms-epoch1795418481.png`
+- `5acd92f2dddaddce3adb2d6513d346333411186867dd88708d7340f4c6b23508  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/after-5s-win2164-t6215ms-epoch1795418486.png`
 
 ## Negative controls (05-negative-controls.txt)
 
@@ -56,9 +56,9 @@ Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | 
 - CONTROL 6: rustc flags with -C lto=off  -> behaved as expected (refuse, exit 1)
 - CONTROL 7: rustc flags without a strip flag  -> behaved as expected (refuse, exit 1)
 - CONTROL 8: rustc flags with -C panic=abort  -> behaved as expected (refuse, exit 1)
-- CONTROL 9: socket rule on a test listener bound to 127.0.0.1:57448 (lsof: n127.0.0.1:57448 )  -> behaved as expected (accept, exit 0)
-- CONTROL 10: socket rule on a test listener bound to 0.0.0.0:57449 (lsof: n*:57449 )  -> behaved as expected (refuse, exit 1)
-- CONTROL 11: socket rule on a test listener bound to [::]:57450 (lsof: n*:57450 )  -> behaved as expected (refuse, exit 1)
+- CONTROL 9: socket rule on a test listener bound to 127.0.0.1:56915 (lsof: n127.0.0.1:56915 )  -> behaved as expected (accept, exit 0)
+- CONTROL 10: socket rule on a test listener bound to 0.0.0.0:56916 (lsof: n*:56916 )  -> behaved as expected (refuse, exit 1)
+- CONTROL 11: socket rule on a test listener bound to [::]:56917 (lsof: n*:56917 )  -> behaved as expected (refuse, exit 1)
 - CONTROL 12: window rule: Interlo, 1200 by 780, 1324 ms  -> behaved as expected (accept, exit 0)
 - CONTROL 13: window rule: size 1000 by 700  -> behaved as expected (refuse, exit 1)
 - CONTROL 14: window rule: title Other  -> behaved as expected (refuse, exit 1)
@@ -79,6 +79,6 @@ Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | 
 - scope: the app idle on its first screen for 60 s, three launches. This is evidence about the app process tree and its web view helpers while idle: not a proof that nothing leaves the Mac, and not a reading during a meeting.
 - a helper process that another app starts during the run is counted too: if it has a non-loopback socket the check fails and its address is written to the log, so close other apps that use a web view while this runs.
 - memory covers the app process only, not the helper processes.
-- interrupted launches: 1 launch(es) ended by themselves and were repeated (see 03-interrupted-launches.log); the cause was not found.
+- interrupted launches: none.
 - The screenshots show the window at two moments (the first poll that found it, and 5 s later); they are not a recording, and they are kept outside git.
 - Rerun `scripts/check.sh app` to compare: the pass lines must repeat, the memory numbers vary (read the median and the spread).
