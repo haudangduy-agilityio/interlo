@@ -76,6 +76,12 @@ Ranges are in `package.json`; the lock file pins the exact version.
 | @types/node                    | 22.20.5   | Node types for the config files and tests                                                                                                                                       |
 | @types/react, @types/react-dom | 19.3.0    | React types                                                                                                                                                                     |
 
+`typescript` stays on 5.9.x (`~5.9.3` in `package.json`). `typescript-eslint` 8.73.0, the latest
+release on 2026-11-23, declares the peer range `typescript@">=4.8.4 <6.1.0"`, so `npm ci` fails with
+`ERESOLVE` on typescript 7. Dependabot ignores typescript semver-major updates for `/apps/ui`
+(`.github/dependabot.yml`). The typescript 7 upgrade is deferred, not rejected: it comes back when
+a `typescript-eslint` release supports typescript 7.
+
 ## UI fonts (bundled, M1-51)
 
 Three families from the design system `tokens.json`, as local `woff2` files in
