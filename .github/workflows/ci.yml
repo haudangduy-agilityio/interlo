@@ -49,9 +49,9 @@ jobs:
           echo "All commits are signed off."
 
   check:
-    name: check (macos-14)
+    name: check (macos-15)
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout
