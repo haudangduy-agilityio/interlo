@@ -1,0 +1,8 @@
+# Launch 1: app process memory after 60 s idle, 5 samples 1 s apart (2026-11-23T10:26:24+0700)
+# ps -o rss= -p <pid>, KB. The app process only; the WebKit helper processes are not included.
+t=13ms 2026-11-23T10:26:24+0700 pid=68365 rss_kb=87520
+t=1008ms 2026-11-23T10:26:25+0700 pid=68365 rss_kb=87520
+t=2006ms 2026-11-23T10:26:26+0700 pid=68365 rss_kb=87520
+t=3020ms 2026-11-23T10:26:27+0700 pid=68365 rss_kb=87520
+t=4006ms 2026-11-23T10:26:28+0700 pid=68365 rss_kb=87520
+RESULT: launch 1, 5 samples: 87520 87520 87520 87520 87520 median 87520 KB, min 87520 KB, max 87520 KB

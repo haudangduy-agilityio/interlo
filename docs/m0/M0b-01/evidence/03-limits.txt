@@ -1,0 +1,8 @@
+# What the socket and memory checks cover and miss
+covered by the socket check: the app process, its children and the WebKit helper processes that appeared after the launch.
+not attributable: a helper process that exists before the launch (it serves another app); a helper that another app starts during the run (counted here, which only makes the check stricter).
+not seen: a connection that opens and closes between two 1 s samples; DNS lookups done for the app by a system daemon; network work done for the app by another process; Unix-domain sockets (lsof -i lists internet sockets only).
+scope: the app idle on its first screen for 60 s, three launches. This is evidence about the app process tree and its web view helpers while idle: not a proof that nothing leaves the Mac, and not a reading during a meeting.
+a helper process that another app starts during the run is counted too: if it has a non-loopback socket the check fails and its address is written to the log, so close other apps that use a web view while this runs.
+memory covers the app process only, not the helper processes.
+interrupted launches: 1 launch(es) ended by themselves and were repeated (see 03-interrupted-launches.log); the cause was not found.

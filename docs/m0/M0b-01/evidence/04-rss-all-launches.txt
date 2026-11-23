@@ -1,0 +1,3 @@
+# Memory across 3 launches (2026-11-23T10:28:41+0700)
+RESULT: 15 samples over 3 launches: median 72096 KB, min 67216 KB, max 87520 KB, spread 20304 KB
+Memory is a baseline: no pass line is set; the readings exist and the spread is printed.

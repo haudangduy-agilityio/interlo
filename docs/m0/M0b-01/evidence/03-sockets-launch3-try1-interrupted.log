@@ -1,0 +1,16 @@
+# Launch 3: socket samples every 1 s for 60 s (2026-11-23T10:27:33+0700)
+# Each sample: the pid list (the app, its children, the WebKit helpers started after the launch) and the raw
+# output of: lsof -nP -a -p <pids> -i -F pPn   (an empty block means no socket). The process table is written
+# when the pid list changes. Rule: every address loopback, no wildcard.
+app pid: 76840; launch epoch_ms: 1795404452954
+sample 1 t=1015ms 2026-11-23T10:27:34+0700 pids=76840,76856,76857,76858
+  proc 76840     1 ~/Desktop/workspace/training/ai/interlo-wt-m0b01/target/release/bundle/macos/Interlo.app/Contents/MacOS/interlo-desktop
+  proc 76856     1 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU
+  proc 76857     1 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking
+  proc 76858     1 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
+  lsof (no socket)
+sample 2 t=2017ms 2026-11-23T10:27:35+0700 pids=76840,76856,76857,76858
+  lsof (no socket)
+sample 3 t=3021ms 2026-11-23T10:27:36+0700 pids=76840,76856,76857,76858
+  lsof (no socket)
+sample 4 t=4009ms 2026-11-23T10:27:37+0700: the app process 76840 is gone (it exited or was closed during the run)

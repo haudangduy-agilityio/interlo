@@ -1,0 +1,13 @@
+# Evidence of scripts/check.sh app
+date: 2026-11-23T10:23:30+0700
+commit: 132db79ef10f4ed3d5ca7b18b6ff2f737902deea
+uncommitted paths outside the evidence folder:
+macOS: 26.4.1 (build 25E253)
+Mac model: Mac16,11, Apple M4 Pro
+cargo: cargo 1.99.1 (5f94df478 2026-08-27)
+rustc: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+tauri-cli: tauri-cli 2.12.6
+swiftc: swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.33.1 clang-2100.3.33.1)
+signing identity used: Interlo Local Signing
+command: scripts/check.sh app
+screenshots are stored outside the repository: /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01
