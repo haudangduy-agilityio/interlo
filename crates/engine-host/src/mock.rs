@@ -35,10 +35,12 @@ impl Calls {
 pub struct CallLog(Arc<Mutex<Vec<EngineRole>>>);
 
 impl CallLog {
+    /// An empty log.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Roles recorded so far, in call order.
     pub fn roles(&self) -> Vec<EngineRole> {
         self.0
             .lock()
