@@ -1,0 +1,14 @@
+  ✓  1 [chrome] › e2e/layout.spec.ts:9:3 › Home fits at 960 by 600 (366ms)
+  ✓  2 [chrome] › e2e/layout.spec.ts:9:3 › Home fits at 960 by 560 (261ms)
+  ✓  3 [chrome] › e2e/layout.spec.ts:42:3 › the shell has no clipped or hidden control at 900 px (326ms)
+  ✘  4 [chrome] › e2e/layout.spec.ts:42:3 › the shell has no clipped or hidden control at 760 px (229ms)
+  ✘  5 [chrome] › e2e/layout.spec.ts:42:3 › the shell has no clipped or hidden control at 480 px (261ms)
+  ✘  6 [chrome] › e2e/layout.spec.ts:42:3 › the shell has no clipped or hidden control at 360 px (251ms)
+    Error: sidebar scrolls sideways
+    Received:    73
+    Error: sidebar scrolls sideways
+    Received:    353
+    Error: page scrolls sideways
+    Received:    97
+  3 failed
+  3 passed (3.5s)

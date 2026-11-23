@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("a note with a tag is added to the list and empty text is refused", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Workspace" }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await page.getByRole("tab", { name: "Notes" }).click();
 
   const addButton = page.getByRole("button", { name: "Add note" });

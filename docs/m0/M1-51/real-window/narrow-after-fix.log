@@ -1,0 +1,61 @@
+2026-11-20T17:43:01 resize asked=900x780 ok=True applied=900.0x780.0
+2026-11-20T17:43:03 click name='Today' ref=@s2pxst9196vq93:e2 ok=True
+2026-11-20T17:43:04 capture width_asked=900 screen=home window_id=2681 file=after-fix-900-home.png
+2026-11-20T17:43:05 width=900 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:43:06 click name='Live meeting' ref=@s1rs2pnsteo8gc:e3 ok=True
+2026-11-20T17:43:07 capture width_asked=900 screen=live window_id=2681 file=after-fix-900-live.png
+2026-11-20T17:43:08 width=900 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:43:09 click name='Workspace' ref=@s3gkh4hyp2eotv:e5 ok=True
+2026-11-20T17:43:10 capture width_asked=900 screen=workspace window_id=2681 file=after-fix-900-workspace.png
+2026-11-20T17:43:11 width=900 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:43:14 resize asked=800x780 ok=True applied=800.0x780.0
+2026-11-20T17:43:15 click name='Today' ref=@s1vs77zld3cbhl:e2 ok=True
+2026-11-20T17:43:16 capture width_asked=800 screen=home window_id=2681 file=after-fix-800-home.png
+2026-11-20T17:43:17 width=800 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:43:18 click name='Live meeting' ref=@ssbvhww8fgfc6:e3 ok=True
+2026-11-20T17:43:19 capture width_asked=800 screen=live window_id=2681 file=after-fix-800-live.png
+2026-11-20T17:43:20 width=800 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:43:21 click name='Workspace' ref=@swj6rz5ft1rna:e5 ok=True
+2026-11-20T17:43:22 capture width_asked=800 screen=workspace window_id=2681 file=after-fix-800-workspace.png
+2026-11-20T17:43:24 width=800 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:43:26 resize asked=760x780 ok=True applied=760.0x780.0
+2026-11-20T17:43:27 click name='Today' ref=@s3jcqf5tc0mv9m:e2 ok=True
+2026-11-20T17:43:28 capture width_asked=760 screen=home window_id=2681 file=after-fix-760-home.png
+2026-11-20T17:43:30 width=760 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:43:31 click name='Live meeting' ref=@s11xr44bo4wreh:e4 ok=True
+2026-11-20T17:43:32 capture width_asked=760 screen=live window_id=2681 file=after-fix-760-live.png
+2026-11-20T17:43:33 width=760 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:43:34 click name='Workspace' ref=@shv5xy0p90eo7:e6 ok=True
+2026-11-20T17:43:35 capture width_asked=760 screen=workspace window_id=2681 file=after-fix-760-workspace.png
+2026-11-20T17:43:36 width=760 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:43:39 resize asked=640x780 ok=True applied=640.0x780.0
+2026-11-20T17:43:40 click name='Today' ref=@s2o62bw9alpq26:e2 ok=True
+2026-11-20T17:43:41 capture width_asked=640 screen=home window_id=2681 file=after-fix-640-home.png
+2026-11-20T17:43:42 width=640 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:43:43 click name='Live meeting' ref=@s3ur00896wfoz6:e4 ok=True
+2026-11-20T17:43:44 capture width_asked=640 screen=live window_id=2681 file=after-fix-640-live.png
+2026-11-20T17:43:46 width=640 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:43:47 click name='Workspace' ref=@s1uhkp1sisdw14:e6 ok=True
+2026-11-20T17:43:48 capture width_asked=640 screen=workspace window_id=2681 file=after-fix-640-workspace.png
+2026-11-20T17:43:49 width=640 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:43:52 resize asked=480x780 ok=True applied=480.0x780.0
+2026-11-20T17:43:53 click name='Today' ref=@s3k9uyhwlwz2zg:e2 ok=True
+2026-11-20T17:43:54 capture width_asked=480 screen=home window_id=2681 file=after-fix-480-home.png
+2026-11-20T17:43:55 width=480 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:43:56 click name='Live meeting' ref=@s3ifsqo3x55chj:e4 ok=True
+2026-11-20T17:43:57 capture width_asked=480 screen=live window_id=2681 file=after-fix-480-live.png
+2026-11-20T17:43:58 width=480 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:43:59 click name='Workspace' ref=@shinh46mhf2sd:e6 ok=True
+2026-11-20T17:44:01 capture width_asked=480 screen=workspace window_id=2681 file=after-fix-480-workspace.png
+2026-11-20T17:44:02 width=480 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:44:04 resize asked=300x780 ok=True applied=300.0x780.0
+2026-11-20T17:44:05 click name='Today' ref=@s1s2c7p5hbiz7x:e2 ok=True
+2026-11-20T17:44:07 capture width_asked=300 screen=home window_id=2681 file=after-fix-300-home.png
+2026-11-20T17:44:08 width=300 screen=home interactive_elements_right_of_window=[]
+2026-11-20T17:44:09 click name='Live meeting' ref=@s2f1gyjilmgrqf:e4 ok=True
+2026-11-20T17:44:10 capture width_asked=300 screen=live window_id=2681 file=after-fix-300-live.png
+2026-11-20T17:44:11 width=300 screen=live interactive_elements_right_of_window=[]
+2026-11-20T17:44:12 click name='Workspace' ref=@s1g0f75756e0wt:e6 ok=True
+2026-11-20T17:44:13 capture width_asked=300 screen=workspace window_id=2681 file=after-fix-300-workspace.png
+2026-11-20T17:44:14 width=300 screen=workspace interactive_elements_right_of_window=[]
+2026-11-20T17:44:16 restored applied=1200.0x780.0

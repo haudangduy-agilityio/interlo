@@ -1,0 +1,1 @@
+typed=122 held_by_text_font=30 fallback_needed=92

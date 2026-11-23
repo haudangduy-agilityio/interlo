@@ -1,0 +1,11 @@
+2026-11-20T17:44:28 resize asked=480x780 ok=True applied=480.0x780.0
+2026-11-20T17:44:29 click name='Today' ref=@s2xif0fha9w7s3:e2 ok=True
+2026-11-20T17:44:30 capture width_asked=480 screen=home window_id=2681 file=negative-control-480-home.png
+2026-11-20T17:44:31 width=480 screen=home interactive_elements_right_of_window=['scrollarea', 'Search or run a command ⌘K', 'Live meeting', 'Meetings', 'Settings', 'Start meeting', 'More start options', 'Quick translate Ctrl+Option+T', 'Fix grammar Ctrl+Option+G', 'Save note Ctrl+Option+N', 'Open Workspace', 'See all', 'scrollbar']
+2026-11-20T17:44:32 click name='Live meeting' ref=@s2bva7jamz5e2a:e4 ok=True
+2026-11-20T17:44:34 capture width_asked=480 screen=live window_id=2681 file=negative-control-480-live.png
+2026-11-20T17:44:35 width=480 screen=live interactive_elements_right_of_window=['scrollarea', 'Search or run a command ⌘K', 'Live meeting', 'Meetings', 'Settings', 'Start meeting', 'More start options', 'Mode', 'scrollbar']
+2026-11-20T17:44:36 click name='Workspace' ref=@s3kieibk2kbljq:e6 ok=True
+2026-11-20T17:44:37 capture width_asked=480 screen=workspace window_id=2681 file=negative-control-480-workspace.png
+2026-11-20T17:44:38 width=480 screen=workspace interactive_elements_right_of_window=['Search or run a command ⌘K', 'Live meeting', 'Meetings', 'Settings', 'Start meeting', 'More start options', 'Search']
+2026-11-20T17:44:40 restored applied=1200.0x780.0

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useSetupStatus } from "../../app/SetupStatusProvider";
 import { useClient } from "../../ipc/ClientProvider";
 import { SETUP_ITEM_LABEL_KEY } from "../../ipc/labels";
 import { useSession } from "../../ipc/SessionProvider";
@@ -18,6 +20,11 @@ export function SetupScreen() {
   // `finished` loads the list again when a download ends, so the row shows its new state.
   const { state, reload } = useAsync(() => client.checkSetup(), [client, models.finished]);
   const downloads = useModelDownloads(client, reload, labelOf);
+  // The sidebar badge and the Start gate read the shell's copy of the setup check. Keep it current.
+  const { publish } = useSetupStatus();
+  useEffect(() => {
+    if (state.status === "done") publish(state.data);
+  }, [state, publish]);
 
   return (
     <>
