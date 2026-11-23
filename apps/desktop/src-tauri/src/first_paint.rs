@@ -7,10 +7,10 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime};
 
 /// How long the shell waits for the page before it shows the window itself.
-pub const FALLBACK_DELAY: Duration = Duration::from_secs(3);
+const FALLBACK_DELAY: Duration = Duration::from_secs(3);
 
 /// True when the fallback must show the window. An unknown state counts as hidden.
-pub fn fallback_must_show(visible: Option<bool>) -> bool {
+fn fallback_must_show(visible: Option<bool>) -> bool {
     visible != Some(true)
 }
 
@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fallback_waits_longer_than_a_normal_start() {
-        assert!(FALLBACK_DELAY >= Duration::from_secs(2));
+    fn the_fallback_delay_is_three_seconds_as_docs_ipc_contract_says() {
+        assert_eq!(FALLBACK_DELAY, Duration::from_secs(3));
     }
 }

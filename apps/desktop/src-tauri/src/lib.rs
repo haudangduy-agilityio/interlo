@@ -3,7 +3,8 @@
 //! The bridge between the webview and the Rust core owns commands for control
 //! (request and response) and channels for streams (captions, latency, status).
 //! It must never send settings or keys to the webview, and it must never allow
-//! broad capabilities: the main window gets `core:default` only.
+//! broad capabilities: the main window gets `core:default` and `core:window:allow-show`
+//! (so the page can show the window that starts hidden), nothing else about windows.
 
 pub mod clock;
 pub mod commands;

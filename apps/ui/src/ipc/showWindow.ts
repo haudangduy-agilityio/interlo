@@ -1,11 +1,11 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriShell } from "./tauriTransport";
 
-export interface ShellWindow {
+interface ShellWindow {
   show(): Promise<void>;
 }
 
-export interface ShowWindowDeps {
+interface ShowWindowDeps {
   inShell: () => boolean;
   getWindow: () => ShellWindow;
 }

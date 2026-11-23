@@ -78,7 +78,7 @@ fn every_command_in_the_handler_is_in_the_app_manifest() {
 }
 
 #[test]
-fn main_window_is_granted_exactly_the_app_commands_and_core_defaults() {
+fn main_window_is_granted_exactly_the_app_commands_core_defaults_and_window_show() {
     let capability = json("capabilities/default.json");
     assert_eq!(capability["windows"], serde_json::json!(["main"]));
     let granted: BTreeSet<String> = capability["permissions"]
@@ -189,4 +189,15 @@ fn the_global_tauri_bridge_is_off_and_the_ui_uses_the_package() {
     // `capabilities/` and the CSP script rules above stay the controls.
     let config = json("tauri.conf.json");
     assert_eq!(config["app"]["withGlobalTauri"], Value::Bool(false));
+}
+
+/// The main window starts hidden so the owner never sees the empty native window colour.
+/// The page shows it (`core:window:allow-show`); `src/first_paint.rs` is the fallback.
+#[test]
+fn main_window_starts_hidden_and_is_the_only_window() {
+    let config = json("tauri.conf.json");
+    let windows = config["app"]["windows"].as_array().unwrap();
+    assert_eq!(windows.len(), 1, "{windows:?}");
+    assert_eq!(windows[0]["label"], "main");
+    assert_eq!(windows[0]["visible"], Value::Bool(false), "{}", windows[0]);
 }
