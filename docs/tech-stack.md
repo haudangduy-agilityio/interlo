@@ -25,7 +25,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 
 | Crate                  | Used by                                                                                    | Why                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| serde, serde_json      | the crates that need them (not engine-host, model-store, playback, quick-actions or store) | Event and IPC serialization                             |
+| serde, serde_json      | the crates that need them (not engine-host, model-store, playback, quick-actions or store) | Event and IPC serialization; audio-io parses the device list tool output |
 | thiserror              | all                                                                                        | Error enums                                             |
 | rusqlite (bundled)     | meeting-core, store                                                                        | SQLite with WAL, journal, projections, full-text search |
 | tauri 2, tauri-build 2 | apps/desktop                                                                               | App shell, commands, event channels                     |

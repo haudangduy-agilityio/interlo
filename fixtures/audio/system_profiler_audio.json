@@ -1,0 +1,79 @@
+{
+  "SPAudioDataType": [
+    {
+      "_items": [
+        {
+          "_name": "Built-in Microphone",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_transport": "coreaudio_device_type_builtin",
+          "coreaudio_default_audio_input_device": "spaudio_yes",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Built-in Speakers",
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_builtin",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Built-in Headphones",
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_builtin",
+          "coreaudio_default_audio_output_device": "spaudio_yes",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Virtual Device 2ch",
+          "coreaudio_device_input": 2,
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_virtual",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Virtual Device 16ch",
+          "coreaudio_device_input": 16,
+          "coreaudio_device_output": 16,
+          "coreaudio_device_transport": "coreaudio_device_type_virtual",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Wireless Headset",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_bluetooth",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "USB Headset",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_usb",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Display Audio",
+          "coreaudio_device_output": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_hdmi",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Virtual Device odd",
+          "coreaudio_device_input": 2,
+          "coreaudio_device_transport": "coreaudio_device_type_virtual",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Silent Port",
+          "coreaudio_device_transport": "coreaudio_device_type_builtin",
+          "coreaudio_device_srate": 48000
+        },
+        {
+          "_name": "Unlabelled Input",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_srate": 48000
+        }
+      ],
+      "_name": "coreaudio_device"
+    }
+  ]
+}
