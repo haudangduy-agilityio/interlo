@@ -27,7 +27,7 @@ End-to-end tests are out of the gate for now (owner, 2026-11-17). Run them with
 The signed app has its own check, `scripts/check.sh app`, out of the gate because it
 needs a display, the Screen Recording permission and the local signing identity.
 Run it when a change touches the release profile, the bundle, signing or the window.
-It prints `ALL STEPS PASSED (app)`; a missing tool or permission is BLOCKED, never a pass.
+Its last line starts with `ALL STEPS PASSED (app)`; without `--typing` it adds that the typing check was NOT RUN. A missing tool or permission, or a locked screen, is BLOCKED, never a pass. The grants (Screen Recording, and Accessibility for `--typing`) belong to the app that runs the script and can be revoked in System Settings afterwards.
 
 ## When a step fails
 

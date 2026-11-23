@@ -6,7 +6,7 @@
 #   scripts/check.sh e2e     end-to-end journeys only (out of the gate for now)
 #   scripts/check.sh app [--typing]
 #                            the signed app on this Mac: build flags, window, sockets, memory (needs a display, Screen Recording and the local signing identity; not in the gate).
-#                            The typing check (synthetic key events through the Telex input source; it changes your input source and clipboard) is opt-in: only with --typing.
+#                            The typing check (synthetic key events through the Telex input source; it needs Accessibility and changes your input source and clipboard) is opt-in: only with --typing.
 #                            Screenshots go to ../interlo-evidence/M0b-01 (APP_CHECK_SHOTS), never into the repository.
 # Exit codes: 0 all steps passed, 1 a step failed, 2 a step is NOT CONFIGURED or
 # BLOCKED, 64 bad usage. A missing tool, a missing permission or a missing npm

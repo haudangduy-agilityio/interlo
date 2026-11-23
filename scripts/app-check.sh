@@ -52,8 +52,9 @@ TYPING_ATTEMPTS=8
 TAURI_MANIFEST="apps/desktop/src-tauri/Cargo.toml"
 SELF="$ROOT/scripts/app-check.sh"
 
-# The limits are the starting guesses of the SPEC (AC-1, AC-8). Memory gets no
-# pass line (SPEC section 5): the readings must exist and their spread is printed.
+# The limits are starting guesses (window within 60 s, 1200 by 780 points). Memory
+# gets no pass line because it is a baseline: the readings must exist and their
+# spread is printed.
 WINDOW_TITLE="Interlo"
 WINDOW_WIDTH=1200
 WINDOW_HEIGHT=780
@@ -65,13 +66,21 @@ RSS_SAMPLES=5
 
 trap 'echo "internal error: line $LINENO exited with $?" >&2' ERR
 
+# Exit codes: 3 BLOCKED (the environment does not provide a tool, permission or state), 1 fail.
+# app-drive uses 3 for a missing Accessibility grant and 4 when the app is not in front;
+# idle_launch returns 5 when the app process ends by itself.
+EXIT_BLOCKED=3
+EXIT_NOT_FRONT=4
+EXIT_APP_ENDED=5
+
+# fail and blocked write to stderr: they are also called inside $( ), where stdout is captured.
 blocked() {
-  echo "BLOCKED: $1"
-  exit 3
+  echo "BLOCKED: $1" >&2
+  exit "$EXIT_BLOCKED"
 }
 
 fail() {
-  echo "FAIL: $1"
+  echo "FAIL: $1" >&2
   exit 1
 }
 
@@ -79,7 +88,8 @@ now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 iso() { date '+%Y-%m-%dT%H:%M:%S%z'; }
 # Sleep until the given epoch millisecond (returns at once when it has passed).
 sleep_until_ms() { perl -MTime::HiRes=sleep,time -e 'my $d = $ARGV[0] / 1000 - time; sleep($d) if $d > 0' "$1"; }
-# Keeps the home directory out of the evidence files.
+# Shortens the home directory to ~ in the command lines and logs that pass through it
+# (the evidence files also carry the local screenshot paths, which name the user).
 redact() { sed "s#$HOME#~#g"; }
 
 # ---------------------------------------------------------------- pure helpers
@@ -131,15 +141,15 @@ max_of() { sort -n | tail -1; }
 # 1 when it differs. kind is the crate type of the line (lib or bin).
 assert_rustc_line() { # line kind
   local line="$1" kind="$2"
-  echo "$line" | grep -qE -- '-C opt-level=3( |$)' || { echo "$kind target: no -C opt-level=3"; return 1; }
-  echo "$line" | grep -qE -- '-C codegen-units=1( |$)' || { echo "$kind target: no -C codegen-units=1"; return 1; }
-  echo "$line" | grep -qE -- '-C strip=(symbols|debuginfo)( |$)' || { echo "$kind target: no -C strip flag"; return 1; }
-  if echo "$line" | grep -qE -- '-C panic='; then
+  grep -qE -- '-C opt-level=3( |$)' <<<"$line" || { echo "$kind target: no -C opt-level=3"; return 1; }
+  grep -qE -- '-C codegen-units=1( |$)' <<<"$line" || { echo "$kind target: no -C codegen-units=1"; return 1; }
+  grep -qE -- '-C strip=(symbols|debuginfo)( |$)' <<<"$line" || { echo "$kind target: no -C strip flag"; return 1; }
+  if grep -qE -- '-C panic=' <<<"$line"; then
     echo "$kind target: a -C panic flag is set (unwinding must stay the default)"
     return 1
   fi
   if [ "$kind" = "bin" ]; then
-    echo "$line" | grep -qE -- '-C lto=thin( |$)' || { echo "bin target: no -C lto=thin"; return 1; }
+    grep -qE -- '-C lto=thin( |$)' <<<"$line" || { echo "bin target: no -C lto=thin"; return 1; }
   fi
   return 0
 }
@@ -175,11 +185,9 @@ nfc_diff() { # file_a file_b
   a="$(mktemp "${TMPDIR:-/tmp}/nfc-aXXXXXX")"
   b="$(mktemp "${TMPDIR:-/tmp}/nfc-bXXXXXX")"
   python3 -I -c 'import sys, unicodedata
-data = open(sys.argv[1], encoding="utf-8").read()
-open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFC", data))' "$1" "$a"
-  python3 -I -c 'import sys, unicodedata
-data = open(sys.argv[1], encoding="utf-8").read()
-open(sys.argv[2], "w", encoding="utf-8").write(unicodedata.normalize("NFC", data))' "$2" "$b"
+for source, target in ((sys.argv[1], sys.argv[3]), (sys.argv[2], sys.argv[4])):
+    data = open(source, encoding="utf-8").read()
+    open(target, "w", encoding="utf-8").write(unicodedata.normalize("NFC", data))' "$1" "$2" "$a" "$b"
   diff "$a" "$b" || rc=$?
   rm -f "$a" "$b"
   return "$rc"
@@ -218,18 +226,22 @@ rss_values() { sed -n 's/.*rss_kb=\([0-9][0-9]*\)$/\1/p' "$1"; }
 # ------------------------------------------------------------------ process helpers
 
 # Pid of the process whose command is exactly the app binary.
-app_pid() {
-  ps -axo pid=,command= | awk -v b="$BIN" '{ pid = $1; $1 = ""; sub(/^ /, ""); if ($0 == b) print pid }' | sed -n 1p
+app_pids() {
+  ps -axo pid=,command= | awk -v b="$BIN" '{ pid = $1; $1 = ""; sub(/^ /, ""); if ($0 == b) print pid }'
 }
 
+app_pid() { app_pids | sed -n 1p; }
+
+# Ends every process whose command is exactly the app binary, by pid. The path is
+# compared as a string and never used as a pattern, so another worktree's app is safe.
 stop_app() {
-  pkill -f "^$BIN\$" 2>/dev/null || true
-  local i
+  local pid i
+  for pid in $(app_pids); do kill "$pid" 2>/dev/null || true; done
   for i in 1 2 3 4 5 6 7 8 9 10; do
     [ -z "$(app_pid)" ] && return 0
     sleep 0.5
   done
-  pkill -9 -f "^$BIN\$" 2>/dev/null || true
+  for pid in $(app_pids); do kill -9 "$pid" 2>/dev/null || true; done
   sleep 1
 }
 
@@ -270,7 +282,10 @@ launch_app() {
 }
 
 # Raw `lsof -F pPn` output for a comma list of pids; empty when there is no socket.
-lsof_raw() { lsof -nP -a -p "$1" -i -F pPn 2>/dev/null || true; }
+# lsof exits 1 and prints nothing when no socket matches. Whatever it writes to stderr
+# is kept in $OUT/lsof.err, so a failed lsof is not read as "no socket": the callers
+# log it, and the idle check fails when lsof reports an error.
+lsof_raw() { lsof -nP -a -p "$1" -i -F pPn 2>"$OUT/lsof.err" || true; }
 
 # ------------------------------------------------------------------------ steps
 
@@ -305,18 +320,30 @@ step_prereq() {
   security find-identity -v -p codesigning | grep -q "$IDENTITY" ||
     blocked "the signing identity \"$IDENTITY\" is not in the keychain"
   # A locked screen hides the windows: the window, memory and screenshot checks cannot run.
-  if ioreg -n Root -d1 -a 2>/dev/null | screen_is_locked; then
+  local ioreg_text
+  ioreg_text="$(ioreg -n Root -d1 -a 2>&1)" || blocked "ioreg failed, so the lock state of the screen is unknown: $ioreg_text"
+  if screen_is_locked <<<"$ioreg_text"; then
     blocked "the screen is locked (CGSSessionScreenIsLocked is true): unlock the Mac and run the check again"
   fi
   mkdir -p "$OUT" "$EVID" "$SHOTS"
+  # The step deletes the files under the evidence folder, so it refuses a folder that is not one.
+  local evid_real shots_real root_real out_real
+  evid_real="$(cd "$EVID" && pwd -P)"
+  shots_real="$(cd "$SHOTS" && pwd -P)"
+  root_real="$(cd "$ROOT" && pwd -P)"
+  out_real="$(cd "$OUT" && pwd -P)"
+  case "$evid_real" in
+    "$root_real"/docs/m0/* | "$out_real"/*) ;;
+    *) fail "APP_CHECK_EVIDENCE ($evid_real) must be a folder under docs/m0/ of the repository or under $out_real" ;;
+  esac
+  [ ! -e "$evid_real/.git" ] || fail "APP_CHECK_EVIDENCE holds a .git entry"
+  case "$shots_real" in
+    "$root_real" | "$root_real"/*) fail "APP_CHECK_SHOTS ($shots_real) is inside the repository: screenshots must stay outside git" ;;
+  esac
   # A new run replaces the evidence of the last run.
   find "$EVID" -type f -delete
   : >"$OUT/shots.list"
   swiftc -O -o "$HELPER" "$HELPER_SRC" || blocked "the window helper did not compile (is the Xcode command line tools install complete?)"
-  swiftc -O -o "$INPUT_SOURCE" "$ROOT/scripts/app-check/input-source.swift" || blocked "the input source tool did not compile"
-  swiftc -O -o "$DRIVE" "$ROOT/scripts/app-check/app-drive.swift" || blocked "the app driver did not compile"
-  "$DRIVE" trusted >/dev/null || blocked "Accessibility is not granted to the app that runs this script (AXIsProcessTrusted() is false)"
-  "$INPUT_SOURCE" list | grep -q "^$TELEX_SOURCE" || blocked "the input source $TELEX_SOURCE is not enabled (System Settings, Keyboard, Input Sources)"
   # A denied Screen Recording permission makes screencapture fail and hides window titles.
   screencapture -x -R 0,0,16,16 "$OUT/probe.png" 2>/dev/null ||
     blocked "screencapture failed: grant Screen Recording to the app that runs this script (System Settings, Privacy and Security)"
@@ -359,7 +386,7 @@ step_build_proof() {
     echo "$lines" | redact | sed 's/^/COMMAND: /'
     echo
   } >"$out"
-  local summary=""
+  local summary="" seen_lib=0 seen_bin=0
   while IFS= read -r line; do
     n=$((n + 1))
     kind="$(echo "$line" | grep -oE -- '--crate-type [a-z]+' | cut -d' ' -f2)"
@@ -367,14 +394,15 @@ step_build_proof() {
     flags="$(echo "$line" | grep -oE -- '-C (opt-level|codegen-units|lto|linker-plugin-lto|strip|panic)(=[a-z0-9]+)?' | tr '\n' ' ')"
     echo "FLAGS $kind: $flags" >>"$out"
     assert_rustc_line "$line" "$kind" >>"$out" || {
-      cat "$out" | tail -3
+      tail -3 "$out"
       fail "$kind target: the rustc flags do not match the profile"
     }
     summary="$summary$kind "
+    case "$kind" in lib) seen_lib=1 ;; bin) seen_bin=1 ;; esac
   done <<EOF
 $lines
 EOF
-  [ "$n" -ge 2 ] || fail "expected the lib and the bin rustc commands, found $n"
+  [ "$seen_lib" -eq 1 ] && [ "$seen_bin" -eq 1 ] || fail "expected a lib and a bin rustc command line, found: ${summary:-none}"
   local symbols
   symbols="$(nm -a "$ROOT/target/release/interlo-desktop" 2>/dev/null | wc -l | tr -d ' ')"
   {
@@ -393,7 +421,10 @@ step_bundle() {
   cp "$ROOT/$TAURI_MANIFEST" "$OUT/Cargo.toml.before"
   restore_manifest() { cp "$OUT/Cargo.toml.before" "$ROOT/$TAURI_MANIFEST"; }
   trap restore_manifest EXIT
-  cargo tauri build --bundles app --config '{"bundle":{"active":true}}' >"$OUT/bundle.log" 2>&1 || {
+  # The signing and notarization variables of the Tauri bundler are removed: this build is signed locally only.
+  env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE \
+    -u APPLE_CERTIFICATE_PASSWORD -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
+    cargo tauri build --bundles app --config '{"bundle":{"active":true}}' >"$OUT/bundle.log" 2>&1 || {
     tail -20 "$OUT/bundle.log"
     fail "cargo tauri build failed"
   }
@@ -499,7 +530,7 @@ idle_launch() {
     if [ "$(app_pid)" != "$pid" ]; then
       echo "sample $i t=$((t - t0))ms $(iso): the app process $pid is gone (it exited or was closed during the run)" >>"$slog"
       echo "launch $n: the app process $pid ended at sample $i of the idle period (not a socket violation; no crash report was looked up here)"
-      return 5
+      return "$EXIT_APP_ENDED"
     fi
     pids="$(all_pids "$pid")"
     raw="$(lsof_raw "$pids")"
@@ -510,7 +541,12 @@ idle_launch() {
         prev_pids="$pids"
       fi
       if [ -n "$raw" ]; then echo "$raw" | sed 's/^/  lsof /'; else echo "  lsof (no socket)"; fi
+      if [ -s "$OUT/lsof.err" ]; then sed 's/^/  lsof stderr: /' "$OUT/lsof.err" | redact; fi
     } >>"$slog"
+    if [ -s "$OUT/lsof.err" ]; then
+      stop_app
+      fail "launch $n, sample $i: lsof wrote to stderr, so an empty reading cannot be read as \"no socket\" (see the log)"
+    fi
     samples=$((samples + 1))
     lines="$(echo "$raw" | socket_violations || true)"
     if [ -n "$lines" ]; then
@@ -538,7 +574,7 @@ idle_launch() {
   done
   if [ "$(app_pid)" != "$pid" ]; then
     echo "the app process $pid is gone before the memory samples were complete" >>"$rlog"
-    return 5
+    return "$EXIT_APP_ENDED"
   fi
   assert_rss_file "$rlog" || {
     stop_app
@@ -559,7 +595,7 @@ step_idle() {
     for attempt in 1 2 3; do
       rc=0
       idle_launch "$n" || rc=$?
-      [ "$rc" -eq 5 ] || break
+      [ "$rc" -eq "$EXIT_APP_ENDED" ] || break
       stop_app
       # Keep the partial logs of the interrupted try: the repeat writes the same file names.
       cp "$EVID/03-sockets-launch$n.log" "$EVID/03-sockets-launch$n-try$attempt-interrupted.log"
@@ -574,14 +610,16 @@ step_idle() {
   {
     echo "# Memory across $IDLE_LAUNCHES launches ($(iso))"
     echo "RESULT: $(echo "$all" | wc -l | tr -d ' ') samples over $IDLE_LAUNCHES launches: median $(echo "$all" | median) KB, min $(echo "$all" | min_of) KB, max $(echo "$all" | max_of) KB, spread $(($(echo "$all" | max_of) - $(echo "$all" | min_of))) KB"
-    echo "Memory is a baseline (SPEC section 5): no pass line is set; the readings exist and the spread is printed."
+    echo "Memory is a baseline: no pass line is set; the readings exist and the spread is printed."
   } >"$EVID/04-rss-all-launches.txt"
   cat "$EVID/04-rss-all-launches.txt"
   {
     echo "# What the socket and memory checks cover and miss"
     echo "covered by the socket check: the app process, its children and the WebKit helper processes that appeared after the launch."
     echo "not attributable: a helper process that exists before the launch (it serves another app); a helper that another app starts during the run (counted here, which only makes the check stricter)."
-    echo "not seen: a connection that opens and closes between two 1 s samples."
+    echo "not seen: a connection that opens and closes between two 1 s samples; DNS lookups done for the app by a system daemon; network work done for the app by another process; Unix-domain sockets (lsof -i lists internet sockets only)."
+    echo "scope: the app idle on its first screen for 60 s, three launches. This is evidence about the app process tree and its web view helpers while idle: not a proof that nothing leaves the Mac, and not a reading during a meeting."
+    echo "a helper process that another app starts during the run is counted too: if it has a non-loopback socket the check fails and its address is written to the log, so close other apps that use a web view while this runs."
     echo "memory covers the app process only, not the helper processes."
     if [ -s "$interrupted" ]; then
       echo "interrupted launches: $(wc -l <"$interrupted" | tr -d ' ') launch(es) ended by themselves and were repeated (see 03-interrupted-launches.log); the cause was not found."
@@ -590,6 +628,9 @@ step_idle() {
     fi
   } >"$EVID/03-limits.txt"
   cat "$EVID/03-limits.txt"
+  if [ -s "$interrupted" ]; then
+    echo "INTERRUPTED LAUNCHES: $(wc -l <"$interrupted" | tr -d ' ') (the app process ended by itself and the launch was repeated; see 03-interrupted-launches.log; the cause was not found)"
+  fi
 }
 
 # -------------------------------------------------------------- Telex typing
@@ -630,11 +671,12 @@ type_into_field() { # pid keys log
       echo "  field after typing (read with the Accessibility API): [$("$DRIVE" read-text "$pid")]" >>"$log"
       return 0
     fi
-    echo "  attempt $attempt stopped with exit $rc (4 means the app was not in front; the keys go to its pid only, the field is cleared and typed again)" >>"$log"
-    [ "$rc" -eq 4 ] || return 1
+    echo "  attempt $attempt stopped with exit $rc ($EXIT_NOT_FRONT means the app was not in front; the keys go to its pid only, the field is cleared and typed again)" >>"$log"
+    [ "$rc" -eq "$EXIT_BLOCKED" ] && return "$EXIT_BLOCKED"
+    [ "$rc" -eq "$EXIT_NOT_FRONT" ] || return 1
     sleep 1
   done
-  return 3
+  return "$EXIT_BLOCKED"
 }
 
 # Copies the field with Cmd+A, Cmd+C into the given file. The clipboard holds a
@@ -650,20 +692,33 @@ copy_field() { # pid out_file log
       pbpaste >"$outfile"
       return 0
     fi
-    [ "$rc" -eq 4 ] || return 1
+    [ "$rc" -eq "$EXIT_BLOCKED" ] && return "$EXIT_BLOCKED"
+    [ "$rc" -eq "$EXIT_NOT_FRONT" ] || return 1
     sleep 1
   done
-  return 3
+  return "$EXIT_BLOCKED"
 }
 
 step_telex() {
   export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
   local log="$EVID/07-telex-typing.log" pid orig_source saved_clip="$OUT/clipboard.saved" rc info id shot
   local field="$EVID/07-field.txt" sentence="$EVID/07-sentence.txt" wrong="$EVID/07-field-wrong-tone.txt" outp
-  echo "NOTICE: the next step changes your input source and your clipboard for about a minute, brings the Interlo window to the front and types with synthetic key events. Do not use the keyboard or the mouse until it ends."
+  echo "NOTICE: the next step changes your input source and your clipboard for about a minute, brings the Interlo window to the front and types with synthetic key events. Do not use the keyboard or the mouse until it ends. Only the clipboard TEXT is restored (an image, a file or a concealed password marker is not): do not run it with a secret copied. To stop it, send SIGTERM or SIGINT to the whole process group."
+  # Only this opt-in step needs Accessibility and the Telex input source.
+  swiftc -O -o "$INPUT_SOURCE" "$ROOT/scripts/app-check/input-source.swift" || blocked "the input source tool did not compile"
+  swiftc -O -o "$DRIVE" "$ROOT/scripts/app-check/app-drive.swift" || blocked "the app driver did not compile"
+  "$DRIVE" trusted >/dev/null || blocked "Accessibility is not granted to the app that runs this script (AXIsProcessTrusted() is false)"
+  "$INPUT_SOURCE" list | grep -q "^$TELEX_SOURCE" || blocked "the input source $TELEX_SOURCE is not enabled (System Settings, Keyboard, Input Sources)"
   pid="$(launch_app)"
   orig_source="$("$INPUT_SOURCE" current)"
-  pbpaste >"$saved_clip" || true
+  # A leftover saved file means an earlier run was killed before it could restore: it is not overwritten.
+  if [ -e "$saved_clip" ]; then
+    blocked "$saved_clip exists: an earlier typing run did not restore the clipboard. Restore it by hand (pbcopy < that file), then delete the file"
+  fi
+  if [ "$(pbpaste)" = "app-check-clipboard-marker" ]; then
+    blocked "the clipboard holds the marker text of an earlier killed run: copy your own text back first"
+  fi
+  (umask 077 && pbpaste >"$saved_clip") || blocked "the clipboard could not be saved, so it could not be restored"
   # Restores the input source and the clipboard text, and says so in the log when a command fails.
   restore_state() {
     "$INPUT_SOURCE" select "$orig_source" >/dev/null 2>&1 || echo "restore: selecting $orig_source failed" >>"$log"
@@ -688,6 +743,7 @@ step_telex() {
     echo "keys sent (key delay ${KEY_DELAY_MS} ms): $TELEX_KEYS"
     echo "recovery after a SIGKILL (it cannot be trapped): $INPUT_SOURCE select $orig_source; pbcopy < $saved_clip"
   } >"$log"
+  echo "$INPUT_SOURCE select $orig_source; pbcopy < $saved_clip" >"$OUT/typing-recovery.txt"
   # Wait for the window before anything is sent.
   local i
   for i in $(seq 1 600); do
@@ -707,8 +763,11 @@ step_telex() {
   [ "$rc" -ne 3 ] || blocked "another app kept the front during $TYPING_ATTEMPTS attempts; nothing was sent to it (see 07-telex-typing.log)"
   [ "$rc" -eq 0 ] || fail "typing stopped (see 07-telex-typing.log)"
   shot="$SHOTS/telex-typed-win${id}-epoch$(date +%s).png"
-  screencapture -x -o -l "$id" "$shot" || true
-  echo "$shot" >>"$OUT/shots.list"
+  if screencapture -x -o -l "$id" "$shot" && [ -s "$shot" ]; then
+    echo "$shot" >>"$OUT/shots.list"
+  else
+    echo "screenshot of the typed field: the capture failed (no file kept)" >>"$log"
+  fi
   rc=0
   copy_field "$pid" "$field" "$log" || rc=$?
   [ "$rc" -ne 3 ] || blocked "another app kept the front during the copy"
@@ -716,18 +775,18 @@ step_telex() {
   printf '%s' "$SENTENCE" >"$sentence"
   {
     echo "\$ pbpaste > 07-field.txt"
-    echo "field.txt:    $(xxd -p "$field" | tr -d '\n' | cut -c1-200)"
-    echo "sentence.txt: $(xxd -p "$sentence" | tr -d '\n' | cut -c1-200)"
+    echo "field.txt:    $(wc -c <"$field" | tr -d ' ') bytes, sha256 $(shasum -a 256 <"$field" | cut -d' ' -f1)"
+    echo "sentence.txt: $(wc -c <"$sentence" | tr -d ' ') bytes, sha256 $(shasum -a 256 <"$sentence" | cut -d' ' -f1)"
     echo "\$ diff 07-field.txt 07-sentence.txt"
   } >>"$log"
   rc=0
   outp="$(diff "$field" "$sentence")" || rc=$?
-  echo "$outp" >>"$log"
+  echo "$outp" | head -20 | cut -c1-300 >>"$log"
   echo "raw diff exit: $rc" >>"$log"
   echo "\$ diff (both files normalised to NFC with python unicodedata)" >>"$log"
   rc=0
   outp="$(nfc_diff "$field" "$sentence")" || rc=$?
-  echo "$outp" >>"$log"
+  echo "$outp" | head -20 | cut -c1-300 >>"$log"
   echo "NFC diff exit: $rc" >>"$log"
   if [ "$rc" -ne 0 ]; then
     echo "RESULT: NO (AC-10): the field text differs from the sentence; see the diff above" >>"$log"
@@ -776,7 +835,8 @@ step_telex() {
     fi
   } >>"$log"
   grep -E '^(field after typing|raw diff|NFC diff|RESULT|  field after)' "$log"
-  grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored"
+  grep -q 'back as before' "$log" || fail "the input source or the clipboard was not restored (the saved clipboard text stays in $saved_clip)"
+  rm -f "$saved_clip"
   echo "typing check: PASS; the screenshot of the typed field is stored outside the repository, in $SHOTS"
 }
 
@@ -785,10 +845,12 @@ step_telex() {
 # control <name> <expected: refuse|accept> <exit code> <output>: records and checks one control.
 CONTROL_N=0
 CONTROL_BAD=0
+# expected is accept (exit 0), refuse (any non-zero exit) or refuse:N (exactly exit N).
 control_record() { # name expected rc output
   local name="$1" expected="$2" rc="$3" outp="$4" verdict
   CONTROL_N=$((CONTROL_N + 1))
-  if { [ "$expected" = "refuse" ] && [ "$rc" -ne 0 ]; } || { [ "$expected" = "accept" ] && [ "$rc" -eq 0 ]; }; then
+  if { [ "$expected" = "refuse" ] && [ "$rc" -ne 0 ]; } || { [ "$expected" = "accept" ] && [ "$rc" -eq 0 ]; } ||
+    { [ "${expected%%:*}" = "refuse" ] && [ "$expected" != "refuse" ] && [ "$rc" -eq "${expected#refuse:}" ]; }; then
     verdict="behaved as expected ($expected, exit $rc)"
   else
     verdict="WRONG (expected $expected, exit $rc)"
@@ -859,7 +921,9 @@ step_controls() {
   outp="$(assert_rustc_line "$bin_line -C panic=abort" bin 2>&1)" || rc=$?
   control_record "rustc flags with -C panic=abort" refuse "$rc" "$outp"
 
-  # 3. The socket rule, on real listeners.
+  # 3. The socket rule, on real listeners. Two of them bind to every interface for about 25 s
+  # (the controls need real wildcard listeners); a firewall prompt may appear.
+  echo "note: the socket controls open test listeners on 0.0.0.0 and :: for about 25 s"
   local tmp lpid lport raw kind
   tmp="$(mktemp -d "$OUT/controlsXXXX")"
   ( serve_listener 0.0.0.0 >"$tmp/wild4" ) &
@@ -868,14 +932,21 @@ step_controls() {
   disown
   ( serve_listener :: >"$tmp/wild6" ) &
   disown
-  sleep 2
+  local waited
+  for waited in $(seq 1 50); do
+    [ -s "$tmp/loop4" ] && [ -s "$tmp/wild4" ] && [ -s "$tmp/wild6" ] && break
+    sleep 0.1
+  done
   for kind in loop4 wild4 wild6; do
+    [ -s "$tmp/$kind" ] || fail "the test listener $kind did not start within 5 s"
     lpid="$(cut -d' ' -f1 "$tmp/$kind")"
     lport="$(cut -d' ' -f2 "$tmp/$kind")"
     raw="$(lsof_raw "$lpid")"
     outp="$(echo "$raw" | socket_violations)"
     rc=0
     [ -z "$outp" ] || rc=1
+    # lsof must have listed the listener itself: an empty reading is not a clean one.
+    echo "$raw" | grep -q "^n.*:$lport" || fail "lsof did not list the test listener $kind on port $lport (lsof: ${raw:-nothing}; stderr: $(cat "$OUT/lsof.err"))"
     case "$kind" in
       loop4) control_record "socket rule on a test listener bound to 127.0.0.1:$lport (lsof: $(echo "$raw" | grep '^n' | tr '\n' ' '))" accept "$rc" "${outp:-no violation}" ;;
       wild4) control_record "socket rule on a test listener bound to 0.0.0.0:$lport (lsof: $(echo "$raw" | grep '^n' | tr '\n' ' '))" refuse "$rc" "$outp" ;;
@@ -899,7 +970,7 @@ step_controls() {
   control_record "window rule: 61000 ms" refuse "$rc" "$outp"
   rc=0
   outp="$(assert_window "" 1200 780 1324 2>&1)" || rc=$?
-  control_record "window rule: empty title is BLOCKED (exit 3), not a pass" refuse "$rc" "$outp"
+  control_record "window rule: empty title is BLOCKED (exit 3), not a pass" refuse:3 "$rc" "$outp"
 
   # 5. The memory rule.
   printf 'rss_kb=1\nrss_kb=2\nrss_kb=3\n' >"$tmp/short.txt"
@@ -930,14 +1001,12 @@ open(sys.argv[1], "wb").write(png)' "$tmp/withimage/shot.png"
   control_record "text-only rule: a folder with one text log" accept "$rc" "${outp:-text only}"
   rc=0
   outp="$(assert_text_only "$tmp/withimage" 2>&1 | sed "s#$tmp/##g")" || rc=$?
-  rc=$(assert_text_only "$tmp/withimage" >/dev/null 2>&1 && echo 0 || echo 1)
   control_record "text-only rule: a folder with a PNG image" refuse "$rc" "$outp"
 
   # 6. The blocked path: a missing identity is BLOCKED, never a pass.
   rc=0
   outp="$(APP_CHECK_IDENTITY="No Such Identity" APP_CHECK_EVIDENCE="$tmp/evidence" bash "$SELF" prereq 2>&1)" || rc=$?
-  control_record "prerequisites with a signing identity that does not exist (BLOCKED is exit 3)" refuse "$rc" "$outp"
-  [ "$rc" -eq 3 ] || { echo "the missing identity did not give exit 3 (BLOCKED)"; CONTROL_BAD=$((CONTROL_BAD + 1)); }
+  control_record "prerequisites with a signing identity that does not exist (BLOCKED is exit 3)" refuse:3 "$rc" "$outp"
 
   find "$tmp" -type f -delete
   find "$tmp" -type d -empty -delete 2>/dev/null || true
@@ -981,11 +1050,11 @@ step_evidence() {
     echo "Commit measured: \`$commit\`. Date: $date. Command: \`scripts/check.sh app\`."
     echo "The raw files in this folder are the evidence; this page only quotes them. \`SHA256SUMS\` lists every other file and the hash of each screenshot with its local path."
     echo "Screenshots are not in the repository: they are stored in \`$SHOTS\`."
-    echo "Verify: \`cd docs/m0/M0b-01/evidence && shasum -a 256 -c SHA256SUMS\`."
+    echo "Verify the text files: \`cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | shasum -a 256 -c\`. The lines that start with an absolute path are the screenshots: they verify only on the machine that holds them."
     echo
     echo "## Quoted result lines"
     echo
-    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 03-sockets-launch1.log 03-sockets-launch2.log 03-sockets-launch3.log 03-interrupted-launches.log 04-rss-launch1.txt 04-rss-launch2.txt 04-rss-launch3.txt 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
+    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "03-sockets-launch$i.log"; done) 03-interrupted-launches.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "04-rss-launch$i.txt"; done) 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
       echo "- \`$f\`:"
       if [ -f "$EVID/$f" ]; then
         grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true

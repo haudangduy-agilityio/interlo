@@ -93,6 +93,40 @@ expect_equal "memory readings are read back" "1 2 3 4 5" "$(rss_values "$RSS_DIR
 rm -f "$RSS_DIR/ok.txt" "$RSS_DIR/short.txt"
 rmdir "$RSS_DIR"
 
+# Boundaries of the window rule: each of the three limits is tested on its own, on both sides.
+expect_status "width one point short" 1 "$(status_of assert_window Interlo 1199 780 1324)"
+expect_status "height one point short" 1 "$(status_of assert_window Interlo 1200 779 1324)"
+expect_status "exactly 60000 ms is within the limit" 0 "$(status_of assert_window Interlo 1200 780 60000)"
+expect_status "60001 ms is over the limit" 1 "$(status_of assert_window Interlo 1200 780 60001)"
+
+# Boundary of the memory rule: five readings pass, four do not.
+BOUNDARY_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-boundaryXXXXXX")"
+printf 'rss_kb=1\nrss_kb=2\nrss_kb=3\nrss_kb=4\n' >"$BOUNDARY_DIR/four.txt"
+expect_status "four memory readings" 1 "$(status_of assert_rss_file "$BOUNDARY_DIR/four.txt")"
+rm -f "$BOUNDARY_DIR/four.txt"
+rmdir "$BOUNDARY_DIR"
+
+# scripts/check.sh: the typing flag belongs to the app mode only, and a bad second word is refused.
+CHECK_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check.sh"
+expect_status "--typing with quick is refused" 64 "$(status_of bash "$CHECK_SH" quick --typing)"
+expect_status "an unknown second word is refused" 64 "$(status_of bash "$CHECK_SH" app --bogus)"
+# A control that expects refuse:3 counts exit 3 as right and any other refusal as wrong.
+wrong_controls() { # expected rc... -> prints how many controls were wrong
+  local expected="$1" rc
+  shift
+  EVID="$(mktemp -d "${TMPDIR:-/tmp}/app-check-ctlXXXXXX")"
+  CONTROL_N=0
+  CONTROL_BAD=0
+  for rc in "$@"; do control_record "t" "$expected" "$rc" "" >/dev/null; done
+  echo "$CONTROL_BAD"
+  find "$EVID" -type f -delete
+  rmdir "$EVID"
+}
+expect_equal "refuse:3 with exit 3 is right" "0" "$(wrong_controls refuse:3 3)"
+expect_equal "refuse:3 with exit 1 is wrong" "1" "$(wrong_controls refuse:3 1)"
+expect_equal "refuse:3 with exit 0 is wrong" "1" "$(wrong_controls refuse:3 0)"
+expect_equal "refuse accepts any non-zero exit" "0" "$(wrong_controls refuse 1 3)"
+
 # The typing check compares in Unicode form NFC.
 NFC_DIR="$(mktemp -d "${TMPDIR:-/tmp}/app-check-nfcXXXXXX")"
 printf '%s' "Hôm nay mình rảnh, cũng gặp nhau ở quán bạn nhé." >"$NFC_DIR/sentence.txt"

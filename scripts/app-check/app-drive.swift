@@ -7,7 +7,6 @@
 //                                     the Finder so the app takes the current input source when it comes back
 //   app-drive press <pid> <text>      press the first element named <text> (title, description or value)
 //   app-drive focus-text <pid>        give keyboard focus to the first text area
-//   app-drive text-length <pid>       print the length of the value of the first text area
 //   app-drive read-text <pid>         print the value of the first text area
 //   app-drive keys <pid> <delay-ms> <text>  type <text> with key events (US layout key codes), one key every <delay-ms>
 //   app-drive chord <pid> <name>      send select-all, copy or delete
@@ -55,7 +54,7 @@ func walk(_ element: AXUIElement, depth: Int = 0, _ visit: (AXUIElement, Int) ->
 }
 
 func appElement(_ argument: String) -> (AXUIElement, pid_t) {
-    guard let pid = pid_t(argument) else { fail("bad pid \(argument)", 64) }
+    guard let pid = pid_t(argument), pid > 1 else { fail("bad pid \(argument)", 64) }
     return (AXUIElementCreateApplication(pid), pid)
 }
 
@@ -90,18 +89,14 @@ func requireFront(_ argument: String) {
     }
 }
 
-func post(_ code: CGKeyCode, flags: CGEventFlags = [], to pid: pid_t? = nil) {
+func post(_ code: CGKeyCode, flags: CGEventFlags = [], to pid: pid_t) {
     let source = CGEventSource(stateID: .hidSystemState)
     for down in [true, false] {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else {
             fail("could not create a key event")
         }
         event.flags = flags
-        if let pid {
-            event.postToPid(pid)
-        } else {
-            event.post(tap: .cghidEventTap)
-        }
+        event.postToPid(pid)  // always one pid: a key event must never reach whatever app is in front
         usleep(15_000)
     }
 }
@@ -140,7 +135,7 @@ case "press":
     if !pressed { fail("no pressable element named \"\(args[3])\"") }
     print("pressed: \(args[3])")
 
-case "focus-text", "text-length", "read-text":
+case "focus-text", "read-text":
     guard args.count == 3 else { fail("usage: app-drive \(args[1]) <pid>", 64) }
     let (app, _) = appElement(args[2])
     var found: AXUIElement?
@@ -157,14 +152,12 @@ case "focus-text", "text-length", "read-text":
             fail("could not focus the text area")
         }
         print("focused: text area")
-    } else if args[1] == "read-text" {
-        print(text(area, kAXValueAttribute as String) ?? "")
     } else {
-        print((text(area, kAXValueAttribute as String) ?? "").count)
+        print(text(area, kAXValueAttribute as String) ?? "")
     }
 
 case "keys":
-    guard args.count == 5, let delay = useconds_t(args[3]), let target = pid_t(args[2]) else { fail("usage: app-drive keys <pid> <delay-ms> <text>", 64) }
+    guard args.count == 5, let delay = useconds_t(args[3]), let target = pid_t(args[2]), target > 1 else { fail("usage: app-drive keys <pid> <delay-ms> <text>", 64) }
     for character in args[4] {
         requireFront(args[2])
         let lower = Character(character.lowercased())
@@ -176,7 +169,7 @@ case "keys":
 
 case "chord":
     guard args.count == 4 else { fail("usage: app-drive chord <pid> select-all|copy|delete", 64) }
-    guard let target = pid_t(args[2]) else { fail("bad pid \(args[2])", 64) }
+    guard let target = pid_t(args[2]), target > 1 else { fail("bad pid \(args[2])", 64) }
     switch args[3] {
     case "select-all": post(0, flags: .maskCommand, to: target)
     case "copy": post(8, flags: .maskCommand, to: target)
