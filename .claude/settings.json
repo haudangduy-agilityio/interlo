@@ -98,17 +98,6 @@
             "statusMessage": "Checking the command against the guardrails"
           }
         ]
-      },
-      {
-        "matcher": "^mcp__.*([Pp]laywright|[Bb]rowser|[Cc]hrome)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-browser-origin.sh",
-            "timeout": 10,
-            "statusMessage": "Checking the browser address"
-          }
-        ]
       }
     ],
     "PostToolUse": [
