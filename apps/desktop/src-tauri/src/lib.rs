@@ -8,6 +8,7 @@
 pub mod clock;
 pub mod commands;
 pub mod events;
+pub mod first_paint;
 pub mod ipc;
 pub mod native_confirm;
 pub mod navigation;
@@ -20,6 +21,10 @@ use commands::meeting::MeetingState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(navigation::guard())
+        .setup(|app| {
+            first_paint::show_after_delay(app.handle());
+            Ok(())
+        })
         .manage(MeetingState::default())
         .invoke_handler(tauri::generate_handler![
             commands::setup::check_setup,

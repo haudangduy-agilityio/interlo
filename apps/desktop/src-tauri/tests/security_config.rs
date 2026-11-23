@@ -92,6 +92,8 @@ fn main_window_is_granted_exactly_the_app_commands_and_core_defaults() {
         .map(|c| format!("allow-{}", c.replace('_', "-")))
         .collect();
     expected.insert("core:default".to_string());
+    // The page shows the window that starts hidden (src/first_paint.rs); nothing else about windows.
+    expected.insert("core:window:allow-show".to_string());
     assert_eq!(granted, expected);
 }
 
