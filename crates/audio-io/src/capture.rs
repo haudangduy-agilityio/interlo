@@ -1,6 +1,7 @@
 //! Capture routes and the decided route-selection order.
 
 use crate::devices::{DeviceInfo, DeviceKind};
+use crate::ring::RingProducer;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CaptureError {
@@ -17,11 +18,25 @@ pub enum CaptureMethod {
     VirtualDevice { device_id: String },
 }
 
-/// A source of captured mono f32 samples. The consumer side is a ring buffer;
-/// a slow consumer must lose samples, never stall capture.
-pub trait CaptureSource {
+/// A source of captured mono f32 samples: the one interface between the audio
+/// backends (process tap, virtual device, later others) and the engine.
+///
+/// Contract:
+/// - `start` takes the ring producer. The source keeps it and pushes mono f32
+///   at `TARGET_SAMPLE_RATE` with `push_slice` only, from any thread (a real
+///   tap pushes from an audio callback). A source that captures at another
+///   rate converts inside itself.
+/// - `start` returns without waiting for the consumer. A full ring drops the
+///   newest samples and counts them; a slow consumer never stalls capture.
+/// - `start` on a source that cannot run returns a `CaptureError`.
+/// - After `stop` returns, `Ok` or `Err`, the source pushes nothing more.
+/// - `start` is called once per producer; a restart takes a new producer.
+/// - Rate conversion in a callback uses scratch space allocated before
+///   `start`. The source drops the producer in `stop`, off the callback thread,
+///   so the ring is never freed inside a callback.
+pub trait CaptureSource: Send {
     fn method(&self) -> &CaptureMethod;
-    fn start(&mut self) -> Result<(), CaptureError>;
+    fn start(&mut self, sink: RingProducer) -> Result<(), CaptureError>;
     fn stop(&mut self) -> Result<(), CaptureError>;
 }
 
@@ -42,7 +57,7 @@ impl CaptureSource for UnimplementedCapture {
         &self.method
     }
 
-    fn start(&mut self) -> Result<(), CaptureError> {
+    fn start(&mut self, _sink: RingProducer) -> Result<(), CaptureError> {
         Err(CaptureError::NotImplemented)
     }
 
@@ -137,7 +152,8 @@ mod tests {
         let mut src = UnimplementedCapture::new(CaptureMethod::VirtualDevice {
             device_id: "v2".into(),
         });
-        assert_eq!(src.start(), Err(CaptureError::NotImplemented));
+        let (producer, _consumer) = crate::ring::ring_buffer(16);
+        assert_eq!(src.start(producer), Err(CaptureError::NotImplemented));
         assert_eq!(src.stop(), Err(CaptureError::NotImplemented));
         assert!(matches!(src.method(), CaptureMethod::VirtualDevice { .. }));
     }
