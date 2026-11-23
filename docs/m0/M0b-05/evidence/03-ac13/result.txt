@@ -1,0 +1,6 @@
+AC-13-browser PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=100/100 limit_db=3
+AC-13-browser-audible PASS source heard when tapped at its own process: NO idle_tone=-120.0 mean_tone=-13.5 windows=100/100 limit_db=3
+AC-13-app PASS PASS idle_tone=-120.0 mean_tone=-120.0 windows=100/100 limit_db=3
+AC-13-app-audible-probe PASS pids that started an output stream during the run: 1 (see app-probe.log)
+AC-13-app-audible PASS source heard when tapped at its own process: NO idle_tone=-120.0 mean_tone=-13.7 windows=100/100 limit_db=3
+AC-13 CONTROL-OK(tone plays from the target) NO idle_tone=-120.0 mean_tone=-13.7 windows=99/100 limit_db=3

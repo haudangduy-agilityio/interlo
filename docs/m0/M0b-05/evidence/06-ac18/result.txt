@@ -1,0 +1,2 @@
+AC-18 PASS PASS restart_after_rate_change_ms=181 first_present_window_end_ms_after_restart=1000 idle_floor=-120.0
+AC-18 CONTROL-OK(the rate does not change) NO no RATE_CHANGE or no RESTART line

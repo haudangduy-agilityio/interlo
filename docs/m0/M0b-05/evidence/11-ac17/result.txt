@@ -1,0 +1,2 @@
+AC-17 PASS PASS lines=["PERMISSION_REFUSED", "route=2ch"] expected=["PERMISSION_REFUSED", "route=2ch"] late_lines=0 capture_started=true exit_code=Some(0)
+AC-17 CONTROL-OK(the check wants the no-cause route line) NO lines=["PERMISSION_REFUSED", "route=2ch"] expected=["route=tap"] late_lines=0 capture_started=true exit_code=Some(0)

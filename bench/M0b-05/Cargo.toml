@@ -1,0 +1,30 @@
+# Spike M0b-05: Core Audio process tap. Its own workspace: it is never a member
+# of the root workspace and no product crate depends on it (D-190).
+[workspace]
+
+[package]
+name = "m0b05"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "m0b05"
+path = "src/main.rs"
+
+[dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = "=0.3.2"
+objc2-core-audio = "=0.3.2"
+objc2-core-audio-types = "=0.3.2"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

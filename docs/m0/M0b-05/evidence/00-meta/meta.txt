@@ -1,0 +1,11 @@
+date_utc=2026-11-23T03:59:48Z
+macos=26.4.1
+mac_model=Mac16,11
+commit=ddc254a0f74b30c0f932b9c932a7b73993f4a884
+dirty_files=0
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+bundle_id=app.interlo.bench.m0b05
+binary_sha256=3db94c84faeda8a129db3a4c008a78d9635ed151533417576504bb7653df7ec3
+permission_code=0 (0 granted, 1 refused, 2 not decided)
+output_rate_hz=48000
+volume_before=31 volume_during=20

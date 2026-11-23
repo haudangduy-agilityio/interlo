@@ -1,0 +1,1 @@
+AC-18-repeat PASS over 5 runs: RESTART after RATE_CHANGE in ms: n=5 median=84 min=73 max=181 (limit 3000); first audio-present one-second window ends after RESTART in ms: n=5 median=1000 min=1000 max=2000 (limit 3000)

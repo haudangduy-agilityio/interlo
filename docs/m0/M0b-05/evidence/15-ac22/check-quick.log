@@ -1,0 +1,860 @@
+
+==> cargo fmt --check
+    $ cargo fmt --all --check
+    -> PASS in 0s
+
+==> cargo clippy
+    $ cargo clippy --workspace --all-targets -- -D warnings
+   Compiling interlo-desktop v0.1.0 ($HOME/Desktop/workspace/training/ai/interlo-wt-m0b05/apps/desktop/src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.39s
+    -> PASS in 3s
+
+==> cargo test
+    $ cargo test --workspace
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running unittests src/lib.rs (target/debug/deps/audio_io-f9dee972fe07a9b9)
+
+running 29 tests
+test capture::tests::empty_app_id_skips_the_tap ... ok
+test capture::tests::falls_back_to_virtual_device ... ok
+test capture::tests::wrong_device_kind_is_not_a_route ... ok
+test capture::tests::no_route_is_an_error ... ok
+test devices::tests::kind_serializes_camel_case ... ok
+test capture::tests::placeholder_source_is_not_implemented ... ok
+test devices::tests::new_fills_fields ... ok
+test output::tests::headphones_always_allowed ... ok
+test output::tests::other_kinds_are_not_refused_by_the_loop_rule ... ok
+test output::tests::placeholder_output_is_not_implemented ... ok
+test error::tests::wraps_module_errors ... ok
+test capture::tests::tap_wins_when_available ... ok
+test output::tests::speakers_allowed_when_headphones_confirmed ... ok
+test output::tests::speakers_refused_without_headphones ... ok
+test output::tests::virtual_microphone_refused_as_listening_device ... ok
+test resample::tests::passthrough_appends_input ... ok
+test resample::tests::process_into_does_not_allocate ... ok
+test resample::tests::process_into_refuses_a_scratch_that_is_too_short_and_writes_nothing ... ok
+test resample::tests::process_into_writes_the_block_to_the_start_of_the_scratch ... ok
+test resample::tests::target_rate_is_16k ... ok
+test resample::tests::the_counting_allocator_sees_the_vec_path_grow ... ok
+test ring::tests::capacity_rounds_up_to_a_power_of_two ... ok
+test ring::tests::full_buffer_never_blocks ... ok
+test ring::tests::keeps_push_order ... ok
+test ring::tests::len_and_capacity ... ok
+test ring::tests::overflow_reports_dropped_and_keeps_old_samples ... ok
+test ring::tests::rounded_capacity_wraps_and_drops_newest_on_overflow ... ok
+test ring::tests::wraps_around_and_keeps_order ... ok
+test ring::tests::works_across_threads ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/slow_consumer.rs (target/debug/deps/slow_consumer-d8f65675086e64ad)
+
+running 2 tests
+test a_stalled_consumer_never_blocks_capture_and_the_drops_are_counted ... ok
+test a_slow_consumer_gets_or_loses_every_sample_and_nothing_is_double_counted ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/diagnostics-de7102f005e0ea6e)
+
+running 8 tests
+test tests::export_of_nothing_is_empty ... ok
+test tests::accessors_return_the_constants ... ok
+test tests::export_keeps_the_event_json_shape ... ok
+test tests::debug_output_hides_the_text ... ok
+test tests::export_is_the_same_for_repeated_calls ... ok
+test tests::debug_on_keeps_the_text ... ok
+test tests::export_carries_no_text_when_debug_is_off ... ok
+test tests::debug_off_drops_the_text_and_keeps_the_rest ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/engine_host-558184f63f83475c)
+
+running 25 tests
+test language_gate::tests::rule_translates_exactly_when_detected_matches_expected ... ok
+test registry::tests::registry_is_send ... ok
+test segmenter::tests::constants_have_the_decided_starting_values ... ok
+test language_gate::tests::both_mismatch_directions_are_skipped ... ok
+test language_gate::tests::rule_gives_the_same_answer_with_the_pair_swapped ... ok
+test language_gate::tests::expected_language_is_translated ... ok
+test language_gate::tests::owner_speaking_english_is_not_translated ... ok
+test segmenter::tests::final_mark_detection ... ok
+test segmenter::tests::empty_input_gives_no_segments ... ok
+test segmenter::tests::flush_after_final_mark_waits_250_ms ... ok
+test registry::tests::empty_registry_misses_every_role ... ok
+test segmenter::tests::final_mark_cuts_after_the_wait ... ok
+test segmenter::tests::flush_before_the_end_of_the_piece_keeps_it_open ... ok
+test segmenter::tests::final_mark_keeps_sentence_open_before_the_wait ... ok
+test registry::tests::loading_an_engine_removes_its_role_from_missing ... ok
+test segmenter::tests::flush_of_a_ten_second_segment_cuts_at_the_first_pause ... ok
+test segmenter::tests::flush_twice_emits_the_sentence_once ... ok
+test segmenter::tests::flush_with_nothing_open_gives_nothing ... ok
+test segmenter::tests::flush_without_final_mark_waits_600_ms ... ok
+test segmenter::tests::forced_cut_at_ten_seconds_on_the_next_pause ... ok
+test segmenter::tests::long_pause_cuts_pieces_without_final_mark ... ok
+test segmenter::tests::no_forced_cut_without_a_pause ... ok
+test segmenter::tests::short_pause_merges_pieces_without_final_mark ... ok
+test segmenter::tests::streaming_push_matches_segment_and_flush_emits_the_tail ... ok
+test segmenter::tests::under_ten_seconds_is_not_forced ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/integration_tests-4e3db29e508b918e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capture.rs (target/debug/deps/capture-2376f52b88e2b7ff)
+
+running 7 tests
+test built_in_speakers_are_refused_without_confirmed_headphones ... ok
+test no_process_tap_and_no_2ch_device_refuses_the_session ... ok
+test the_virtual_microphone_is_never_a_listening_device ... ok
+test a_device_that_is_not_a_2ch_virtual_input_does_not_open_a_route ... ok
+test the_2ch_virtual_device_is_used_when_the_tap_is_missing ... ok
+test a_tap_without_a_chosen_app_falls_back_to_the_device_or_refuses ... ok
+test the_process_tap_wins_over_the_2ch_virtual_device ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/delete_meeting.rs (target/debug/deps/delete_meeting-837079a189e74af7)
+
+running 1 test
+test deleting_a_meeting_scrubs_its_text_from_every_database_and_log_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/journal_replay.rs (target/debug/deps/journal_replay-a8c328993834eeca)
+
+running 4 tests
+test replayed_captions_show_the_final_line_with_its_matching_translation ... ok
+test feeding_the_same_events_again_is_a_no_op ... ok
+test replaying_the_fixture_twice_gives_the_same_captions ... ok
+test a_journal_round_trip_replays_to_the_same_captions_as_the_file ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/pipeline.rs (target/debug/deps/pipeline-8fe2412b60cca8c4)
+
+running 8 tests
+test the_speed_cap_is_1_15 ... ok
+test a_segment_enqueued_after_a_hold_expired_still_plays_after_resume ... ok
+test unplug_hold_marks_the_rest_not_played_after_30_seconds ... ok
+test the_last_sentence_before_silence_reaches_playback_without_a_next_piece ... ok
+test a_segment_plays_once_even_when_the_segmenter_output_is_fed_twice ... ok
+test segment_order_is_kept_from_segmenter_to_playback ... ok
+test a_huge_backlog_runs_at_the_cap_and_a_small_one_at_normal_speed ... ok
+test backlog_speed_never_exceeds_the_cap_while_draining ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/records.rs (target/debug/deps/records-245437dac48d6c35)
+
+running 7 tests
+test notes_export_shows_the_tag_and_the_due_date ... ok
+test a_reply_with_a_bad_point_does_not_replace_existing_notes ... ok
+test migrate_gives_schema_v1_and_a_second_migrate_changes_nothing ... ok
+test a_final_line_cannot_be_rewritten ... ok
+test a_summary_point_with_an_unknown_line_id_is_rejected ... ok
+test deleting_a_meeting_removes_its_rows_and_keeps_the_other_meeting ... ok
+test deleting_a_meeting_deletes_its_notes_and_keeps_daily_notes_and_tasks ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/settings.rs (target/debug/deps/settings-b9b15d27a6391609)
+
+running 8 tests
+test mute_my_voice_defaults_to_control_option_m ... ok
+test a_free_hotkey_is_accepted ... ok
+test default_settings_carry_the_default_hotkeys ... ok
+test a_hotkey_already_in_use_warns_and_binds_only_when_the_owner_confirms ... ok
+test default_hotkeys_cover_every_action_without_a_clash ... ok
+test every_default_hotkey_uses_control_plus_option_and_no_system_key ... ok
+test a_macos_system_key_is_refused ... ok
+test stored_settings_with_a_bad_hotkey_map_are_refused ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/interlo_desktop-a52dbe822a757e72)
+
+running 85 tests
+test clock::tests::now_ms_is_after_2023 ... ok
+test commands::meeting::tests::mode_parses_the_four_lowercase_values_only ... ok
+test commands::meeting::tests::set_mute_without_a_meeting_is_no_meeting ... ok
+test commands::meeting::tests::failed_checks_refuse_the_start_and_change_nothing ... ok
+test commands::history::tests::newest_first_orders_unsorted_rows ... ok
+test commands::history::tests::sample_meetings_are_newest_first ... ok
+test commands::meeting::tests::set_mute_during_a_meeting_is_not_implemented_never_ok ... ok
+test clock::tests::id_starts_with_prefix_and_time ... ok
+test commands::meeting::tests::failed_start_and_failed_stop_emit_nothing ... ok
+test commands::meeting::tests::confirming_the_checks_lets_the_start_through ... ok
+test commands::meeting::tests::refusal_order_is_mode_then_running_then_setup_then_checks ... ok
+test commands::meeting::tests::setup_refusal_message_lists_microphone_and_models_in_order ... ok
+test commands::meeting::tests::start_emits_running_after_success_and_stop_emits_idle ... ok
+test commands::meeting::tests::setup_refusal_message_is_never_empty_for_an_empty_item_list ... ok
+test commands::meeting::tests::start_with_unknown_mode_is_invalid_input_and_changes_nothing ... ok
+test commands::models::tests::a_confirmed_download_still_stops_at_the_missing_downloader ... ok
+test commands::models::tests::cancel_of_a_known_model_is_not_implemented ... ok
+test commands::meeting::tests::start_is_refused_with_sample_setup_data ... ok
+test commands::meeting::tests::start_then_stop_round_trip ... ok
+test commands::history::tests::meeting_summary_uses_camel_case_names ... ok
+test commands::models::tests::download_of_a_known_model_with_licence_is_not_implemented ... ok
+test commands::models::tests::cancel_of_an_unknown_id_is_invalid_input ... ok
+test commands::models::tests::download_of_an_unknown_id_is_invalid_input ... ok
+test commands::models::tests::download_without_licence_is_invalid_input ... ok
+test commands::models::tests::model_ids_equal_the_setup_item_ids_of_the_models ... ok
+test commands::models::tests::model_info_serializes_licence_fields_in_camel_case ... ok
+test commands::models::tests::model_info_uses_camel_case_names ... ok
+test commands::models::tests::only_the_translation_model_is_non_commercial ... ok
+test commands::models::tests::the_dialog_is_asked_about_the_requested_model ... ok
+test commands::models::tests::the_dialog_is_asked_only_after_the_id_and_the_licence_pass_and_only_once ... ok
+test commands::models::tests::the_licence_flag_from_the_webview_is_not_a_confirmation ... ok
+test commands::notes::tests::each_refusal_has_its_own_message ... ok
+test commands::notes::tests::empty_text_is_invalid_input ... ok
+test commands::notes::tests::newest_first_orders_unsorted_rows ... ok
+test commands::notes::tests::note_uses_camel_case_names ... ok
+test commands::notes::tests::sample_notes_are_newest_first ... ok
+test commands::notes::tests::tag_follows_the_workspace_notes_rule ... ok
+test commands::notes::tests::tag_is_normalized_and_limited_to_64_chars ... ok
+test commands::notes::tests::text_limit_counts_characters_not_bytes ... ok
+test commands::notes::tests::text_longer_than_5000_chars_is_invalid_input ... ok
+test commands::notes::tests::the_note_rules_are_the_ones_in_workspace_notes_not_a_copy ... ok
+test commands::settings::tests::auto_delete_days_must_be_null_or_a_positive_integer ... ok
+test commands::settings::tests::known_keys_check_value_shape ... ok
+test commands::settings::tests::settings_use_camel_case_names ... ok
+test commands::settings::tests::unknown_key_is_invalid_input ... ok
+test commands::setup::tests::can_start_when_all_required_items_are_ok ... ok
+test commands::setup::tests::missing_headphones_do_not_block_start ... ok
+test commands::setup::tests::missing_microphone_or_meeting_audio_blocks_start_with_display_names ... ok
+test commands::setup::tests::missing_virtual_microphone_is_named_with_its_display_name ... ok
+test commands::setup::tests::setup_status_uses_camel_case_names ... ok
+test commands::start_checks::tests::failed_checks_come_in_the_fixed_order ... ok
+test commands::start_checks::tests::headphones_fail_on_built_in_speakers_until_confirmed ... ok
+test commands::start_checks::tests::headphones_pass_on_other_output_devices_even_when_unconfirmed ... ok
+test commands::start_checks::tests::meeting_app_fails_when_blank_after_trim ... ok
+test commands::start_checks::tests::meeting_mic_fails_until_confirmed ... ok
+test commands::start_checks::tests::nothing_fails_when_every_check_is_satisfied ... ok
+test commands::notes::tests::ids_are_unique_even_within_one_millisecond ... ok
+test commands::start_checks::tests::refusal_message_lists_the_failed_checks_and_details_hold_their_ids ... ok
+test commands::start_checks::tests::routing_fails_when_capture_and_voice_share_one_device ... ok
+test commands::start_checks::tests::sample_facts_let_the_sample_flow_pass ... ok
+test events::tests::a_final_line_is_never_rewritten ... ok
+test events::tests::a_push_after_the_window_releases_the_old_batch_and_opens_a_new_one ... ok
+test events::tests::clock_going_backwards_does_not_panic_or_release_early ... ok
+test events::tests::flush_releases_everything_at_once ... ok
+test events::tests::latest_revision_per_line_wins_in_first_seen_order ... ok
+test events::tests::nothing_is_released_before_the_window_ends ... ok
+test events::tests::window_is_50_ms ... ok
+test ipc::tests::absent_required_items_count_as_missing ... ok
+test ipc::tests::capture_and_vmic_are_the_wire_names ... ok
+test ipc::tests::details_are_skipped_in_json_when_absent_and_kept_when_present ... ok
+test ipc::tests::direction_converts_to_and_from_the_playback_type ... ok
+test ipc::tests::direction_in_serializes_as_in ... ok
+test ipc::tests::error_code_is_screaming_snake_case ... ok
+test ipc::tests::each_required_item_alone_blocks_start_with_its_display_name ... ok
+test ipc::tests::headphones_never_block_start ... ok
+test ipc::tests::missing_groups_follow_the_fixed_order_and_name_models_once ... ok
+test ipc::tests::required_items_are_mic_capture_vmic_and_the_four_models ... ok
+test commands::models::tests::sample_models_carry_the_licence_data_of_the_fixture ... ok
+test native_confirm::tests::no_dialog_means_no_confirmation_for_any_model ... ok
+test ipc::tests::start_meeting_args_use_camel_case_and_reject_unknown_keys ... ok
+test commands::meeting::tests::a_poisoned_meeting_state_still_answers_and_still_changes ... ok
+test navigation::tests::app_origin_is_allowed ... ok
+test navigation::tests::other_origins_are_denied ... ok
+test navigation::tests::dev_server_origin_is_allowed_only_when_given ... ok
+test clock::tests::ids_are_unique_within_one_millisecond ... ok
+
+test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/interlo_desktop-b6d6fbe0e6b9f6cc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/demo_data_gate.rs (target/debug/deps/demo_data_gate-e0a80216bb7719fb)
+
+running 6 tests
+test default_build::mute_without_a_meeting_stays_no_meeting ... ok
+test default_build::reads_that_stood_on_sample_data_are_not_implemented ... ok
+test default_build::start_meeting_is_not_implemented_and_changes_nothing ... ok
+test default_build::writes_that_kept_nothing_are_not_implemented_after_the_input_check ... ok
+test the_scan_flags_an_ungated_use_and_accepts_a_gated_one ... ok
+test no_command_uses_sample_data_outside_a_gated_item ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ipc_contract.rs (target/debug/deps/ipc_contract-6d86282a66e09a81)
+
+running 28 tests
+test add_note_args_fixture_fits_the_rust_arguments ... ok
+test cancel_model_download_args_fixture_fits_the_rust_arguments ... ok
+test banner_event_round_trips ... ok
+test app_settings_round_trips ... ok
+test download_model_args_fixture_fits_the_rust_arguments ... ok
+test latency_event_round_trips ... ok
+test ipc_error_setup_incomplete_round_trips ... ok
+test caption_event_round_trips ... ok
+test a_renamed_or_extra_argument_does_not_fit_the_rust_arguments ... ok
+test meeting_summary_list_round_trips ... ok
+test model_info_requires_licence_and_non_commercial ... ok
+test list_fixtures_are_newest_first ... ok
+test model_info_list_fixture_keeps_the_licence_fields ... ok
+test models_progress_states_are_the_four_wire_names ... ok
+test model_info_list_round_trips ... ok
+test note_list_round_trips ... ok
+test model_ids_equal_the_setup_item_ids_of_the_models ... ok
+test note_round_trips ... ok
+test setup_status_round_trips ... ok
+test setup_status_fixture_derived_fields_match_from_items ... ok
+test set_mute_args_fixture_fits_the_rust_arguments ... ok
+test set_setting_args_fixture_fits_the_rust_arguments ... ok
+test start_meeting_args_fixture_fits_the_rust_arguments ... ok
+test start_meeting_result_round_trips ... ok
+test status_event_round_trips ... ok
+test models_progress_event_round_trips ... ok
+test every_error_code_has_a_fixture ... ok
+test error_fixtures_equal_the_errors_the_commands_return ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/native_confirm_gate.rs (target/debug/deps/native_confirm_gate-7245c205de997791)
+
+running 3 tests
+test the_constructor_scan_flags_a_call_and_skips_comments ... ok
+test the_native_dialog_module_exists_and_exposes_the_confirm_function ... ok
+test only_the_native_dialog_module_builds_an_owner_confirmation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/network_boundary.rs (target/debug/deps/network_boundary-d3edb51136e4395b)
+
+running 5 tests
+test the_socket_allow_list_is_empty ... ok
+test the_socket_scan_flags_a_connect_and_skips_comments ... ok
+test the_dependency_check_flags_a_client_and_tokio_net_and_accepts_tokio_rt ... ok
+test no_workspace_source_opens_a_socket ... ok
+test no_workspace_crate_declares_an_http_or_socket_client ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/security_config.rs (target/debug/deps/security_config-732a60a7e95c8398)
+
+running 6 tests
+test the_global_tauri_bridge_is_off_and_the_ui_uses_the_package ... ok
+test csp_never_allows_eval_and_never_allows_inline_script ... ok
+test csp_locks_down_base_uri_forms_objects_and_framing ... ok
+test every_command_in_the_handler_is_in_the_app_manifest ... ok
+test main_window_is_granted_exactly_the_app_commands_and_core_defaults ... ok
+test csp_keeps_unsafe_inline_for_styles_only_while_the_ui_writes_inline_styles ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/meeting_core-71c186197b7b51e6)
+
+running 43 tests
+test journal::tests::a_sequence_beyond_the_database_integer_range_is_refused_not_wrapped ... ok
+test coordinator::tests::a_failure_after_the_last_translation_revision_is_rejected_not_wrapped ... ok
+test coordinator::tests::a_failure_one_revision_below_the_maximum_is_recorded_at_the_maximum ... ok
+test coordinator::tests::each_refusal_reports_its_typed_reason_as_the_rejection_text ... ok
+test journal::tests::a_database_with_a_newer_version_is_refused_and_left_untouched ... ok
+test policy::tests::a_provider_built_with_remote_is_checked_and_one_built_with_local_is_not ... ok
+test policy::tests::allow_model_host_accepts_public_names_and_keeps_case_folding ... ok
+test policy::tests::allow_model_host_rejects_unsafe_hosts ... ok
+test policy::tests::allowed_model_host_never_grants_user_data ... ok
+test policy::tests::default_policy_equals_local_only_and_blocks_remote ... ok
+test policy::tests::local_only_blocks_remote_even_with_consent ... ok
+test journal::tests::a_negative_stored_sequence_is_an_error_not_a_huge_number ... ok
+test policy::tests::local_only_flag_changes_only_through_the_setter ... ok
+test policy::tests::local_provider_always_allowed ... ok
+test policy::tests::model_host_compare_ignores_case_and_revoke_works ... ok
+test policy::tests::model_host_must_be_on_the_list ... ok
+test policy::tests::model_host_passes_in_local_only_mode ... ok
+test policy::tests::provider_constructors_set_the_remote_flag_and_the_getters_read_it ... ok
+test policy::tests::remote_needs_consent_per_kind ... ok
+test journal::tests::same_event_id_in_another_session_is_a_conflict_not_a_duplicate ... ok
+test policy::tests::revoke_removes_consent ... ok
+test protocol::tests::event_decodes_every_variant_it_encodes ... ok
+test protocol::tests::event_rejects_unknown_types_and_malformed_payloads ... ok
+test journal::tests::delete_session_removes_every_row_of_that_session_only ... ok
+test session::tests::cannot_skip_preparing ... ok
+test session::tests::completed_is_terminal ... ok
+test session::tests::failed_needs_explicit_reset_to_idle ... ok
+test session::tests::happy_path_reaches_completed ... ok
+test start_checks::tests::a_control_character_wins_over_the_length_error ... ok
+test start_checks::tests::a_normal_bundle_identifier_is_accepted ... ok
+test start_checks::tests::an_empty_or_blank_id_is_refused ... ok
+test start_checks::tests::control_characters_are_refused_wherever_they_sit ... ok
+test start_checks::tests::length_counts_characters_not_bytes ... ok
+test start_checks::tests::spaces_inside_an_id_are_allowed ... ok
+test start_checks::tests::the_length_limit_is_64_characters_inclusive ... ok
+test journal::tests::the_first_unsupported_version_is_2 ... ok
+test journal::tests::both_open_paths_set_secure_delete_synchronous_and_busy_timeout ... ok
+test journal::tests::a_new_journal_gets_a_private_directory_and_owner_only_files ... ok
+test journal::tests::an_existing_world_readable_journal_file_is_tightened_on_open ... ok
+test journal::tests::a_new_database_has_schema_version_1 ... ok
+test journal::tests::an_existing_version_0_database_is_upgraded_to_1_and_keeps_its_rows ... ok
+test journal::tests::deleted_text_is_gone_from_the_database_files ... ok
+test journal::tests::delete_session_reports_when_a_reader_stops_the_wal_scrub ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/replay_and_rules.rs (target/debug/deps/replay_and_rules-e3f5d4b44ca7f597)
+
+running 26 tests
+test crate_doc_states_the_must_never_rule ... ok
+test default_policy_is_local_only ... ok
+test illegal_session_transition_is_rejected_and_status_is_kept ... ok
+test duplicate_event_id_is_a_no_op ... ok
+test final_segment_is_immutable ... ok
+test failed_event_cannot_replace_a_final_translation ... ok
+test envelope_round_trips_through_json ... ok
+test failure_reports_the_target_language_of_the_source_segment ... ok
+test fixture_parses_and_replays_to_completed_session ... ok
+test another_translation_id_cannot_replace_a_final_translation ... ok
+test higher_revision_cannot_replace_a_final_translation ... ok
+test out_of_order_sequence_is_rejected ... ok
+test session_mismatch_is_rejected ... ok
+test translation_for_unknown_source_is_rejected ... ok
+test retry_under_a_new_id_wins_over_an_earlier_failure_in_either_order ... ok
+test stale_segment_revision_cannot_overwrite_newer ... ok
+test translation_for_stale_source_revision_is_not_shown ... ok
+test unknown_event_type_is_rejected_not_panicking ... ok
+test translation_id_cannot_move_to_another_source_segment ... ok
+test product_names_are_absent_from_sources_and_fixtures ... ok
+test journal_keeps_session_ids_apart ... ok
+test journal_rejects_sequence_reuse_by_a_different_event ... ok
+test journal_is_idempotent_and_replays_in_sequence_order ... ok
+test replay_view_keeps_every_event_id_for_exact_duplicate_detection ... ok
+test live_dedupe_memory_is_bounded_and_duplicates_are_still_ignored ... ok
+test captions_stay_fast_and_correct_with_five_thousand_lines ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running unittests src/lib.rs (target/debug/deps/model_store-88cb9bc6e28786ae)
+
+running 35 tests
+test tests::a_url_is_never_read_as_an_id ... ok
+test tests::an_unknown_id_resolves_to_nothing ... ok
+test tests::a_confirmation_for_another_model_is_refused ... ok
+test tests::a_redirect_to_http_is_refused_even_on_an_allowed_host ... ok
+test tests::an_allowed_model_host_does_not_open_user_data ... ok
+test tests::a_redirect_inside_the_allow_list_is_allowed ... ok
+test tests::a_redirect_from_an_allowed_host_to_a_disallowed_host_is_refused ... ok
+test tests::a_redirect_cannot_hide_the_host_behind_user_info_or_a_missing_host ... ok
+test tests::a_host_revoked_during_a_download_is_refused_on_the_next_hop ... ok
+test tests::download_after_a_click_and_allowed_host_is_allowed ... ok
+test tests::download_is_a_stub ... ok
+test tests::download_with_a_confirmation_but_a_host_off_the_list_is_refused ... ok
+test tests::download_without_a_click_is_refused ... ok
+test tests::download_without_a_confirmation_is_refused_before_the_stub_answer ... ok
+test tests::every_compiled_in_model_is_pinned_and_served_over_https ... ok
+test tests::host_is_read_from_the_url ... ok
+test tests::host_not_on_the_list_is_refused_after_a_click ... ok
+test tests::lookup_matches_the_exact_id_only ... ok
+test tests::local_only_mode_allows_an_owner_started_download_from_an_allowed_host ... ok
+test tests::a_bad_pin_is_rejected ... ok
+test tests::checksum_mismatch_is_rejected ... ok
+test tests::no_click_is_refused_in_local_only_mode_too ... ok
+test tests::hasher_io_error_is_not_a_pass ... ok
+test tests::plain_http_is_refused ... ok
+test tests::checksum_compare_ignores_case ... ok
+test tests::a_hasher_that_ignores_the_cap_cannot_pass_an_oversized_file ... ok
+test tests::revoked_host_is_refused ... ok
+test tests::file_at_the_cap_is_allowed ... ok
+test tests::a_missing_file_is_an_io_error_not_a_pass ... ok
+test tests::an_empty_file_has_length_zero_and_must_still_match_the_pin ... ok
+test tests::matching_file_is_verified ... ok
+test tests::the_length_comes_from_the_file_not_the_caller ... ok
+test tests::size_over_cap_is_rejected_before_hashing ... ok
+test tests::the_returned_file_is_rewound_to_its_start ... ok
+test tests::the_checked_file_is_still_the_checked_file_after_the_path_is_swapped ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/playback-f882842590214046)
+
+running 34 tests
+test mixer::tests::ducks_only_when_owner_speaks_and_enabled ... ok
+test mixer::tests::fallback_original_still_never_reaches_the_meeting ... ok
+test mixer::tests::state_tracks_ducking ... ok
+test mixer::tests::original_never_goes_to_the_meeting ... ok
+test queue::tests::backlog_drops_to_zero_when_hold_expires ... ok
+test queue::tests::expire_without_hold_does_nothing ... ok
+test queue::tests::each_segment_plays_once ... ok
+test queue::tests::a_play_error_keeps_the_segment_at_the_front_and_queued ... ok
+test queue::tests::hold_of_30s_marks_remaining_not_played ... ok
+test queue::tests::hold_keeps_the_queue ... ok
+test queue::tests::backlog_does_not_wrap_at_the_extremes ... ok
+test queue::tests::backlog_follows_enqueue_and_dequeue ... ok
+test queue::tests::hold_that_lasts_on_after_expiry_expires_again_after_30s ... ok
+test queue::tests::hold_under_30s_does_not_expire ... ok
+test queue::tests::mark_played_after_a_hold_expired_the_segment_is_refused ... ok
+test queue::tests::mark_played_refuses_a_segment_that_is_not_at_the_front ... ok
+test queue::tests::order_is_kept ... ok
+test queue::tests::peek_does_not_mark_the_segment_played ... ok
+test queue::tests::placeholder_player_is_not_implemented ... ok
+test queue::tests::play_next_does_nothing_while_held_or_empty ... ok
+test queue::tests::play_next_passes_the_current_speed_to_the_player ... ok
+test queue::tests::queue_speed_follows_backlog ... ok
+test queue::tests::resume_after_timeout_does_not_play_stale_segments ... ok
+test queue::tests::second_hold_keeps_the_first_hold_time ... ok
+test queue::tests::segment_enqueued_after_expiry_plays_after_resume ... ok
+test queue::tests::speed_grows_with_backlog ... ok
+test queue::tests::speed_is_capped_at_1_15 ... ok
+test queue::tests::speed_is_normal_for_small_backlog ... ok
+test queue::tests::speed_just_over_start_threshold_is_barely_above_one ... ok
+test queue::tests::speed_just_under_full_threshold_stays_below_cap ... ok
+test queue::tests::queued_ids_are_never_pruned ... ok
+test queue::tests::played_id_memory_is_bounded ... ok
+test queue::tests::recently_played_id_is_still_ignored_after_pruning ... ok
+test queue::tests::enqueue_refuses_the_segment_after_the_cap_and_keeps_the_queue_intact ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/quick_actions-ec86389d7fded29c)
+
+running 22 tests
+test tests::a_clock_that_runs_backwards_does_not_confirm ... ok
+test tests::a_new_show_replaces_the_preview_with_the_newer_result ... ok
+test tests::enter_pastes_and_esc_cancels ... ok
+test tests::enter_guard_restarts_when_a_newer_result_replaces_the_preview ... ok
+test tests::esc_works_inside_the_enter_guard ... ok
+test tests::enter_is_ignored_for_300_ms_after_show ... ok
+test tests::excluded_app_is_refused_without_case_rules ... ok
+test tests::finished_previews_only_leave_through_reset ... ok
+test tests::idle_shows_a_preview ... ok
+test tests::no_words_gives_no_chunks ... ok
+test tests::non_ascii_text_splits_on_char_boundaries ... ok
+test tests::normal_app_passes_the_guard ... ok
+test tests::nothing_is_pasted_without_a_preview_and_enter ... ok
+test tests::run_action_is_a_stub ... ok
+test tests::secure_input_is_refused_first ... ok
+test tests::short_text_is_one_chunk ... ok
+test tests::typing_never_changes_the_state ... ok
+test tests::unknown_app_fails_closed ... ok
+test tests::whitespace_and_newlines_are_kept ... ok
+test tests::zero_limit_is_treated_as_one_word ... ok
+test tests::exact_multiple_has_no_empty_chunk ... ok
+test tests::long_text_is_cut_at_the_word_limit ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/settings-fc23a1db5603451b)
+
+running 27 tests
+test tests::apply_at_per_setting ... ok
+test tests::default_hotkeys_match_the_decision ... ok
+test tests::a_system_key_is_an_error_not_a_warning ... ok
+test tests::every_default_hotkey_uses_control_and_option_and_is_no_system_key ... ok
+test tests::clash_with_an_existing_key_is_a_warning ... ok
+test tests::default_map_passes_the_validating_constructor ... ok
+test tests::default_hotkeys_pass_their_own_checks ... ok
+test tests::bad_hotkey_text_is_rejected ... ok
+test tests::from_json_rejects_a_missing_action ... ok
+test tests::confirmed_clash_swaps_the_two_combos_and_keeps_the_map_valid ... ok
+test tests::from_json_rejects_a_system_key ... ok
+test tests::from_json_rejects_a_duplicate_combo ... ok
+test tests::near_misses_of_system_keys_are_allowed ... ok
+test tests::parse_and_format_round_trip ... ok
+test tests::hotkey_map_deserialize_is_validating ... ok
+test tests::from_json_rejects_a_zero_subtitle_font_size ... ok
+test tests::probe_json_with_a_system_key_is_rejected ... ok
+test tests::rebind_may_keep_the_own_combo ... ok
+test tests::rebind_to_a_clash_needs_the_owner_to_confirm ... ok
+test tests::rebind_to_a_free_combo_binds ... ok
+test tests::secret_store_is_a_stub ... ok
+test tests::rebind_to_a_system_key_is_refused_even_when_confirmed ... ok
+test tests::settings_deserialize_is_validating ... ok
+test tests::settings_json_has_no_secret_fields ... ok
+test tests::system_keys_are_refused ... ok
+test tests::settings_round_trip_through_json ... ok
+test tests::system_keys_are_refused_in_any_modifier_order ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/store-36fe066b4d9f98c7)
+
+running 41 tests
+test tests::a_time_beyond_the_database_integer_range_is_refused_and_nothing_is_stored ... ok
+test tests::deleting_a_meeting_keeps_tasks_but_detaches_them ... ok
+test tests::a_new_store_gets_a_private_directory_and_owner_only_files ... ok
+test tests::an_existing_world_readable_store_file_is_tightened_on_open ... ok
+test tests::a_failed_meeting_delete_closes_the_guard_again ... ok
+test tests::delete_meeting_still_removes_final_lines ... ok
+test tests::deleting_a_meeting_keeps_the_task_and_clears_its_link_while_notes_go ... ok
+test tests::deleting_a_meeting_keeps_daily_notes_and_other_meetings_notes ... ok
+test tests::another_connection_cannot_delete_a_final_line ... ok
+test tests::deleting_a_meeting_deletes_its_notes_and_their_search_rows ... ok
+test tests::deleting_a_meeting_removes_its_jobs_only ... ok
+test tests::deleting_a_meeting_removes_its_rows ... ok
+test tests::deleted_meeting_text_is_gone_from_the_database_and_wal_files ... ok
+test tests::file_database_sets_every_pragma ... ok
+test tests::deleting_an_unknown_meeting_deletes_no_notes ... ok
+test tests::file_database_uses_wal ... ok
+test tests::final_line_is_never_rewritten ... ok
+test tests::deleting_one_of_two_identical_notes_keeps_the_other_searchable ... ok
+test tests::final_line_survives_a_raw_delete ... ok
+test tests::final_line_survives_a_raw_meeting_delete ... ok
+test tests::newer_schema_is_refused ... ok
+test tests::final_line_survives_insert_or_replace ... ok
+test tests::delete_meeting_reports_when_a_reader_stops_the_wal_scrub ... ok
+test tests::final_line_survives_replace_into_with_a_final_status ... ok
+test tests::foreign_keys_are_on ... ok
+test tests::memory_database_sets_every_pragma ... ok
+test tests::lookup_columns_are_indexed ... ok
+test tests::lower_revision_does_not_overwrite_a_higher_one ... ok
+test tests::migrate_creates_every_table ... ok
+test tests::memory_store_delete_has_nothing_to_scrub_and_says_scrubbed ... ok
+test tests::migrate_twice_is_a_no_op ... ok
+test tests::no_blob_columns_outside_the_fts_shadow_tables ... ok
+test tests::non_final_lines_can_still_be_deleted_and_replaced ... ok
+test tests::note_index_is_keyed_by_rowid_not_by_a_scanned_column ... ok
+test tests::partial_line_can_be_revised ... ok
+test tests::purge_is_a_stub ... ok
+test tests::migrate_twice_adds_no_schema_objects ... ok
+test tests::search_treats_operators_as_plain_text ... ok
+test tests::utterance_needs_an_existing_meeting ... ok
+test tests::note_search_follows_insert_update_delete ... ok
+test tests::search_returns_at_most_the_limit ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running unittests src/lib.rs (target/debug/deps/summary_jobs-ad770bfc488bf11e)
+
+running 19 tests
+test tests::completed_job_is_not_due ... ok
+test tests::an_answer_with_a_blank_id_is_refused ... ok
+test tests::late_complete_on_a_dead_job_is_refused ... ok
+test tests::expired_lease_counts_as_a_failed_attempt ... ok
+test tests::job_runs_three_times_then_dies ... ok
+test tests::answers_must_cite_known_lines ... ok
+test tests::complete_needs_a_lease_and_a_done_job_cannot_complete_twice ... ok
+test tests::late_complete_after_the_lease_was_reaped_is_refused ... ok
+test tests::fail_on_a_fresh_queued_job_does_not_kill_it ... ok
+test tests::notes_are_kept_when_the_reply_is_bad ... ok
+test tests::citation_check_rejects_missing_and_unknown_ids ... ok
+test tests::fail_on_a_done_or_dead_job_changes_nothing ... ok
+test tests::a_blank_id_next_to_a_real_id_is_not_evidence ... ok
+test tests::policy_constants_match_the_decision ... ok
+test tests::remote_answerer_is_refused ... ok
+test tests::retry_schedule_is_30s_then_60s_then_stop ... ok
+test tests::run_summary_obeys_the_egress_guard ... ok
+test tests::run_summary_replaces_only_with_cited_points ... ok
+test tests::unavailable_summarizer_is_a_stub ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/workspace_notes-20e6e86f8ef6e3f8)
+
+running 23 tests
+test tests::local_date_handles_offsets_around_the_epoch ... ok
+test tests::drafts_are_not_tasks_until_confirmed ... ok
+test tests::auto_delete_is_off_by_default_and_deletes_nothing ... ok
+test tests::a_draft_is_confirmed_once ... ok
+test tests::auto_delete_picks_notes_older_than_the_window ... ok
+test tests::a_task_title_cannot_forge_extra_task_lines ... ok
+test tests::a_note_cannot_forge_list_items_or_tasks_on_later_lines ... ok
+test tests::a_plain_task_title_is_unchanged ... ok
+test tests::dates_are_formatted_in_utc ... ok
+test tests::export_applies_the_offset_to_task_due_dates_too ... ok
+test tests::export_uses_the_local_date_from_the_offset ... ok
+test tests::markdown_export_lists_notes_then_tasks ... ok
+test tests::a_task_title_with_a_leading_list_marker_is_escaped ... ok
+test tests::markdown_export_of_nothing_says_so ... ok
+test tests::note_new_normalizes_the_tag ... ok
+test tests::note_new_refuses_a_tag_that_cannot_be_normalized ... ok
+test tests::overdue_rules ... ok
+test tests::rejected_draft_never_becomes_a_task ... ok
+test tests::search_matches_text_and_tag_without_case ... ok
+test tests::tags_are_normalized ... ok
+test tests::user_input_is_trimmed_and_checked ... ok
+test tests::user_input_tag_rules ... ok
+test tests::user_input_text_limit_counts_characters_not_bytes ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests audio_io
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests diagnostics
+
+running 4 tests
+test crates/diagnostics/src/lib.rs - LogEvent::with_code (line 94) - compile fail ... ok
+test crates/diagnostics/src/lib.rs - LogEvent::with_timing (line 103) - compile fail ... ok
+test crates/diagnostics/src/lib.rs - LogEvent::new (line 81) - compile fail ... ok
+test crates/diagnostics/src/lib.rs - LogEvent (line 51) - compile fail ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+   Doc-tests engine_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests integration_tests
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests interlo_desktop
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests meeting_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests model_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests playback
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests quick_actions
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests settings
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests summary_jobs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests workspace_notes
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    -> PASS in 2s
+
+==> ui lint
+    $ npm --prefix apps/ui run lint
+
+> @interlo/ui@0.1.0 lint
+> eslint .
+
+    -> PASS in 2s
+
+==> ui format:check
+    $ npm --prefix apps/ui run format:check
+
+> @interlo/ui@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+All matched files use Prettier code style!
+    -> PASS in 1s
+
+==> ui typecheck
+    $ npm --prefix apps/ui run typecheck
+
+> @interlo/ui@0.1.0 typecheck
+> tsc --noEmit
+
+    -> PASS in 1s
+
+==> ui test
+    $ npm --prefix apps/ui test
+
+> @interlo/ui@0.1.0 test
+> vitest run
+
+
+ RUN  v5.1.0 $HOME/Desktop/workspace/training/ai/interlo-wt-m0b05/apps/ui
+
+
+ Test Files  41 passed (41)
+      Tests  358 passed (358)
+   Start at  11:06:28
+   Duration  3.02s (environment 47%, tests 29%, import 18%, transform 5%)
+
+    Isolate  41 workers spawned · ~394ms startup each (spawn + environment, per file)
+             at least ~1.07s faster with isolate: false — reuses workers across files instead of one per file
+
+    -> PASS in 4s
+
+==> gitlab templates
+    $ node scripts/check-templates.mjs
+check-templates: 12 templates match the spec
+    -> PASS in 0s
+
+==> gitlab templates self-test
+    $ node --test scripts/check-templates.test.mjs
+▶ check-templates
+  ✔ passes on the templates in the repository (3.906625ms)
+  ✔ reports a missing file and a file with no rule (4.713542ms)
+  ✔ reports a missing heading and a heading out of order (7.777042ms)
+  ✔ reports an unexpected heading (3.826625ms)
+  ✔ reports trailing whitespace, a tab and CRLF (10.670292ms)
+  ✔ reports an arrow inside a comment that ends the comment early (the Mermaid case) (7.543458ms)
+  ✔ accepts an arrow in a visible code block, and comment markers in code (7.983542ms)
+  ✔ does not count a heading, a required line or a gate table that is hidden or only in code (26.113042ms)
+  ✔ tracks code fences by character and length (10.956542ms)
+  ✔ pins the gate table columns and the separator line (13.813333ms)
+  ✔ reports a duplicate heading (3.984125ms)
+  ✔ reports a comment that is never closed (3.8175ms)
+  ✔ reports a missing gate row, a stray performance row and a missing verified commit (11.470458ms)
+  ✔ reports a table row with the wrong number of cells and a missing separator (7.2325ms)
+  ✔ reports text from another project (3.34825ms)
+  ✔ reports a path or a check.sh mode that does not exist (20.099542ms)
+  ✔ reports a dropped Interlo rule in the default merge request template (3.630584ms)
+  ✔ reports a dropped security notice and a wrong title tag in issue templates (6.740792ms)
+✔ check-templates (158.625ms)
+ℹ tests 18
+ℹ suites 1
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 280.348666
+    -> PASS in 0s
+
+== Summary (quick) ==
+STEP                                                 RESULT           SECONDS
+----                                                 ------           -------
+cargo fmt --check                                    PASS             0
+cargo clippy                                         PASS             3
+cargo test                                           PASS             2
+ui lint                                              PASS             2
+ui format:check                                      PASS             1
+ui typecheck                                         PASS             1
+ui test                                              PASS             4
+gitlab templates                                     PASS             0
+gitlab templates self-test                           PASS             0
+Total: 14s
+
+ALL STEPS PASSED (quick)
