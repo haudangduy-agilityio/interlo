@@ -45,6 +45,10 @@ Verify the text files: `cd docs/m0/M0b-01/evidence && grep -v ' /' SHA256SUMS | 
 
 - `9ec153d834dd27d83870c919b7c2574c6b5e4c4293b8a788a14705f6e5a81df6  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/first-frame-win2164-t1054ms-epoch1795418481.png`
 - `5acd92f2dddaddce3adb2d6513d346333411186867dd88708d7340f4c6b23508  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/after-5s-win2164-t6215ms-epoch1795418486.png`
+- `a970843796fc09a46e0044c70e34d61bc589a63bb11bda1ea54e32568afb6ea6  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/home.png`
+- `dc97dc052ad5f2f1a27bbe0756f831551bea75605bd9acfb7a71138517b7af77  /Users/saccerwin/Desktop/workspace/training/ai/interlo-evidence/M0b-01/setup.png`
+
+`home.png` and `setup.png` were retaken on the new UI after the run, by pressing the sidebar buttons through the Accessibility API (no key events) and capturing the window by its id; they are not produced by the script.
 
 ## Negative controls (05-negative-controls.txt)
 
