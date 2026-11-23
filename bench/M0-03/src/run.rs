@@ -132,8 +132,12 @@ fn create_new(path: &Path) -> Result<File, String> {
 /// a device that never ends, is an `error_io` run and not an out-of-memory crash.
 const MAX_INPUT_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Read a whole file, but refuse one that is longer than `max` bytes.
+/// Read a whole regular file, but refuse one that is longer than `max` bytes. A pipe, a device
+/// or a folder is refused before it is opened, so a pipe cannot block the run.
 fn read_limited(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::other("input is not a regular file"));
+    }
     let mut bytes = Vec::new();
     File::open(path)?.take(max + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > max {
@@ -431,6 +435,8 @@ mod tests {
         std::fs::write(&file, [7u8; 10]).unwrap();
         assert_eq!(read_limited(&file, 10).unwrap().len(), 10);
         assert!(read_limited(&file, 9).is_err());
+        assert!(read_limited(&dir, 10).is_err());
+        assert!(read_limited(Path::new("/dev/zero"), 10).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 

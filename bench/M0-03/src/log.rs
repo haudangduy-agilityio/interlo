@@ -1,6 +1,6 @@
 //! Log format v1: header lines that start with `#`, then one line per event, fields separated
-//! by one tab (`<t_us>\t<stage>\t<event>\t<key>=<n>...`). Every field value is a number, so a stage cannot
-//! write text into the log (guardrail 6).
+//! by one tab (`<t_us>\t<stage>\t<event>\t<key>=<n>...`). Every field value is a number, so a
+//! stage cannot write text into the log (guardrail 6).
 
 use std::io::Write;
 

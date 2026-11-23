@@ -35,7 +35,9 @@ scan "non-ASCII text" -n '[^\x00-\x7F]' "${SCOPE[@]}" --glob '!target'
 
 # No media or model file is tracked or staged in the crate or its note.
 MEDIA='\.(wav|png|jpe?g|gif|mp3|m4a|flac|ogg|pcm|raw|onnx|bin)$'
-FILES="$( (git -C "$ROOT" ls-files bench/M0-03 docs/m0/M0-03.md; git -C "$ROOT" ls-files -o --exclude-standard bench/M0-03 docs/m0/M0-03.md) )"
+TRACKED="$(git -C "$ROOT" ls-files bench/M0-03 docs/m0/M0-03.md)" || exit 1
+UNTRACKED="$(git -C "$ROOT" ls-files -o --exclude-standard bench/M0-03 docs/m0/M0-03.md)" || exit 1
+FILES="$TRACKED"$'\n'"$UNTRACKED"
 [ -n "$FILES" ] || { echo "git listed no files for bench/M0-03" >&2; exit 1; }
 printf '%s\n' "$FILES" | scan "a media or model file" -i "$MEDIA"
 echo "ALL STEPS PASSED (bench/M0-03)"
