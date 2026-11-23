@@ -33,8 +33,12 @@ the app".
    `lsof -nP -iTCP:<port> -sTCP:LISTEN` prints nothing. The Vite dev server defaults to
    5173 (`apps/ui/vite.config.ts`, `strictPort`). If something already listens, it is not
    yours: do not drive it and do not stop it by process name.
-4. The browser address stays on localhost. The browser guard allows loopback with an
-   explicit port and nothing else.
+4. The browser address stays on localhost when you check the UI. This is a rule of this
+   skill, not an enforced block: the browser origin hook was removed on 2026-11-23 at the
+   owner's request, so the browser tools can now reach other sites. The page-code tools
+   (`mcp__playwright__browser_run_code_unsafe`, `mcp__claude-in-chrome__javascript_tool`)
+   stay denied in `.claude/settings.json`. Open another address only when the owner asked
+   for it, for example to attach evidence to a pull request.
 
 ## Drive
 
