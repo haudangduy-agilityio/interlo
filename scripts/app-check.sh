@@ -457,7 +457,9 @@ step_bundle() {
   grep -E '^(exit|RESULT)|^[0-9a-f]{64}|^[0-9.]+M' "$out"
 }
 
-step_window() {
+# One launch of the window check. Returns EXIT_APP_ENDED when the app process ends by
+# itself before both screenshots are taken; step_window records that and repeats it.
+window_attempt() {
   local log="$EVID/02-window-poll.log" pid start now elapsed info="" first="" id title w h epoch first_shot late_shot
   pid="$(launch_app)"
   start="$(cat "$OUT/launch.t0")"
@@ -472,6 +474,10 @@ step_window() {
     first="$(echo "$info" | head -1)"
     echo "t=${elapsed}ms windows=$(echo "$info" | grep -c . || true) ${first:+found: $(echo "$first" | awk -F'\t' '{ printf "id=%s title=\"%s\" size=%sx%s", $1, $2, $3, $4 }')}" >>"$log"
     [ -z "$first" ] || break
+    if [ "$(app_pid)" != "$pid" ]; then
+      echo "t=${elapsed}ms: the app process $pid is gone before a window was found" >>"$log"
+      return "$EXIT_APP_ENDED"
+    fi
     [ "$elapsed" -lt "$WINDOW_DEADLINE_MS" ] || {
       stop_app
       fail "no window within $((WINDOW_DEADLINE_MS / 1000)) s"
@@ -487,6 +493,10 @@ step_window() {
   local try=0
   until screencapture -x -o -l "$id" "$first_shot" 2>/dev/null; do
     try=$((try + 1))
+    if [ "$(app_pid)" != "$pid" ]; then
+      echo "the app process $pid is gone before the first capture" >>"$log"
+      return "$EXIT_APP_ENDED"
+    fi
     [ "$try" -lt 10 ] || fail "screencapture of window $id failed 10 times in a row (is the screen locked or asleep?)"
     sleep 0.2
   done
@@ -497,7 +507,13 @@ step_window() {
   epoch="$(date +%s)"
   local late=$((now - start))
   late_shot="$SHOTS/after-${SHOT_LATE_AFTER_S}s-win${id}-t${late}ms-epoch${epoch}.png"
-  screencapture -x -o -l "$id" "$late_shot" || fail "second screencapture failed"
+  if ! screencapture -x -o -l "$id" "$late_shot" 2>/dev/null; then
+    if [ "$(app_pid)" != "$pid" ]; then
+      echo "the app process $pid is gone before the second capture (t=${late}ms)" >>"$log"
+      return "$EXIT_APP_ENDED"
+    fi
+    fail "the second screencapture of window $id failed while the app is running"
+  fi
   echo "$late_shot" >>"$OUT/shots.list"
   echo "capture: after-${SHOT_LATE_AFTER_S}s-win${id}-t${late}ms-epoch${epoch}.png taken at t=${late}ms" >>"$log"
   stop_app
@@ -513,6 +529,22 @@ step_window() {
   echo "RESULT: title \"$title\", size ${w} by ${h} points, found ${elapsed} ms after launch (limit ${WINDOW_DEADLINE_MS} ms); two screenshots of window $id" >>"$log"
   grep -E '^(capture|RESULT)|pixels' "$log"
   echo "screenshots are stored outside the repository, in $SHOTS"
+}
+
+# The window check, repeated (at most 3 tries) when the app process ends by itself; each
+# interrupted try is recorded with its partial log, and an app that ends every time fails.
+step_window() {
+  local attempt rc interrupted="$EVID/02-interrupted-windows.log"
+  for attempt in 1 2 3; do
+    rc=0
+    window_attempt || rc=$?
+    [ "$rc" -eq "$EXIT_APP_ENDED" ] || return "$rc"
+    stop_app
+    cp "$EVID/02-window-poll.log" "$EVID/02-window-poll-try$attempt-interrupted.log"
+    echo "RESULT: window try $attempt: the app process ended before both screenshots were taken ($(iso)); the launch was repeated; partial log: 02-window-poll-try$attempt-interrupted.log" >>"$interrupted"
+    echo "INTERRUPTED WINDOW LAUNCH: try $attempt (the app process ended by itself; see 02-interrupted-windows.log)"
+  done
+  fail "the app process ended on 3 tries in a row during the window check"
 }
 
 # One launch: sample the sockets every second for IDLE_SECONDS, then sample the memory.
@@ -1074,7 +1106,7 @@ step_evidence() {
     echo
     echo "## Quoted result lines"
     echo
-    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "03-sockets-launch$i.log"; done) 03-interrupted-launches.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "04-rss-launch$i.txt"; done) 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
+    for f in 00-bundle.txt 01-build-flags.txt 02-window-poll.log 02-interrupted-windows.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "03-sockets-launch$i.log"; done) 03-interrupted-launches.log $(for i in $(seq 1 "$IDLE_LAUNCHES"); do echo "04-rss-launch$i.txt"; done) 04-rss-all-launches.txt 05-negative-controls.txt 06-checksum-control.txt 07-telex-typing.log; do
       echo "- \`$f\`:"
       if [ -f "$EVID/$f" ]; then
         grep -E '^(RESULT|exit: 0|FLAGS)' "$EVID/$f" | sed 's/^/  > /' || true
