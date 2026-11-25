@@ -15,6 +15,7 @@ pub mod onnx_vad;
 pub mod registry;
 pub mod segmenter;
 pub mod speech_events;
+pub mod speech_features;
 pub mod traits;
 
 pub use error::{DenyCause, EngineError};
