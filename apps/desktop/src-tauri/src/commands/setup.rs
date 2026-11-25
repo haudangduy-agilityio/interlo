@@ -1,12 +1,14 @@
 //! `check_setup`: the real readiness probe of `audio-io`, mapped to the IPC
 //! status (M1-41, FR-01).
 //!
-//! The probe opens the microphone, so it runs on a blocking thread and one at a
-//! time. A permission seen as granted is kept for the app session; any other
-//! result is probed again at the next call. Model states come from the model
-//! manager (M1-04); until it reports, all four are `missing`.
+//! The probe opens the microphone, so it runs on a blocking thread. Calls that
+//! overlap share one run. While a meeting runs no microphone is opened. A
+//! permission seen as granted is kept for the app session; any other result is
+//! probed again at the next call. Model states come from the model manager
+//! (M1-04); until it reports, all four are `missing`.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use audio_io::{
     probe_setup, DeviceListError, DeviceSnapshot, MicConfig, MicPermission, ModelState, ProbeEnv,
@@ -14,6 +16,8 @@ use audio_io::{
     SetupState as ReportState, SystemEnv,
 };
 
+#[cfg(not(feature = "demo-data"))]
+use crate::commands::meeting::MeetingState;
 use crate::ipc::{IpcResult, SetupGroup, SetupItem, SetupItemId, SetupState, SetupStatus};
 
 /// No model manager reports yet (M1-04), so no model counts as downloaded.
@@ -64,28 +68,156 @@ pub fn status_from_report(report: &SetupReport) -> SetupStatus {
     SetupStatus::from_items(report.items.iter().map(item_of).collect())
 }
 
+/// The `mic` detail while a meeting runs and the permission is not known yet.
+const MIC_WAITS_FOR_MEETING: &str = "Microphone check waits until the meeting ends";
+
+/// One run of the check and the callers that wait for its answer.
+struct Flight {
+    answer: Mutex<Option<SetupStatus>>,
+    ready: Condvar,
+}
+
+impl Flight {
+    fn new() -> Self {
+        Self {
+            answer: Mutex::new(None),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn wait(&self) -> SetupStatus {
+        let mut answer = self.answer.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(status) = answer.as_ref() {
+                return status.clone();
+            }
+            answer = self
+                .ready
+                .wait(answer)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// Ends the run in flight when the leader returns, also when it panics: then
+/// the waiting callers get the failed status instead of waiting for ever.
+struct Leader<'a> {
+    slot: &'a Mutex<Option<Arc<Flight>>>,
+    flight: Arc<Flight>,
+}
+
+impl Leader<'_> {
+    fn finish(&self, status: SetupStatus) {
+        self.slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        *self
+            .flight
+            .answer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(status);
+        self.flight.ready.notify_all();
+    }
+}
+
+impl Drop for Leader<'_> {
+    fn drop(&mut self) {
+        let finished = self
+            .flight
+            .answer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some();
+        if !finished {
+            self.finish(failed_status());
+        }
+    }
+}
+
+/// A system that must not open the microphone: the probe answers `Unknown` and
+/// records that it was asked. The other reads go to the real system.
+struct NoMicrophoneOpen<'a> {
+    inner: &'a mut dyn ProbeEnv,
+    asked: bool,
+}
+
+impl ProbeEnv for NoMicrophoneOpen<'_> {
+    fn read_devices(&mut self) -> Result<DeviceSnapshot, DeviceListError> {
+        self.inner.read_devices()
+    }
+    fn probe_microphone(&mut self, _config: &MicConfig) -> MicPermission {
+        self.asked = true;
+        MicPermission::Unknown
+    }
+    fn tap_available(&mut self) -> bool {
+        self.inner.tap_available()
+    }
+}
+
 /// The state of one app session: whether the microphone permission is already
-/// known to be granted, and the in-flight gate of the microphone probe. The
-/// lock is held for a whole check, so checks run one at a time.
+/// known to be granted, the in-flight gate of the microphone probe and the run
+/// in flight. Calls that overlap share one run: the first call runs the check,
+/// the others wait for it and get the same answer.
 #[derive(Clone, Default)]
 pub struct SetupCheck {
-    granted: Arc<Mutex<bool>>,
+    granted: Arc<AtomicBool>,
+    flight: Arc<Mutex<Option<Arc<Flight>>>>,
     gate: ProbeGate,
 }
 
 impl SetupCheck {
-    pub fn run(&self, env: &mut dyn ProbeEnv) -> SetupStatus {
-        let mut granted = self.granted.lock().unwrap_or_else(PoisonError::into_inner);
-        let outcome = probe_setup(env, MODELS_NOT_DOWNLOADED, *granted);
+    /// The check. While a meeting runs the microphone is not opened.
+    pub fn run(&self, env: &mut dyn ProbeEnv, meeting_running: bool) -> SetupStatus {
+        let (flight, leads) = {
+            let mut slot = self.flight.lock().unwrap_or_else(PoisonError::into_inner);
+            match slot.as_ref() {
+                Some(running) => (Arc::clone(running), false),
+                None => {
+                    let flight = Arc::new(Flight::new());
+                    *slot = Some(Arc::clone(&flight));
+                    (flight, true)
+                }
+            }
+        };
+        if !leads {
+            return flight.wait();
+        }
+        let leader = Leader {
+            slot: &self.flight,
+            flight,
+        };
+        let status = self.run_once(env, meeting_running);
+        leader.finish(status.clone());
+        status
+    }
+
+    fn run_once(&self, env: &mut dyn ProbeEnv, meeting_running: bool) -> SetupStatus {
+        let known = self.granted.load(Ordering::SeqCst);
+        if meeting_running && !known {
+            let mut closed = NoMicrophoneOpen {
+                inner: env,
+                asked: false,
+            };
+            let outcome = probe_setup(&mut closed, MODELS_NOT_DOWNLOADED, false);
+            let mut status = status_from_report(&outcome.report);
+            if closed.asked {
+                if let Some(mic) = status.items.iter_mut().find(|i| i.id == SetupItemId::Mic) {
+                    mic.detail = MIC_WAITS_FOR_MEETING.to_string();
+                }
+            }
+            return status;
+        }
+        let outcome = probe_setup(env, MODELS_NOT_DOWNLOADED, known);
         if outcome.mic_permission == MicPermission::Granted {
-            *granted = true;
+            self.granted.store(true, Ordering::SeqCst);
         }
         status_from_report(&outcome.report)
     }
 
     /// The check on this Mac. Blocks for up to the sum of the probe limits.
-    pub fn run_system(&self) -> SetupStatus {
-        self.run(&mut SystemEnv::new(self.gate.clone()))
+    pub fn run_system(&self, meeting_running: bool) -> SetupStatus {
+        self.run(&mut SystemEnv::new(self.gate.clone()), meeting_running)
     }
 }
 
@@ -137,10 +269,14 @@ pub fn sample_setup_status() -> SetupStatus {
 
 #[cfg(not(feature = "demo-data"))]
 #[tauri::command]
-pub async fn check_setup(check: tauri::State<'_, SetupCheck>) -> IpcResult<SetupStatus> {
+pub async fn check_setup(
+    check: tauri::State<'_, SetupCheck>,
+    meeting: tauri::State<'_, MeetingState>,
+) -> IpcResult<SetupStatus> {
     let check = check.inner().clone();
+    let running = meeting.is_running();
     Ok(
-        tauri::async_runtime::spawn_blocking(move || check.run_system())
+        tauri::async_runtime::spawn_blocking(move || check.run_system(running))
             .await
             .unwrap_or_else(|_| failed_status()),
     )
@@ -329,8 +465,8 @@ mod tests {
     fn granted_is_kept_and_not_probed_again() {
         let check = SetupCheck::default();
         let mut env = FakeEnv::new(&[MicPermission::Granted, MicPermission::Denied]);
-        let first = check.run(&mut env);
-        let second = check.run(&mut env);
+        let first = check.run(&mut env, false);
+        let second = check.run(&mut env, false);
         assert_eq!(mic_state(&first), SetupState::Ok);
         assert_eq!(second.items[0], first.items[0]);
         assert_eq!(env.probes.load(Ordering::SeqCst), 1);
@@ -346,45 +482,146 @@ mod tests {
         ] {
             let check = SetupCheck::default();
             let mut env = FakeEnv::new(&[first, MicPermission::Granted]);
-            assert_ne!(mic_state(&check.run(&mut env)), SetupState::Ok, "{first:?}");
-            assert_eq!(mic_state(&check.run(&mut env)), SetupState::Ok, "{first:?}");
+            assert_ne!(mic_state(&check.run(&mut env, false)), SetupState::Ok, "{first:?}");
+            assert_eq!(mic_state(&check.run(&mut env, false)), SetupState::Ok, "{first:?}");
             assert_eq!(env.probes.load(Ordering::SeqCst), 2, "{first:?}");
         }
     }
 
+    /// A system whose microphone probe ends in a panic after a pause.
+    struct PanicEnv;
+
+    impl ProbeEnv for PanicEnv {
+        fn read_devices(&mut self) -> Result<DeviceSnapshot, DeviceListError> {
+            Ok(devices())
+        }
+        fn probe_microphone(&mut self, _config: &MicConfig) -> MicPermission {
+            std::thread::sleep(Duration::from_millis(120));
+            panic!("the probe failed on purpose");
+        }
+        fn tap_available(&mut self) -> bool {
+            false
+        }
+    }
+
     #[test]
-    fn overlapping_calls_run_one_at_a_time() {
+    fn overlapping_calls_share_one_run() {
         let check = SetupCheck::default();
         let events = Arc::new(Mutex::new(Vec::new()));
-        let handles: Vec<_> = (0..2)
-            .map(|_| {
+        let probes = Arc::new(AtomicUsize::new(0));
+        let handles: Vec<_> = (0..3u64)
+            .map(|n| {
                 let check = check.clone();
                 let events = Arc::clone(&events);
+                let probes = Arc::clone(&probes);
                 std::thread::spawn(move || {
-                    let mut env = FakeEnv::new(&[MicPermission::Denied; 2]);
-                    env.pause = Duration::from_millis(60);
-                    env.events = events;
-                    check.run(&mut env);
+                    std::thread::sleep(Duration::from_millis(40 * n));
+                    let mut env = FakeEnv::new(&[MicPermission::Denied; 3]);
+                    env.pause = Duration::from_millis(200);
+                    env.probes = probes;
+                    env.events = Arc::clone(&events);
+                    let status = check.run(&mut env, false);
+                    events.lock().unwrap().push("returned");
+                    status
                 })
             })
             .collect();
-        for h in handles {
-            h.join().unwrap();
-        }
+        let answers: Vec<SetupStatus> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(probes.load(Ordering::SeqCst), 1, "one run opens the microphone once");
+        assert_eq!(answers[1], answers[0]);
+        assert_eq!(answers[2], answers[0]);
         assert_eq!(
             *events.lock().unwrap(),
-            ["start", "end", "start", "end"],
-            "the second check started before the first ended"
+            ["start", "end", "returned", "returned", "returned"],
+            "a waiting caller returned before the run ended"
         );
+        // The counter is shared, so this second run reads answer 1.
+        let mut later = FakeEnv::new(&[MicPermission::Denied, MicPermission::Granted]);
+        later.probes = Arc::clone(&probes);
+        assert_eq!(mic_state(&check.run(&mut later, false)), SetupState::Ok);
+        assert_eq!(probes.load(Ordering::SeqCst), 2, "a call after the run starts a new run");
+    }
+
+    #[test]
+    fn a_panic_in_the_run_gives_the_failed_status_to_the_waiter() {
+        let check = SetupCheck::default();
+        let leader = {
+            let check = check.clone();
+            std::thread::spawn(move || check.run(&mut PanicEnv, false))
+        };
+        std::thread::sleep(Duration::from_millis(40));
+        let waiter = {
+            let check = check.clone();
+            std::thread::spawn(move || check.run(&mut FakeEnv::new(&[MicPermission::Granted]), false))
+        };
+        assert!(leader.join().is_err(), "the leader panics");
+        assert_eq!(waiter.join().unwrap(), failed_status());
+        let mut env = FakeEnv::new(&[MicPermission::Granted]);
+        assert_eq!(mic_state(&check.run(&mut env, false)), SetupState::Ok);
+        assert_eq!(env.probes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_running_meeting_opens_no_microphone() {
+        let check = SetupCheck::default();
+        let mut env = FakeEnv::new(&[MicPermission::Granted]);
+        let status = check.run(&mut env, true);
+        assert_eq!(env.probes.load(Ordering::SeqCst), 0);
+        assert_eq!(status.items[0].state, SetupState::Error);
+        assert_eq!(
+            status.items[0].detail,
+            "Microphone check waits until the meeting ends"
+        );
+        assert_eq!(mic_state(&check.run(&mut env, false)), SetupState::Ok);
+        assert_eq!(env.probes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_running_meeting_keeps_a_known_grant() {
+        let check = SetupCheck::default();
+        let mut env = FakeEnv::new(&[MicPermission::Granted]);
+        let before = check.run(&mut env, false);
+        let during = check.run(&mut env, true);
+        assert_eq!(during.items[0], before.items[0]);
+        assert_eq!(mic_state(&during), SetupState::Ok);
+        assert_eq!(env.probes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_running_meeting_leaves_the_other_rows_alone() {
+        let quiet = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Denied]), false);
+        let busy = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Denied]), true);
+        assert_eq!(busy.items[1..], quiet.items[1..]);
+    }
+
+    #[test]
+    fn a_running_meeting_with_no_microphone_keeps_that_row() {
+        let mut env = FakeEnv::new(&[MicPermission::Granted]);
+        env.devices = Ok(DeviceSnapshot::default());
+        let quiet = SetupCheck::default().run(&mut env, false);
+        let busy = SetupCheck::default().run(&mut env, true);
+        assert_eq!(quiet.items[0].state, SetupState::Missing);
+        assert_eq!(busy.items[0], quiet.items[0]);
+    }
+
+    #[test]
+    fn the_command_passes_the_meeting_flag() {
+        let src = include_str!("setup.rs");
+        // Built from two parts so that this test does not find itself.
+        let signature = format!("{}{}", "pub async fn check_", "setup(\n");
+        let start = src.find(&signature).expect("the default-build command exists");
+        let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        assert!(body.contains("meeting.is_running()"), "{body}");
+        assert!(body.contains("run_system(running)"), "{body}");
     }
 
     fn denied_status() -> SetupStatus {
-        SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Denied]))
+        SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Denied]), false)
     }
 
     #[test]
     fn report_maps_to_status_items_in_order() {
-        let status = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Granted]));
+        let status = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Granted]), false);
         let got: Vec<(SetupItemId, SetupGroup, SetupState)> = status
             .items
             .iter()
@@ -450,7 +687,7 @@ mod tests {
 
     #[test]
     fn models_missing_lists_the_models_group_and_headphones_add_nothing() {
-        let status = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Granted]));
+        let status = SetupCheck::default().run(&mut FakeEnv::new(&[MicPermission::Granted]), false);
         assert!(!status.can_start);
         assert_eq!(status.missing_groups, ["Models"]);
         let mut no_phones = FakeEnv::new(&[MicPermission::Granted]);
@@ -462,7 +699,7 @@ mod tests {
                 .collect(),
             skipped: 0,
         });
-        let status = SetupCheck::default().run(&mut no_phones);
+        let status = SetupCheck::default().run(&mut no_phones, false);
         assert_eq!(status.items[3].state, SetupState::Missing);
         assert_eq!(status.missing_groups, ["Models"]);
     }

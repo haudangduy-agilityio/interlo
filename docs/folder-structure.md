@@ -16,7 +16,7 @@ crates/
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
     tests/realtime_guard.rs  the allocation guard and the lock check fail a bad callback and pass a good one
-    tests/realtime_scan.rs   callback-side files name no lock, blocking or log call
+    tests/realtime_scan.rs   callback-side files, and the marked block handler of probe.rs, name no lock, blocking or log call
     tests/mic_callback.rs    callback core without a sound card: level, ring never blocks, conversion, counters
     tests/mic_capture.rs     microphone source on a fake backend: device by name, errors, start and stop
   engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate

@@ -24,7 +24,8 @@ meeting-core --(events)--> apps/desktop (Tauri bridge) --(channels)--> apps/ui
 `apps/desktop` also depends on `playback`, only for `playback::Direction`: the
 wire type `ipc::Direction` converts to and from it (ADR 0020). It depends on
 `audio-io` for the readiness probe behind `check_setup` (M1-41): the shell maps the
-report to the IPC status and runs the probe on a blocking thread.
+report to the IPC status and runs the probe on a blocking thread. Overlapping calls
+share one run, and no microphone is opened while a meeting runs (`MeetingState`).
 
 ## Crates
 
