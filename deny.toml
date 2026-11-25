@@ -23,7 +23,6 @@ version = 2
 # and AGPL is not allowed; a crate that offers one of them only as an
 # alternative to a permissive licence still passes.
 allow = [
-  "MIT",
   "MIT-0",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
