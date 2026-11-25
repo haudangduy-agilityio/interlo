@@ -66,8 +66,8 @@ Behaviour rules:
   the system permission dialog; while it is open the row can read `error`, and the
   next call shows the answer. A permission seen as granted is kept for the app
   session; any other result is probed again at the next call. Calls that overlap share
-  one run: the first runs the check and the others get the same answer. While a meeting
-  runs the microphone is not opened: the `mic` row is `ok` if this app run already saw
+  one run: the first runs the check and the others get the same answer, which can be
+  older than the moment they called. While a meeting runs the microphone is not opened: the `mic` row is `ok` if this app run already saw
   the permission granted, else `error` with the detail `Microphone check waits until the
   meeting ends`; the other rows are read as usual. The capture row is the
   2-channel virtual device until the process tap exists (#73). The four model rows

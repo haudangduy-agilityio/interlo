@@ -71,9 +71,11 @@ impl Default for SystemClock {
 }
 
 impl ProbeClock for SystemClock {
+    // realtime-scan:begin probe-clock-now
     fn now(&self) -> Duration {
         self.start.elapsed()
     }
+    // realtime-scan:end probe-clock-now
     fn pause(&self, duration: Duration) {
         std::thread::sleep(duration);
     }
@@ -131,6 +133,7 @@ pub(crate) fn judge(
 /// Marks "no block seen yet" in a `Watch` timestamp.
 const NONE_MS: u64 = u64::MAX;
 
+// realtime-scan:begin probe-block-support
 fn ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX - 1)
 }
@@ -174,6 +177,7 @@ fn block_has_signal(block: &InputBlock<'_>) -> bool {
         InputBlock::I16(data) => data.iter().any(|s| *s != 0),
     }
 }
+// realtime-scan:end probe-block-support
 
 /// Opens the microphone and decides the permission fact from what arrives.
 /// Always drops the stream before it returns.

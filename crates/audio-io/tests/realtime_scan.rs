@@ -1,5 +1,7 @@
 //! A source scan for the callback-side files: none of them may name a
-//! lock, a blocking primitive or a log call. The guards in `realtime_guard.rs`
+//! lock, a blocking primitive or a log call. The probe block handler and the
+//! helpers it calls sit in marked regions of `src/probe.rs`; each region is
+//! scanned for lock, log, blocking and allocating names. The guards in `realtime_guard.rs`
 //! catch an allocation or a guarded lock when the code runs; this scan catches a
 //! name in the text, including code on a path the tests do not run.
 
@@ -44,6 +46,19 @@ const ALLOCATING: &[&str] = &[
     "Arc::new",
     "Rc::new",
     ".clone()",
+];
+
+/// Names that wait or hand work to another thread. The probe regions run on
+/// the audio thread and must hold none of them.
+const BLOCKING: &[&str] = &[
+    "sleep(", "thread::", ".join(", ".recv(", ".send(", ".wait(", ".park(",
+];
+
+/// The marked regions of `src/probe.rs` that the audio thread runs.
+const PROBE_REGIONS: &[&str] = &[
+    "probe-block-handler",
+    "probe-block-support",
+    "probe-clock-now",
 ];
 
 fn is_word_char(c: char) -> bool {
@@ -121,25 +136,30 @@ fn callback_files_hold_no_lock_or_log_name() {
 }
 
 /// The text between the marker lines `// realtime-scan:begin <name>` and
-/// `// realtime-scan:end <name>`. An error names the marker that is wrong: a
-/// marker that is missing or twice in the text, an end before its begin, or a
-/// region with fewer than 3 code lines.
+/// `// realtime-scan:end <name>`. A marker is a whole line. An error names the
+/// marker that is wrong: a marker that is missing or twice in the text, an end
+/// before its begin, or a region with fewer than 3 code lines.
 fn marked_region<'a>(text: &'a str, name: &str) -> Result<&'a str, String> {
     let begin = format!("// realtime-scan:begin {name}");
     let end = format!("// realtime-scan:end {name}");
-    let line_start = |marker: &str| -> Result<(usize, usize), String> {
-        let hits: Vec<usize> = text.match_indices(marker).map(|(at, _)| at).collect();
+    // Byte range of the one line that holds exactly `marker`.
+    let marker_line = |marker: &str| -> Result<(usize, usize), String> {
+        let mut hits = Vec::new();
+        let mut offset = 0;
+        for line in text.split_inclusive('\n') {
+            if line.trim() == marker {
+                hits.push((offset, offset + line.len()));
+            }
+            offset += line.len();
+        }
         match hits.as_slice() {
             [] => Err(format!("the marker `{marker}` is missing")),
-            [at] => {
-                let after = text[*at..].find('\n').map_or(text.len(), |n| at + n + 1);
-                Ok((*at, after))
-            }
+            [one] => Ok(*one),
             _ => Err(format!("the marker `{marker}` appears more than once")),
         }
     };
-    let (_, region_start) = line_start(&begin)?;
-    let (region_end, _) = line_start(&end)?;
+    let (_, region_start) = marker_line(&begin)?;
+    let (region_end, _) = marker_line(&end)?;
     if region_end < region_start {
         return Err(format!("`{end}` comes before `{begin}`"));
     }
@@ -157,23 +177,30 @@ fn marked_region<'a>(text: &'a str, name: &str) -> Result<&'a str, String> {
 }
 
 #[test]
-fn the_probe_block_handler_region_holds_no_lock_or_log_name() {
+fn the_probe_regions_hold_no_lock_log_blocking_or_allocating_name() {
     let text = read_source("src/probe.rs");
-    let region = marked_region(&text, "probe-block-handler").unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(
-        banned_names_in(region),
-        Vec::<&str>::new(),
-        "the probe block handler names a lock, a blocking primitive or a log call"
-    );
-    assert_eq!(
-        names_in(region, ALLOCATING),
-        Vec::<&str>::new(),
-        "the probe block handler names an allocating call"
-    );
+    for name in PROBE_REGIONS {
+        let region = marked_region(&text, name).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            banned_names_in(region),
+            Vec::<&str>::new(),
+            "`{name}` names a lock, a blocking primitive or a log call"
+        );
+        assert_eq!(
+            names_in(region, BLOCKING),
+            Vec::<&str>::new(),
+            "`{name}` names a call that waits or hands work to another thread"
+        );
+        assert_eq!(
+            names_in(region, ALLOCATING),
+            Vec::<&str>::new(),
+            "`{name}` names an allocating call"
+        );
+    }
 }
 
 #[test]
-fn a_marker_that_is_missing_twice_or_misplaced_fails() {
+fn a_marker_that_is_missing_doubled_or_misplaced_fails() {
     let body = "a();\nb();\nc();\n";
     let ok = format!("// realtime-scan:begin x\n{body}// realtime-scan:end x\n");
     assert_eq!(marked_region(&ok, "x"), Ok(body));
@@ -193,6 +220,11 @@ fn a_marker_that_is_missing_twice_or_misplaced_fails() {
     assert!(marked_region(&swapped, "x")
         .unwrap_err()
         .contains("comes before"));
+    // A marker named inside other text is not a marker line.
+    let quoted = format!("let m = \"// realtime-scan:begin x\";\n{body}// realtime-scan:end x\n");
+    assert!(marked_region(&quoted, "x")
+        .unwrap_err()
+        .contains("begin x` is missing"));
     let empty = "// realtime-scan:begin x\n// realtime-scan:end x\n";
     assert!(marked_region(empty, "x")
         .unwrap_err()
@@ -208,6 +240,16 @@ fn an_allocating_name_inside_the_marked_region_is_caught() {
     let text = "// realtime-scan:begin x\nlet a = 1;\nlet b = Box::new(2);\nlet c = v.push(3);\n// realtime-scan:end x\n";
     let region = marked_region(text, "x").unwrap();
     assert_eq!(names_in(region, ALLOCATING), vec!["Box::new", ".push("]);
+}
+
+#[test]
+fn a_blocking_name_inside_the_marked_region_is_caught() {
+    let text = "// realtime-scan:begin x\nlet a = 1;\nstd::thread::sleep(d);\ntx.send(1);\n// realtime-scan:end x\n";
+    let region = marked_region(text, "x").unwrap();
+    assert_eq!(
+        names_in(region, BLOCKING),
+        vec!["sleep(", "thread::", ".send("]
+    );
 }
 
 #[test]
