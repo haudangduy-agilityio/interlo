@@ -21,6 +21,7 @@ pub mod traits;
 
 pub use error::{DenyCause, EngineError};
 pub use language_gate::owner_should_translate;
+pub use onnx_asr::OnnxRecognizer;
 pub use onnx_vad::OnnxVad;
 pub use registry::{EngineRegistry, EngineRole};
 pub use segmenter::{segment, Piece, Segmenter};

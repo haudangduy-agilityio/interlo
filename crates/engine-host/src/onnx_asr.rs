@@ -5,10 +5,13 @@
 //! second call on a longer buffer; the caller owns that.
 
 use crate::error::EngineError;
-use crate::onnx_vad::file_name;
-use crate::speech_features::N_MELS;
-use crate::traits::Recognition;
+use crate::onnx_vad::{file_name, scrub, shared_environment};
+use crate::speech_features::{FeatureExtractor, N_MELS};
+use crate::traits::{Engine, Recognition, Recognizer};
+use meeting_core::policy::Provider;
 use meeting_core::protocol::Language;
+use ort::environment::Environment;
+use ort::session::Session;
 use std::path::Path;
 use tokenizers::normalizers::NFC;
 use tokenizers::{NormalizedString, Normalizer, Tokenizer};
@@ -16,9 +19,119 @@ use tokenizers::{NormalizedString, Normalizer, Tokenizer};
 /// Largest text file the adapter reads (config, tokenizer): a safety bound.
 const MAX_TEXT_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
+/// The recognition engine. Local: it never leaves this Mac.
+pub struct OnnxRecognizer {
+    encoder: Session,
+    decoder: Session,
+    tokenizer: Tokenizer,
+    features: FeatureExtractor,
+    prompt: Vec<i64>,
+    end_token: i64,
+    shape: DecoderShape,
+    token_limit: usize,
+    provider: Provider,
+}
+
+impl std::fmt::Debug for OnnxRecognizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OnnxRecognizer")
+            .field("token_limit", &self.token_limit)
+            .finish_non_exhaustive()
+    }
+}
+
+fn backend(what: &str, error: impl std::fmt::Display) -> EngineError {
+    EngineError::Backend(format!("recognition model: {what}: {error}"))
+}
+
+/// One session with `INTRA_OP_THREADS` threads. Runtime text is scrubbed of the
+/// path.
+fn load_session(environment: &Environment, path: &Path) -> Result<Session, EngineError> {
+    let name = file_name(path);
+    let fail = |what: &str, e: &dyn std::fmt::Display| backend(what, scrub(&e.to_string(), path));
+    let mut builder = Session::builder(environment)
+        .map_err(|e| fail("session builder", &e))?
+        .with_intra_threads(INTRA_OP_THREADS)
+        .map_err(|e| fail("thread setting", &e))?;
+    builder
+        .commit_from_file(path)
+        .map_err(|e| fail(&format!("load {name}"), &e))
+}
+
+/// An id from the config: it must not be negative.
+fn config_token(config: &str, key: &str) -> Result<i64, EngineError> {
+    let value = config_int(config, key)?;
+    if value >= 0 {
+        Ok(value)
+    } else {
+        Err(config_error("value is out of range", key))
+    }
+}
+
+impl OnnxRecognizer {
+    /// Load the model from the folder `dir`: `config.json`, `tokenizer.json`,
+    /// `encoder.onnx` and `decoder.onnx`. They are checked in this order, and
+    /// an error names the file or the key and never the folder. This call does
+    /// not verify the files: the caller passes a folder that the model manager
+    /// has already checked (see the module doc). It reads the files, so it runs
+    /// on a worker thread, never in an audio callback.
+    pub fn open(dir: &Path) -> Result<Self, EngineError> {
+        let config = read_text_file(&dir.join(CONFIG_FILE))?;
+        let shape = decoder_shape(&config)?;
+        let start_token = config_token(&config, "decoder_start_token_id")?;
+        let end_token = config_token(&config, "eos_token_id")?;
+        let positions = config_size(&config, "max_target_positions")?;
+        let tokenizer = read_text_file(&dir.join(TOKENIZER_FILE))?
+            .parse::<Tokenizer>()
+            .map_err(|e| EngineError::Backend(format!("{TOKENIZER_FILE}: {e}")))?;
+        let prompt = prompt_ids(&tokenizer, start_token)?;
+        let token_limit = token_limit(positions, prompt.len())?;
+        for name in [ENCODER_FILE, DECODER_FILE] {
+            if !dir.join(name).is_file() {
+                return Err(EngineError::Backend(format!(
+                    "recognition model file is missing: {name}"
+                )));
+            }
+        }
+        let environment = shared_environment()?;
+        let encoder = load_session(&environment, &dir.join(ENCODER_FILE))?;
+        let decoder = load_session(&environment, &dir.join(DECODER_FILE))?;
+        Ok(Self {
+            encoder,
+            decoder,
+            tokenizer,
+            features: FeatureExtractor::new(),
+            prompt,
+            end_token,
+            shape,
+            token_limit,
+            provider: Provider::local("onnx-asr"),
+        })
+    }
+}
+
+impl Engine for OnnxRecognizer {
+    fn provider(&self) -> &Provider {
+        &self.provider
+    }
+}
+
+impl Recognizer for OnnxRecognizer {
+    fn recognize(&mut self, _samples: &[f32]) -> Result<Recognition, EngineError> {
+        Err(EngineError::NotImplemented)
+    }
+}
+
 /// Names of the prompt tokens after the start token, in order: language, task,
 /// no time stamps.
 const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
+const CONFIG_FILE: &str = "config.json";
+const TOKENIZER_FILE: &str = "tokenizer.json";
+const ENCODER_FILE: &str = "encoder.onnx";
+const DECODER_FILE: &str = "decoder.onnx";
+/// Threads of each session: a starting value (measured in the spike); M1-26 may
+/// tune it.
+const INTRA_OP_THREADS: usize = 4;
 /// A size in the config must lie between 1 and this value.
 const MAX_CONFIG_SIZE: i64 = 65_536;
 
@@ -31,7 +144,7 @@ pub(crate) struct DecoderShape {
 }
 
 fn config_error(what: &str, key: &str) -> EngineError {
-    EngineError::Backend(format!("config.json {what}: {key}"))
+    EngineError::Backend(format!("{CONFIG_FILE} {what}: {key}"))
 }
 
 /// The integer after `"key":` in a flat JSON text. The model config is flat; a
