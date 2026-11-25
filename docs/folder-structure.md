@@ -14,7 +14,7 @@ crates/
   playback/                playback queue, speed-up, mixer
   store/                   SQLite projections, schema, full-text index
   summary-jobs/            job queue, citation check, question answerer
-  model-store/             model specs, size and checksum checks, download gate
+  model-store/             compiled-in model table (manifest.rs), size and checksum checks, download gate
   settings/                settings values, apply timing, hotkeys
   diagnostics/             log events, redaction
   workspace-notes/         notes, tasks, export, auto-delete (E1)
