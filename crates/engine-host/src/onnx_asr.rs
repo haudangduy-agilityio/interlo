@@ -6,18 +6,40 @@
 
 use crate::error::EngineError;
 use crate::onnx_vad::{file_name, scrub, shared_environment};
-use crate::speech_features::{FeatureExtractor, N_MELS};
+use crate::speech_features::{check_span, FeatureExtractor, FRAMES, N_MELS};
 use crate::traits::{Engine, Recognition, Recognizer};
 use meeting_core::policy::Provider;
 use meeting_core::protocol::Language;
 use ort::environment::Environment;
-use ort::session::Session;
+use ort::session::{Session, SessionInputValue, SessionOutputs};
+use ort::value::{DynValue, Tensor};
 use std::path::Path;
 use tokenizers::normalizers::NFC;
 use tokenizers::{NormalizedString, Normalizer, Tokenizer};
 
 /// Largest text file the adapter reads (config, tokenizer): a safety bound.
 const MAX_TEXT_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+const CONFIG_FILE: &str = "config.json";
+const TOKENIZER_FILE: &str = "tokenizer.json";
+const ENCODER_FILE: &str = "encoder.onnx";
+const DECODER_FILE: &str = "decoder.onnx";
+/// Threads of each session: a starting value (measured in the spike); M1-26 may
+/// tune it.
+const INTRA_OP_THREADS: usize = 4;
+/// Names of the prompt tokens after the start token, in order: language, task,
+/// no time stamps.
+const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
+/// A size in the config must lie between 1 and this value.
+const MAX_CONFIG_SIZE: i64 = 65_536;
+
+/// Sizes of the decoder, read from the model config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DecoderShape {
+    pub(crate) layers: usize,
+    pub(crate) heads: usize,
+    pub(crate) head_dim: usize,
+}
 
 /// The recognition engine. Local: it never leaves this Mac.
 pub struct OnnxRecognizer {
@@ -28,7 +50,9 @@ pub struct OnnxRecognizer {
     prompt: Vec<i64>,
     end_token: i64,
     shape: DecoderShape,
+    slots: Vec<CacheSlot>,
     token_limit: usize,
+    use_cache: bool,
     provider: Provider,
 }
 
@@ -68,6 +92,109 @@ fn config_token(config: &str, key: &str) -> Result<i64, EngineError> {
     }
 }
 
+/// Names of one tensor of the decoder cache. Only the decoder-side tensors grow
+/// from step to step; the encoder-side ones are written once, by the first step.
+struct CacheSlot {
+    past: String,
+    present: String,
+    grows: bool,
+}
+
+fn cache_slots(layers: usize) -> Vec<CacheSlot> {
+    let mut slots = Vec::with_capacity(layers * 4);
+    for layer in 0..layers {
+        for part in ["decoder", "encoder"] {
+            for kind in ["key", "value"] {
+                slots.push(CacheSlot {
+                    past: format!("past_key_values.{layer}.{part}.{kind}"),
+                    present: format!("present.{layer}.{part}.{kind}"),
+                    grows: part == "decoder",
+                });
+            }
+        }
+    }
+    slots
+}
+
+/// A failed run of the model or of a tensor. The text is fixed: it holds no
+/// token id, no recognized text and no sample.
+fn run_failed(what: &str) -> EngineError {
+    EngineError::Backend(format!("recognition model: {what} failed"))
+}
+
+/// The scores of the last position of a decoder step (output `logits`, shape
+/// `[1, positions, vocabulary]`).
+fn last_logits(outputs: &SessionOutputs<'_>) -> Result<Vec<f32>, EngineError> {
+    let (shape, logits) = outputs
+        .get("logits")
+        .ok_or_else(|| run_failed("decoder scores"))?
+        .try_extract_tensor::<f32>()
+        .map_err(|_| run_failed("decoder scores"))?;
+    let vocabulary = shape
+        .last()
+        .and_then(|&size| usize::try_from(size).ok())
+        .filter(|&size| size > 0 && size <= logits.len())
+        .ok_or_else(|| run_failed("decoder scores"))?;
+    Ok(logits[logits.len() - vocabulary..].to_vec())
+}
+
+fn take(outputs: &mut SessionOutputs<'_>, name: &str) -> Result<DynValue, EngineError> {
+    outputs
+        .remove(name)
+        .ok_or_else(|| run_failed("decoder output"))
+}
+
+/// One decoding of one span. The cache values stay in the session's memory and
+/// are fed back as views; nothing is copied between steps.
+struct DecoderRun<'a> {
+    session: &'a mut Session,
+    slots: &'a [CacheSlot],
+    hidden: DynValue,
+    /// Past tensors of length zero, for a step that has no cache.
+    empty: Vec<DynValue>,
+    /// The cache after the first step; empty before it.
+    cache: Vec<DynValue>,
+}
+
+impl DecoderRun<'_> {
+    /// Run the decoder over `ids` and return the scores of the next position.
+    /// With `with_cache` the step feeds the kept cache and `ids` is the last
+    /// token only; without it the step gets empty past tensors. `keep` stores
+    /// what the step wrote into the cache.
+    fn step(&mut self, ids: &[i64], with_cache: bool, keep: bool) -> Result<Vec<f32>, EngineError> {
+        let ids_tensor = Tensor::from_array(([1_usize, ids.len()], ids.to_vec()))
+            .map_err(|_| run_failed("token tensor"))?;
+        let flag = Tensor::from_array(([1_usize], vec![with_cache]))
+            .map_err(|_| run_failed("flag tensor"))?;
+        let past = if with_cache { &self.cache } else { &self.empty };
+        let mut inputs: Vec<(&str, SessionInputValue<'_>)> = vec![
+            ("input_ids", ids_tensor.into()),
+            ("encoder_hidden_states", (&self.hidden).into()),
+            ("use_cache_branch", flag.into()),
+        ];
+        for (slot, value) in self.slots.iter().zip(past) {
+            inputs.push((slot.past.as_str(), value.into()));
+        }
+        let mut outputs = self
+            .session
+            .run(inputs)
+            .map_err(|_| run_failed("decoder run"))?;
+        let logits = last_logits(&outputs)?;
+        if keep && self.cache.is_empty() {
+            for slot in self.slots {
+                self.cache.push(take(&mut outputs, &slot.present)?);
+            }
+        } else if keep {
+            for (slot, cell) in self.slots.iter().zip(self.cache.iter_mut()) {
+                if slot.grows {
+                    *cell = take(&mut outputs, &slot.present)?;
+                }
+            }
+        }
+        Ok(logits)
+    }
+}
+
 impl OnnxRecognizer {
     /// Load the model from the folder `dir`: `config.json`, `tokenizer.json`,
     /// `encoder.onnx` and `decoder.onnx`. They are checked in this order, and
@@ -103,10 +230,67 @@ impl OnnxRecognizer {
             features: FeatureExtractor::new(),
             prompt,
             end_token,
+            slots: cache_slots(shape.layers),
             shape,
             token_limit,
+            use_cache: true,
             provider: Provider::local("onnx-asr"),
         })
+    }
+
+    /// The encoder over the features of the span; the output stays in the
+    /// runtime's memory.
+    fn encode(&mut self, samples: &[f32]) -> Result<DynValue, EngineError> {
+        let input = Tensor::from_array(([1_usize, N_MELS, FRAMES], self.features.extract(samples)))
+            .map_err(|_| run_failed("feature tensor"))?;
+        let mut outputs = self
+            .encoder
+            .run(vec![("input_features", input)])
+            .map_err(|_| run_failed("encoder run"))?;
+        take(&mut outputs, "last_hidden_state")
+    }
+
+    /// Greedy decoding of the text ids from the encoder output.
+    fn decode(&mut self, hidden: DynValue) -> Result<Vec<i64>, EngineError> {
+        let empty = self
+            .slots
+            .iter()
+            .map(|_| {
+                Tensor::from_array((
+                    [1_usize, self.shape.heads, 0, self.shape.head_dim],
+                    Vec::<f32>::new(),
+                ))
+                .map(Tensor::into_dyn)
+                .map_err(|_| run_failed("empty past tensor"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut run = DecoderRun {
+            session: &mut self.decoder,
+            slots: &self.slots,
+            hidden,
+            empty,
+            cache: Vec::new(),
+        };
+        let (prompt, use_cache) = (&self.prompt, self.use_cache);
+        let mut sequence = prompt.clone();
+        greedy_decode(self.end_token, self.token_limit, |previous| {
+            match (previous, use_cache) {
+                (None, _) => run.step(prompt, false, use_cache),
+                (Some(last), true) => run.step(&[last], true, true),
+                (Some(last), false) => {
+                    sequence.push(last);
+                    run.step(&sequence, false, false)
+                }
+            }
+        })
+    }
+
+    /// Run the decoder over the whole prefix at every step, without its cache.
+    /// Slower; the text is the same (checked against the cached run).
+    #[must_use]
+    pub fn without_decoder_cache(mut self) -> Self {
+        self.use_cache = false;
+        self
     }
 }
 
@@ -117,30 +301,12 @@ impl Engine for OnnxRecognizer {
 }
 
 impl Recognizer for OnnxRecognizer {
-    fn recognize(&mut self, _samples: &[f32]) -> Result<Recognition, EngineError> {
-        Err(EngineError::NotImplemented)
+    fn recognize(&mut self, samples: &[f32]) -> Result<Recognition, EngineError> {
+        check_span(samples)?;
+        let hidden = self.encode(samples)?;
+        let ids = self.decode(hidden)?;
+        build_recognition(&ids_to_text(&self.tokenizer, &ids)?)
     }
-}
-
-/// Names of the prompt tokens after the start token, in order: language, task,
-/// no time stamps.
-const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
-const CONFIG_FILE: &str = "config.json";
-const TOKENIZER_FILE: &str = "tokenizer.json";
-const ENCODER_FILE: &str = "encoder.onnx";
-const DECODER_FILE: &str = "decoder.onnx";
-/// Threads of each session: a starting value (measured in the spike); M1-26 may
-/// tune it.
-const INTRA_OP_THREADS: usize = 4;
-/// A size in the config must lie between 1 and this value.
-const MAX_CONFIG_SIZE: i64 = 65_536;
-
-/// Sizes of the decoder, read from the model config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DecoderShape {
-    pub(crate) layers: usize,
-    pub(crate) heads: usize,
-    pub(crate) head_dim: usize,
 }
 
 fn config_error(what: &str, key: &str) -> EngineError {
