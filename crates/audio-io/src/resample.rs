@@ -1,4 +1,4 @@
-//! Resampling contract. Real converters come in a later task.
+//! Resampling contract and the converters behind it.
 //!
 //! Which side of the audio callback (guardrail 8):
 //!
@@ -9,9 +9,12 @@
 //! - `Resampler::process` is CONTROL SIDE ONLY. It grows a `Vec`, which can
 //!   allocate, so it belongs to file import, tests and set-up code, never to
 //!   the callback.
-//! - `PassthroughResampler` implements both; the same holds for every converter
-//!   added later.
+//! - `PassthroughResampler` and `RateConverter` implement both; the same holds
+//!   for every converter added later. `RateConverter` turns any input rate into
+//!   `TARGET_SAMPLE_RATE` with everything allocated in `new`.
 //! - The ring buffer in `ring.rs` is callback safe on both ends.
+
+use rubato::Resampler as _;
 
 /// Sample rate the recognition pipeline consumes.
 pub const TARGET_SAMPLE_RATE: u32 = 16_000;
@@ -73,6 +76,11 @@ impl Resampler for PassthroughResampler {
     }
 }
 
+/// Lowest and highest input rate the converter accepts (Hz). A rate far outside
+/// the sound-card range would size the scratch buffers by an absurd factor.
+const MIN_INPUT_RATE: u32 = 8_000;
+const MAX_INPUT_RATE: u32 = 768_000;
+
 /// A sample rate the converter cannot be built for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("sample rate {0} Hz is not supported")]
@@ -111,6 +119,9 @@ impl RateConverter {
                 kind: ConverterKind::Pass,
             });
         }
+        if !(MIN_INPUT_RATE..=MAX_INPUT_RATE).contains(&rate_in) {
+            return Err(UnsupportedRate(rate_in));
+        }
         let rate = usize::try_from(rate_in).map_err(|_| UnsupportedRate(rate_in))?;
         // 10 ms of input per chunk; the converter rounds it to a size that fits
         // the rate pair.
@@ -123,7 +134,6 @@ impl RateConverter {
             rubato::FixedSync::Input,
         )
         .map_err(|_| UnsupportedRate(rate_in))?;
-        use rubato::Resampler as _;
         let chunk_in = fft.input_frames_next();
         let out_max = fft.output_frames_max();
         let pending = vec![0.0; fft.input_frames_max().max(chunk_in)].into_boxed_slice();
@@ -161,7 +171,6 @@ impl Resampler for RateConverter {
             }
             ConverterKind::Fft(s) => s,
         };
-        use rubato::Resampler as _;
         let mut consumed = 0;
         let mut written = 0;
         while consumed < input.len() {
@@ -175,6 +184,8 @@ impl Resampler for RateConverter {
             }
             s.pending_len = 0;
             let free = out.len() - written;
+            // The scratch size was checked above, so the views and the conversion
+            // cannot fail; a failure would drop one chunk without a count.
             let (Ok(src), Ok(mut dst)) = (
                 rubato::audioadapter_buffers::direct::InterleavedSlice::new(
                     &s.pending[..s.chunk_in],
@@ -187,9 +198,12 @@ impl Resampler for RateConverter {
                     free,
                 ),
             ) else {
+                debug_assert!(out.len() >= written, "converter views disagree with sizes");
                 continue;
             };
-            if let Ok((_, produced)) = s.fft.process_into_buffer(&src, &mut dst, None) {
+            let converted = s.fft.process_into_buffer(&src, &mut dst, None);
+            debug_assert!(converted.is_ok(), "converter refused a full chunk");
+            if let Ok((_, produced)) = converted {
                 written += produced;
             }
         }
@@ -236,6 +250,26 @@ mod tests {
         let before = ALLOCATIONS.with(Cell::get);
         let out = f();
         (out, ALLOCATIONS.with(Cell::get) - before)
+    }
+
+    #[test]
+    fn rate_converter_rejects_rates_outside_the_range() {
+        for rate in [0u32, 7_999, 768_001] {
+            assert!(RateConverter::new(rate).is_err(), "{rate} Hz");
+        }
+        assert!(RateConverter::new(8_000).is_ok());
+        assert!(RateConverter::new(768_000).is_ok());
+    }
+
+    #[test]
+    fn rate_converter_holds_a_short_block_until_a_chunk_is_full() {
+        let mut c = RateConverter::new(48_000).unwrap();
+        let mut out = vec![0.0f32; c.max_output_len(4_096)];
+        // Fewer samples than one chunk: nothing comes out yet.
+        assert_eq!(c.process_into(&[0.1; 10], &mut out), Ok(0));
+        // Enough to complete the chunk (480 samples at 48 kHz) gives 160 at 16 kHz.
+        let produced = c.process_into(&[0.1; 470], &mut out).unwrap();
+        assert_eq!(produced, 160);
     }
 
     #[test]

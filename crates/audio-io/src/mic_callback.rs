@@ -201,11 +201,8 @@ impl MicCallback {
                 for sample in frame {
                     sum += sample.to_f32();
                 }
-                let mixed = if channels == 1 {
-                    sum
-                } else {
-                    sum / channels as f32
-                };
+                // Dividing by 1.0 leaves a mono sample bit for bit unchanged.
+                let mixed = sum / channels as f32;
                 peak = peak.max(mixed.abs());
                 *slot = mixed;
             }

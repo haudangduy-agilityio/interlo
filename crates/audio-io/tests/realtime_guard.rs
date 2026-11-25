@@ -1,4 +1,4 @@
-//! The two callback guards (AC-04, AC-06, AC-14): an allocation inside a callback
+//! The two callback guards: an allocation inside a callback
 //! section and a lock taken inside one are violations; the same actions outside
 //! a section are not. This is the only test binary that installs the guard
 //! allocator.
@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use audio_io::realtime::{
-    section, set_violation_mode, thread_violations, total_violations, GuardAllocator, RtMutex,
-    ViolationMode,
+    section, sections_entered, set_violation_mode, thread_violations, total_violations,
+    GuardAllocator, RtMutex, ViolationMode,
 };
 use std::process::Command;
 use std::thread;
@@ -159,7 +159,7 @@ fn section_runs_the_callback_in_release() {
     assert_eq!(calls, 1);
 }
 
-// --- Child-process checks: the default mode aborts the process (AC-04, AC-06) ---
+// --- Child-process checks: the default mode aborts the process ---
 
 /// Runs this test binary again for one child test with the child variable set
 /// and returns its exit status. The parent never sets a mode for the child, so
@@ -240,7 +240,7 @@ fn child_without_a_violation() {
     section(|| ());
 }
 
-// --- AC-05: the real callback core passes the guard ---
+// --- The real callback core passes the guard ---
 
 use audio_io::{ring_buffer, MicCallback};
 
@@ -319,4 +319,20 @@ fn the_guard_catches_a_bad_microphone_style_callback() {
     assert!(thread_violations().allocations > before.allocations);
     #[cfg(not(debug_assertions))]
     assert_eq!(thread_violations(), before);
+}
+
+#[test]
+fn the_microphone_callback_runs_inside_a_section() {
+    // Without this, removing the section from the callback would leave every
+    // "no violation" test above green: nothing would be watching.
+    count_mode();
+    let (producer, _consumer) = ring_buffer(1024);
+    let mut cb = MicCallback::new(producer, 16_000, 1).unwrap();
+    let before = sections_entered();
+    cb.process_f32(&[0.1; 160]);
+    cb.process_i16(&[100; 160]);
+    #[cfg(debug_assertions)]
+    assert_eq!(sections_entered(), before + 2);
+    #[cfg(not(debug_assertions))]
+    assert_eq!(sections_entered(), before);
 }

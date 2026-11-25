@@ -20,7 +20,7 @@ pub enum CaptureError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-// Keeps the one-line variants of the existing routes as they were.
+// Without this, rustfmt spreads the existing one-line variants over several lines.
 #[rustfmt::skip]
 pub enum CaptureMethod {
     ProcessTap { app_id: String },

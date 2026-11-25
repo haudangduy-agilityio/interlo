@@ -57,6 +57,9 @@ fn parse_args() -> Result<Args, String> {
             other => return Err(format!("unknown argument {other}")),
         }
     }
+    if args.seconds != 10 {
+        return Err("the cues and result windows assume --seconds 10".to_string());
+    }
     Ok(args)
 }
 

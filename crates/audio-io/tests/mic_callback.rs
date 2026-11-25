@@ -1,11 +1,13 @@
 //! The microphone callback core without a sound card: level, ring behaviour,
-//! conversion and counters (AC-02, AC-03, AC-09 and AC-17). This binary installs
-//! no allocator, so the timing check of AC-03 is not slowed by one.
+//! conversion and counters. This binary installs no allocator, so the timing
+//! check of the full-ring test is not slowed by one.
 
 // Test helpers outside #[test] functions may unwrap and expect.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use audio_io::{ring_buffer, MicCallback, RingConsumer, TARGET_SAMPLE_RATE};
+use audio_io::{
+    ring_buffer, MicCallback, MicSetupError, RingConsumer, UnsupportedRate, TARGET_SAMPLE_RATE,
+};
 use std::time::{Duration, Instant};
 
 /// A sine of `amplitude` at `freq` Hz, `frames` frames, copied to `channels` channels.
@@ -39,7 +41,7 @@ fn drain(consumer: &mut RingConsumer) -> usize {
     }
 }
 
-// --- AC-02: the level follows the sound ---
+// --- The level follows the sound ---
 
 #[test]
 fn level_follows_the_input_peak() {
@@ -77,7 +79,7 @@ fn silence_gives_zero_level() {
     assert_eq!(level.peak_since_last_read(), 0.0);
 }
 
-// --- AC-03: the ring never blocks the callback ---
+// --- The ring never blocks the callback ---
 
 #[test]
 fn full_ring_never_blocks_the_callback() {
@@ -105,7 +107,7 @@ fn full_ring_never_blocks_the_callback() {
     assert_eq!(stats.samples_dropped, (BLOCKS * BLOCK) as u64 - 1024);
 }
 
-// --- AC-09: format, channels and rate ---
+// --- Format, channels and rate ---
 
 #[test]
 fn stereo_is_averaged_to_mono() {
@@ -177,7 +179,7 @@ fn rate_44k1_gives_16k() {
     assert!(n.abs_diff(144_000) <= 40, "got {n}");
 }
 
-// --- AC-17: counters, scratch edge, chunking ---
+// --- Counters, scratch edge, chunking ---
 
 #[test]
 fn counters_count_callbacks_and_input_frames() {
@@ -232,4 +234,48 @@ fn dropped_samples_are_counted() {
     cb.process_f32(&[0.1; 10]);
     assert_eq!(cb.stats().samples_dropped, 2);
     assert_eq!(consumer.len(), 8);
+}
+
+#[test]
+fn a_block_of_exactly_one_chunk_and_one_frame_more_both_arrive_whole() {
+    for frames in [1024usize, 1025] {
+        let (producer, consumer) = ring_buffer(4096);
+        let mut cb = MicCallback::new(producer, 16_000, 1).unwrap();
+        cb.process_f32(&vec![0.1; frames]);
+        assert_eq!(cb.stats().chunks_refused, 0, "{frames} frames");
+        assert_eq!(consumer.len(), frames, "{frames} frames");
+    }
+}
+
+#[test]
+fn a_trailing_partial_frame_is_ignored() {
+    // Five samples of a stereo input are two whole frames and one stray sample.
+    let (producer, consumer) = ring_buffer(64);
+    let mut cb = MicCallback::new(producer, 16_000, 2).unwrap();
+    cb.process_f32(&[0.5, 0.5, 0.5, 0.5, 0.9]);
+    assert_eq!(cb.stats().input_frames, 2);
+    assert_eq!(consumer.len(), 2);
+}
+
+#[test]
+fn an_input_without_channels_is_a_setup_error() {
+    let (producer, _consumer) = ring_buffer(64);
+    assert!(matches!(
+        MicCallback::new(producer, 16_000, 0),
+        Err(MicSetupError::NoChannels)
+    ));
+}
+
+#[test]
+fn a_rate_outside_the_sound_card_range_is_a_setup_error() {
+    for rate in [0u32, 7_999, 768_001] {
+        let (producer, _consumer) = ring_buffer(64);
+        assert!(
+            matches!(
+                MicCallback::new(producer, rate, 1),
+                Err(MicSetupError::Rate(UnsupportedRate(r))) if r == rate
+            ),
+            "{rate} Hz"
+        );
+    }
 }

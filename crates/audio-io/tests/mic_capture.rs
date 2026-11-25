@@ -1,5 +1,5 @@
 //! `MicCapture` on a fake backend: device choice by name, error mapping and the
-//! start and stop contract of `CaptureSource` (AC-08, AC-09 format, AC-10, AC-11).
+//! start and stop contract of `CaptureSource`.
 //! No sound card is needed.
 
 // Test helpers outside #[test] functions may unwrap and expect.
@@ -34,7 +34,7 @@ fn three_mics() -> Vec<InputDeviceEntry> {
     ]
 }
 
-// --- AC-08: the device is chosen by name ---
+// --- The device is chosen by name ---
 
 #[test]
 fn name_match_is_exact_and_case_sensitive() {
@@ -42,6 +42,16 @@ fn name_match_is_exact_and_case_sensitive() {
     assert_eq!(select_input(&devices, Some("USB Mic")), Ok(1));
     assert_eq!(
         select_input(&devices, Some("usb mic")),
+        Err(InputOpenError::DeviceNotFound)
+    );
+}
+
+#[test]
+fn an_empty_name_matches_nothing() {
+    // A device whose name could not be read has an empty name.
+    let devices = vec![entry("", 1, false), entry("Built-in Mic", 1, true)];
+    assert_eq!(
+        select_input(&devices, Some("")),
         Err(InputOpenError::DeviceNotFound)
     );
 }
@@ -86,7 +96,7 @@ fn output_only_device_is_not_an_input() {
     );
 }
 
-// --- AC-10: open errors map to the setup types ---
+// --- Open errors map to the setup types ---
 
 #[test]
 fn permission_denied_maps_to_denied() {
@@ -229,7 +239,7 @@ fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
     }
 }
 
-// --- AC-08 (start) and AC-09 (format) ---
+// --- Start: device choice and sample format ---
 
 #[test]
 fn start_with_a_missing_name_is_not_found_and_pushes_nothing() {
@@ -262,7 +272,7 @@ fn unsupported_sample_format_is_an_open_error() {
     assert_eq!(consumer.len(), 0);
 }
 
-// --- AC-11: start and stop follow the source contract ---
+// --- Start and stop follow the source contract ---
 
 #[test]
 fn start_returns_without_the_consumer() {
@@ -357,5 +367,23 @@ fn stream_error_sets_the_failed_flag() {
         (guard.as_ref().expect("no error handler"))();
     }
     assert!(cap.stream_failed());
+    cap.stop().unwrap();
+}
+
+#[test]
+fn a_new_start_clears_the_failed_flag() {
+    let probe = Arc::new(Probe::default());
+    let mut cap = capture_with(&probe, None);
+    let (p1, _c1) = ring_buffer(1024);
+    cap.start(p1).unwrap();
+    {
+        let guard = probe.error_handler.lock().unwrap();
+        (guard.as_ref().expect("no error handler"))();
+    }
+    assert!(cap.stream_failed());
+    cap.stop().unwrap();
+    let (p2, _c2) = ring_buffer(1024);
+    cap.start(p2).unwrap();
+    assert!(!cap.stream_failed(), "the flag of the old stream was kept");
     cap.stop().unwrap();
 }

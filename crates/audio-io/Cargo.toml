@@ -10,6 +10,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 cpal = "=0.18.2"
+# Keep the `log` feature of rubato off: its trace call formats text inside the audio callback.
 rubato = "=5.1.0"
 
 [dev-dependencies]

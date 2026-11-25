@@ -13,6 +13,9 @@
 //! [`ViolationMode::Count`] and read the counters. In a release build a section
 //! is a plain call and nothing is checked.
 //!
+//! Only allocations are seen, not frees: a value dropped inside a section is
+//! not counted.
+//!
 //! The guard sees only what runs on the calling thread inside the section. A
 //! lock or an allocation inside another crate's code that the callback calls is
 //! seen too when it goes through the global allocator, but a lock that does not
@@ -45,6 +48,7 @@ thread_local! {
     static DEPTH: Cell<u32> = const { Cell::new(0) };
     static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
     static LOCKS: Cell<u64> = const { Cell::new(0) };
+    static SECTIONS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Violation counts. Two separate counters: an allocation never counts as a lock.
@@ -79,6 +83,12 @@ pub fn total_violations() -> Violations {
     }
 }
 
+/// Sections the calling thread has entered, in a debug build (0 in a release
+/// build). A test reads it to show that a callback runs inside a section.
+pub fn sections_entered() -> u64 {
+    SECTIONS.try_with(Cell::get).unwrap_or(0)
+}
+
 /// True while the calling thread is inside a [`section`] in a debug build.
 pub fn in_section() -> bool {
     cfg!(debug_assertions) && DEPTH.try_with(|d| d.get() > 0).unwrap_or(false)
@@ -95,6 +105,7 @@ pub fn section<R>(f: impl FnOnce() -> R) -> R {
         }
     }
     let _ = DEPTH.try_with(|d| d.set(d.get() + 1));
+    let _ = SECTIONS.try_with(|c| c.set(c.get() + 1));
     let _leave = Leave;
     f()
 }

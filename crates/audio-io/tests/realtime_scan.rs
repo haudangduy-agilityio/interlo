@@ -1,4 +1,4 @@
-//! A source scan for the callback-side files (AC-07): none of them may name a
+//! A source scan for the callback-side files: none of them may name a
 //! lock, a blocking primitive or a log call. The guards in `realtime_guard.rs`
 //! catch an allocation or a guarded lock when the code runs; this scan catches a
 //! name in the text, including code on a path the tests do not run.

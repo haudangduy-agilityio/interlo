@@ -62,8 +62,10 @@ pub trait MicBackend: Send {
     /// The stream format `open` will use for the device at `device`.
     fn format_of(&mut self, device: usize) -> Result<StreamFormat, InputOpenError>;
 
-    /// Opens and starts a stream. The returned handle owns the stream; dropping
-    /// it stops the stream and drops `on_block` before the drop returns.
+    /// Opens and starts a stream with exactly `format` (the value `format_of`
+    /// returned), so the callback and the stream never disagree on rate or
+    /// channels. The returned handle owns the stream; dropping it stops the
+    /// stream and drops `on_block` before the drop returns.
     fn open(
         &mut self,
         device: usize,
@@ -82,13 +84,15 @@ pub struct MicConfig {
 
 /// Chooses an input device. A name must match exactly (same case); the first
 /// match wins. A name that matches nothing is an error, never the default
-/// device. A device without input channels is never a match.
+/// device. A device without input channels is never a match, and an empty name
+/// matches nothing (a device whose name could not be read has an empty name).
 pub fn select_input(
     devices: &[InputDeviceEntry],
     name: Option<&str>,
 ) -> Result<usize, InputOpenError> {
     let is_input = |d: &&InputDeviceEntry| d.input_channels > 0;
     let found = match name {
+        Some("") => None,
         Some(wanted) => devices
             .iter()
             .position(|d| is_input(&d) && d.name == wanted),
@@ -277,10 +281,11 @@ impl MicBackend for SystemBackend {
         on_error: ErrorHandler,
     ) -> Result<Box<dyn Send>, InputOpenError> {
         let device = self.device(device)?;
-        let config = device
-            .default_input_config()
-            .map_err(|e| map_open_error(e.kind()))?
-            .config();
+        let config = cpal::StreamConfig {
+            channels: format.channels,
+            sample_rate: format.sample_rate,
+            buffer_size: cpal::BufferSize::Default,
+        };
         let on_stream_error = move |_error: cpal::Error| on_error();
         let stream = match format.sample {
             SampleFormat::F32 => device.build_input_stream(
