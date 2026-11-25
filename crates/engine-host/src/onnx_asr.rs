@@ -42,6 +42,14 @@ const INTRA_OP_THREADS: usize = 4;
 /// Names of the prompt tokens after the start token, in order: language, task,
 /// no time stamps.
 const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
+/// Sample rate of a span.
+const SAMPLE_RATE: usize = 16_000;
+/// Text tokens per second of speech that bound the decoding of a span. The real
+/// model gave at most 9.33 per second on the test sentence (14 tokens in the first
+/// 1.5 s); this is more than 2 times that.
+const TOKENS_PER_SECOND: usize = 20;
+/// Tokens added to the bound, so that a very short span still has room.
+const TOKEN_MARGIN: usize = 8;
 /// A size in the config must lie between 1 and this value.
 const MAX_CONFIG_VALUE: i64 = 65_536;
 
@@ -278,7 +286,7 @@ impl OnnxRecognizer {
     }
 
     /// Greedy decoding of the text ids from the encoder output.
-    fn decode(&mut self, hidden: DynValue) -> Result<Vec<i64>, EngineError> {
+    fn decode(&mut self, hidden: DynValue, token_limit: usize) -> Result<Vec<i64>, EngineError> {
         let empty = self
             .slots
             .iter()
@@ -305,7 +313,7 @@ impl OnnxRecognizer {
         } else {
             prompt.clone()
         };
-        greedy_decode(self.end_token, self.token_limit, |previous| {
+        greedy_decode(self.end_token, token_limit, |previous| {
             match (previous, use_cache) {
                 (None, true) => run.step(&Pass::Prime(prompt)),
                 (None, false) => run.step(&Pass::Whole(&prefix)),
@@ -337,7 +345,7 @@ impl Recognizer for OnnxRecognizer {
     fn recognize(&mut self, samples: &[f32]) -> Result<Recognition, EngineError> {
         check_span(samples)?;
         let hidden = self.encode(samples)?;
-        let ids = self.decode(hidden)?;
+        let ids = self.decode(hidden, span_token_limit(self.token_limit, samples.len()))?;
         build_recognition(&ids_to_text(&self.tokenizer, &ids)?)
     }
 }
@@ -405,6 +413,14 @@ fn token_limit(max_target_positions: usize, prompt_len: usize) -> Result<usize, 
     } else {
         Err(config_error("value is too small", "max_target_positions"))
     }
+}
+
+/// The token limit for one span: a short span cannot hold the text of a long
+/// one, so a model that never ends is stopped early. A span of 30 s keeps the
+/// limit of the model. Reaching the limit is still an error, never a cut text.
+fn span_token_limit(model_limit: usize, span_samples: usize) -> usize {
+    let spoken = (span_samples * TOKENS_PER_SECOND).div_ceil(SAMPLE_RATE);
+    model_limit.min(spoken + TOKEN_MARGIN)
 }
 
 fn check_text_size(length: u64) -> Result<(), EngineError> {
@@ -590,6 +606,38 @@ mod tests {
         };
         assert!(text.contains("end token"), "{text}");
         assert!(!text.contains(['1', '2', '3', '4', '5', '6']), "{text}");
+    }
+
+    #[test]
+    fn span_token_limit_follows_the_span_length_and_is_capped() {
+        // ceil(20 * seconds) + 8 for short spans.
+        assert_eq!(span_token_limit(444, 1_600), 10);
+        assert_eq!(span_token_limit(444, 16_000), 28);
+        assert_eq!(span_token_limit(444, 24_000), 38);
+        // The last span length below the model limit, and the first at it.
+        assert_eq!(span_token_limit(444, 348_000), 443);
+        assert_eq!(span_token_limit(444, 348_001), 444);
+        // A 30 s span keeps the model limit.
+        assert_eq!(span_token_limit(444, 480_000), 444);
+        // A smaller model limit always wins.
+        assert_eq!(span_token_limit(100, 480_000), 100);
+        assert_eq!(span_token_limit(5, 1_600), 5);
+    }
+
+    #[test]
+    fn a_model_that_never_ends_stops_at_the_bounded_limit_for_short_and_long_spans() {
+        for (span_samples, steps) in [(16_000_usize, 29_usize), (480_000, 445)] {
+            let limit = span_token_limit(444, span_samples);
+            let mut calls = 0;
+            let result = greedy_decode(9, limit, |_| {
+                calls += 1;
+                let mut scores = vec![0.0_f32; 12];
+                scores[3] = 1.0;
+                Ok(scores)
+            });
+            assert!(matches!(result, Err(EngineError::Backend(_))), "{result:?}");
+            assert_eq!(calls, steps, "span of {span_samples} samples");
+        }
     }
 
     #[test]
