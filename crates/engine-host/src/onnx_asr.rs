@@ -628,8 +628,9 @@ mod tests {
 
     #[test]
     fn a_model_that_never_ends_stops_at_the_bounded_limit_for_short_and_long_spans() {
-        for span_samples in [16_000_usize, 480_000] {
+        for (span_samples, expected_limit) in [(16_000_usize, 28_usize), (480_000, 444)] {
             let limit = span_token_limit(444, span_samples);
+            assert_eq!(limit, expected_limit, "span of {span_samples} samples");
             let mut calls = 0;
             let result = greedy_decode(9, limit, |_| {
                 calls += 1;
