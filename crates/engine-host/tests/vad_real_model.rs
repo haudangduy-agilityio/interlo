@@ -267,10 +267,49 @@ fn second_run_after_reset_gives_the_same_events() -> TestResult {
     let mut vad = OnnxVad::open(&f.model)?;
     let mut detector = SpeechDetector::new(SpeechConfig::default());
     let first = run_stream(&mut vad, &mut detector, &f.padded)?;
+    // An empty list would make the comparison below prove nothing.
+    check_speech_events(&first, f.padded.len());
     vad.reset();
     detector.reset();
     let second = run_stream(&mut vad, &mut detector, &f.padded)?;
     assert_eq!(first, second);
+    Ok(())
+}
+
+/// Frames of the padded stream that end inside the speech.
+const MID_SPEECH_FRAMES: usize = 80;
+
+fn answers(vad: &mut dyn Vad, samples: &[f32]) -> Result<Vec<bool>, EngineError> {
+    samples
+        .as_chunks::<FRAME_SAMPLES>()
+        .0
+        .iter()
+        .map(|frame| vad.is_speech(frame))
+        .collect()
+}
+
+#[test]
+fn reset_in_the_middle_of_speech_gives_the_answers_of_a_fresh_adapter() -> TestResult {
+    let Some(f) = fixture()? else { return Ok(()) };
+    // Three thresholds make the check sensitive to a small leftover in the state.
+    for threshold in [0.01_f32, 0.5, 0.99] {
+        let mut used = OnnxVad::open(&f.model)?.with_threshold(threshold)?;
+        let (head, _) = f.padded.split_at(MID_SPEECH_FRAMES * FRAME_SAMPLES);
+        let heard = answers(&mut used, head)?;
+        assert!(
+            heard.last() == Some(&true) || threshold > 0.9,
+            "the stream is not inside speech at threshold {threshold}"
+        );
+        used.reset();
+        let mut fresh = OnnxVad::open(&f.model)?.with_threshold(threshold)?;
+        // Replay from the start of the speech, where the state matters most.
+        let from_speech = &f.padded[LEAD_IN_SAMPLES..];
+        assert_eq!(
+            answers(&mut used, from_speech)?,
+            answers(&mut fresh, from_speech)?,
+            "threshold {threshold}"
+        );
+    }
     Ok(())
 }
 
