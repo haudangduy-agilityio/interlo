@@ -12,6 +12,7 @@ mock = []
 [dependencies]
 meeting-core = { workspace = true }
 thiserror = { workspace = true }
+ort = "=2.0.0-rc.15"
 
 [lints]
 workspace = true
