@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # Weekly, so a new advisory shows up without a change (scripts/check.sh supply).
-    - cron: "17 5 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -50,9 +46,11 @@ jobs:
 
   check:
     name: check (macos-15)
-    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      # One place for the cargo-deny version; the weekly workflow file pins the same one.
+      CARGO_DENY_VERSION: 0.22.1
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,14 +87,25 @@ jobs:
       - name: Install UI dependencies
         run: npm --prefix apps/ui ci --ignore-scripts
 
-      # Advisories in shipped dependencies block. Dev tooling advisories block too,
-      # except the ones accepted with a reason and an expiry date in
-      # scripts/audit-dev.mjs (today: picomatch, which has no patched release).
-      - name: Audit UI dependencies (shipped)
-        run: npm --prefix apps/ui audit --omit=dev --audit-level=high
+      # cargo-deny is installed at a pinned version and the binary is cached, so a run
+      # does not compile it. The cache is saved when the whole job is green.
+      - name: Cache cargo-deny
+        id: cache-cargo-deny
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}
 
-      - name: Audit UI dependencies (dev tooling)
-        run: node scripts/audit-dev.mjs apps/ui
+      - name: Install cargo-deny
+        if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
+        run: cargo install cargo-deny --locked --version "$CARGO_DENY_VERSION"
+
+      # The dependency audit runs on every pull request and every push to main:
+      # the audit script is npm audit (shipped), npm audit (dev tooling,
+      # accepted exceptions in scripts/audit-dev.mjs) and `cargo deny check`.
+      # The weekly workflow file catches advisories that appear without a change.
+      - name: Dependency audit
+        run: scripts/check.sh supply
 
       # The gate is `scripts/check.sh full`. End-to-end tests are out of the
       # gate for now; `scripts/check.sh e2e` runs them separately.
@@ -113,34 +122,3 @@ jobs:
             apps/ui/test-results
           if-no-files-found: ignore
           retention-days: 7
-
-  supply:
-    name: supply (dependency audit)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install
-          rustup show
-
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26
-          cache: npm
-          cache-dependency-path: apps/ui/package-lock.json
-
-      - name: Install UI dependencies
-        run: npm --prefix apps/ui ci --ignore-scripts
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
-
-      # Shipped dependencies and cargo-deny block; dev tooling advisories are reported.
-      - name: Run the dependency audit
-        run: scripts/check.sh supply
