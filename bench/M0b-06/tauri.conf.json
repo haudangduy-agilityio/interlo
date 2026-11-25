@@ -1,0 +1,19 @@
+{
+  "productName": "m0b06",
+  "version": "0.0.0",
+  "identifier": "app.interlo.bench.m0b06",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["../../apps/desktop/src-tauri/icons/32x32.png"]
+  }
+}

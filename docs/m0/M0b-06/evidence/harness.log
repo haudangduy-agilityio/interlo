@@ -1,0 +1,17 @@
+1795574146771 SITTING start; macOS 26.4.1; displays=1; simulate=0
+1795574147056 SERVER port=62549 pid=37118
+1795574147095 STATE Waiting for the harness.
+1795574150634 STATE Step 1. Make this window full-screen: press Ctrl+Cmd+F (or click the green button), then click once anywhere on this page.
+1795574164884 STATE Get ready (flags). Do nothing. A pink bar will appear near the bottom of the screen in a moment.
+1795574171582 STATE Step 3 (flags). Press ONE key now, within 15 seconds. Then keep your hands off the keyboard and the mouse until the next step.
+1795574175840 KEY seen
+1795574233047 STATE Step 4 (flags). Click once in the yellow square. It is under the pink bar: click through the bar.
+1795574269381 STATE Step 5 (flags). Click the yellow square again. This is a control: the bar will catch this click.
+1795574273929 STATE Step 6 (flags). Do nothing. The bar will show and hide 10 times (about 15 seconds).
+1795574287785 STATE Get ready (native). Do nothing. A pink bar will appear near the bottom of the screen in a moment.
+1795574294294 STATE Step 3 (native). Press ONE key now, within 15 seconds. Then keep your hands off the keyboard and the mouse until the next step.
+1795574297202 KEY seen
+1795574355769 STATE Step 4 (native). Click once in the yellow square. It is under the pink bar: click through the bar.
+1795574364808 STATE Step 5 (native). Click the yellow square again. This is a control: the bar will catch this click.
+1795574368311 STATE Step 6 (native). Do nothing. The bar will show and hide 10 times (about 15 seconds).
+1795574382089 STATE Done. You can leave full-screen now (Ctrl+Cmd+F) and close this window.

@@ -1,0 +1,23 @@
+FULLSCREEN PASS the page fills the display
+AC-24 control (flags) before show: PASS control: panel colour covers 0.00 of the rectangle, page colour 0.98 of the rest
+PRECONDITION (flags) the test window's browser is the frontmost application: yes (front_pid=37390)
+AC-23 (flags): AC-23 PASS same front_pid=37390 window=Some((645, 37390)) before and after; key reached the test page 5167 ms after SHOWN
+AC-24 (flags) 1 s timing: SHOT-TIMING PASS capture 988..1113 ms after the event, window 500..1500
+AC-24 (flags) 1 s shot: NO panel colour covers 0.00 of the rectangle, need 0.95 (page colour 1.00 of the rest)
+AC-24 (flags) 60 s timing: SHOT-TIMING PASS capture 59063..59211 ms after the event, window 58000..62000
+AC-24 (flags) 60 s shot: NO panel colour covers 0.00 of the rectangle, need 0.95 (page colour 1.00 of the rest)
+AC-25 (flags): AC-25 PASS 1 click(s) reached the test page inside the square; the panel logged none
+AC-25 control (flags): AC-25-control NO control: the panel logged no click with click-through off
+AC-29 (flags): AC-29 PASS all 20 snapshots equal the baseline (front_pid=37390)
+AC-24 control (native) before show: PASS control: panel colour covers 0.00 of the rectangle, page colour 1.00 of the rest
+PRECONDITION (native) the test window's browser is the frontmost application: yes (front_pid=37390)
+AC-23 (native): AC-23 PASS same front_pid=37390 window=Some((645, 37390)) before and after; key reached the test page 3794 ms after SHOWN
+AC-24 (native) 1 s timing: SHOT-TIMING PASS capture 977..1089 ms after the event, window 500..1500
+AC-24 (native) 1 s shot: PASS panel colour covers 1.00 of the rectangle, page colour 1.00 of the rest
+AC-24 (native) 60 s timing: SHOT-TIMING PASS capture 59047..59195 ms after the event, window 58000..62000
+AC-24 (native) 60 s shot: PASS panel colour covers 1.00 of the rectangle, page colour 1.00 of the rest
+AC-25 (native): AC-25 PASS 5 click(s) reached the test page inside the square; the panel logged none
+AC-25 control (native): AC-25-control PASS control: the panel logged 6 click(s) and the page none
+AC-29 (native): AC-29 PASS all 20 snapshots equal the baseline (front_pid=37390)
+AC-31 (sit-flags): AC-31 PASS 225 sample(s), 0 socket line(s), all loopback, no wildcard listener
+AC-31 (sit-native): AC-31 PASS 225 sample(s), 0 socket line(s), all loopback, no wildcard listener
