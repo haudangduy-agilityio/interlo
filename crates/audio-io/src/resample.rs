@@ -73,6 +73,130 @@ impl Resampler for PassthroughResampler {
     }
 }
 
+/// A sample rate the converter cannot be built for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("sample rate {0} Hz is not supported")]
+pub struct UnsupportedRate(pub u32);
+
+/// Converts mono f32 from any input rate to `TARGET_SAMPLE_RATE`.
+///
+/// CALLBACK SAFE: everything is allocated in `new`; `process_into` copies,
+/// accumulates and runs the FFT converter without allocating. The input block
+/// may have any length: samples that do not fill the converter's fixed input
+/// chunk wait in an accumulator for the next call. At the target rate the
+/// samples pass through unchanged. The converter adds a fixed delay of about
+/// 10 ms.
+pub struct RateConverter {
+    kind: ConverterKind,
+}
+
+enum ConverterKind {
+    Pass,
+    Fft(Box<FftState>),
+}
+
+struct FftState {
+    fft: rubato::Fft<f32>,
+    /// Input samples waiting for a full chunk.
+    pending: Box<[f32]>,
+    pending_len: usize,
+    chunk_in: usize,
+    out_max: usize,
+}
+
+impl RateConverter {
+    pub fn new(rate_in: u32) -> Result<Self, UnsupportedRate> {
+        if rate_in == TARGET_SAMPLE_RATE {
+            return Ok(Self {
+                kind: ConverterKind::Pass,
+            });
+        }
+        let rate = usize::try_from(rate_in).map_err(|_| UnsupportedRate(rate_in))?;
+        // 10 ms of input per chunk; the converter rounds it to a size that fits
+        // the rate pair.
+        let hint = (rate / 100).max(1);
+        let fft = rubato::Fft::<f32>::new(
+            rate,
+            TARGET_SAMPLE_RATE as usize,
+            hint,
+            1,
+            rubato::FixedSync::Input,
+        )
+        .map_err(|_| UnsupportedRate(rate_in))?;
+        use rubato::Resampler as _;
+        let chunk_in = fft.input_frames_next();
+        let out_max = fft.output_frames_max();
+        let pending = vec![0.0; fft.input_frames_max().max(chunk_in)].into_boxed_slice();
+        Ok(Self {
+            kind: ConverterKind::Fft(Box::new(FftState {
+                fft,
+                pending,
+                pending_len: 0,
+                chunk_in,
+                out_max,
+            })),
+        })
+    }
+}
+
+impl Resampler for RateConverter {
+    fn max_output_len(&self, input_len: usize) -> usize {
+        match &self.kind {
+            ConverterKind::Pass => input_len,
+            // Worst case: the accumulator already holds `chunk_in - 1` samples.
+            ConverterKind::Fft(s) => input_len.div_ceil(s.chunk_in) * s.out_max,
+        }
+    }
+
+    fn process_into(&mut self, input: &[f32], out: &mut [f32]) -> Result<usize, ScratchTooSmall> {
+        let needed = self.max_output_len(input.len());
+        let capacity = out.len();
+        if capacity < needed {
+            return Err(ScratchTooSmall { needed, capacity });
+        }
+        let s = match &mut self.kind {
+            ConverterKind::Pass => {
+                out[..needed].copy_from_slice(input);
+                return Ok(needed);
+            }
+            ConverterKind::Fft(s) => s,
+        };
+        use rubato::Resampler as _;
+        let mut consumed = 0;
+        let mut written = 0;
+        while consumed < input.len() {
+            let take = (s.chunk_in - s.pending_len).min(input.len() - consumed);
+            s.pending[s.pending_len..s.pending_len + take]
+                .copy_from_slice(&input[consumed..consumed + take]);
+            s.pending_len += take;
+            consumed += take;
+            if s.pending_len < s.chunk_in {
+                continue;
+            }
+            s.pending_len = 0;
+            let free = out.len() - written;
+            let (Ok(src), Ok(mut dst)) = (
+                rubato::audioadapter_buffers::direct::InterleavedSlice::new(
+                    &s.pending[..s.chunk_in],
+                    1,
+                    s.chunk_in,
+                ),
+                rubato::audioadapter_buffers::direct::InterleavedSlice::new_mut(
+                    &mut out[written..],
+                    1,
+                    free,
+                ),
+            ) else {
+                continue;
+            };
+            if let Ok((_, produced)) = s.fft.process_into_buffer(&src, &mut dst, None) {
+                written += produced;
+            }
+        }
+        Ok(written)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

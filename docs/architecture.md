@@ -69,8 +69,12 @@ CaptureSource (process tap, 2ch virtual device, later others)
   never `Ok(0)`; the caller owns the retry policy. `write_frames` runs on a
   control-side worker thread, never in an audio callback. `flush` ends a stream.
 - **Adapters now.** The process tap and the 2ch virtual device are the two
-  decided routes (`capture_plan`). Only the placeholder implementers exist; the
-  real ones come in M1-06 and M1-34.
+  decided routes (`capture_plan`). The microphone is a third source,
+  `MicCapture` (M1-06): it opens an input device by exact name, mixes it down to
+  mono and converts it to 16 kHz inside the audio callback, and pushes to the
+  ring. The callback runs inside `realtime::section`; a debug build counts an
+  allocation (`GuardAllocator`) or an `RtMutex` lock made there. The process tap
+  is still a placeholder (M1-34).
 - **A new source** is one implementer of `CaptureSource`, one `CaptureMethod`
   variant and one line in `capture_plan`. The engine and the playback queue do
   not change.

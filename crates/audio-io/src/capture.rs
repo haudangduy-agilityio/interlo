@@ -2,6 +2,7 @@
 
 use crate::devices::{DeviceInfo, DeviceKind};
 use crate::ring::RingProducer;
+use crate::setup_report::InputOpenError;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CaptureError {
@@ -10,12 +11,22 @@ pub enum CaptureError {
     NoCaptureRoute,
     #[error("capture is not implemented yet")]
     NotImplemented,
+    /// The microphone could not be opened.
+    #[error("microphone could not be opened: {0}")]
+    InputOpen(InputOpenError),
+    /// `start` was called on a source that is already running.
+    #[error("capture is already started")]
+    AlreadyStarted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// Keeps the one-line variants of the existing routes as they were.
+#[rustfmt::skip]
 pub enum CaptureMethod {
     ProcessTap { app_id: String },
     VirtualDevice { device_id: String },
+    /// An input device by name; `None` means the default input device.
+    Microphone { device_name: Option<String> },
 }
 
 /// A source of captured mono f32 samples: the one interface between the audio
