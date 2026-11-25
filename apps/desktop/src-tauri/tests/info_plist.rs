@@ -31,6 +31,7 @@ fn info_plist_holds_the_microphone_usage_text() {
     );
     assert!(value.is_ascii(), "the usage text is English: {value:?}");
     assert!(value.contains("microphone"));
+    assert!(value.contains("stays on this Mac"));
     assert!(value.contains("never saved"));
 }
 
