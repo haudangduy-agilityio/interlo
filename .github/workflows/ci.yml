@@ -88,22 +88,31 @@ jobs:
         run: npm --prefix apps/ui ci --ignore-scripts
 
       # cargo-deny is installed at a pinned version and the binary is cached, so a run
-      # does not compile it. The cache is saved when the whole job is green.
-      - name: Cache cargo-deny
+      # does not compile it. The cache is saved right after the install, before any
+      # project code (build scripts, tests) runs, so that code cannot change what a later
+      # run restores. Same action and SHA as the build cache; restore and save are its
+      # two halves.
+      - name: Restore cargo-deny
         id: cache-cargo-deny
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/cargo-deny
-          key: cargo-deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}
+          key: cargo-deny-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_DENY_VERSION }}
 
       - name: Install cargo-deny
         if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
         run: cargo install cargo-deny --locked --version "$CARGO_DENY_VERSION"
 
-      # The dependency audit runs on every pull request and every push to main:
-      # the audit script is npm audit (shipped), npm audit (dev tooling,
-      # accepted exceptions in scripts/audit-dev.mjs) and `cargo deny check`.
-      # The weekly workflow file catches advisories that appear without a change.
+      - name: Save cargo-deny
+        if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_DENY_VERSION }}
+
+      # Runs on every pull request and every push to main (what it runs: scripts/check.sh,
+      # mode supply). The weekly workflow file repeats it, so a new advisory shows up
+      # without a change.
       - name: Dependency audit
         run: scripts/check.sh supply
 

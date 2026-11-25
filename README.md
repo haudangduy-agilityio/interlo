@@ -47,7 +47,7 @@ npm --prefix apps/ui ci --ignore-scripts   # the same install CI runs
 scripts/check.sh quick   # format, lint, unit and integration tests, typecheck, GitLab template check
 scripts/check.sh full    # quick, then UI build, desktop build (the gate)
 scripts/check.sh e2e     # end-to-end journeys, out of the gate for now
-scripts/check.sh supply  # dependency audit; needs cargo-deny; not in the gate, but CI runs it in the check job
+scripts/check.sh supply  # dependency audit; needs cargo-deny; not in the gate; the GitHub workflow runs it in the `check` job and weekly
 ```
 
 `scripts/check.sh` is the gate on your Mac. It stops at the first failing step and
