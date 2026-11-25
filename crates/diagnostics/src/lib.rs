@@ -30,6 +30,12 @@ pub mod event {
 pub mod code {
     pub const EGRESS_LOCAL_ONLY: &str = "E_EGRESS_LOCAL_ONLY";
     pub const EGRESS_NO_CONSENT: &str = "E_EGRESS_NO_CONSENT";
+    /// A download host is not on the allow list of its purpose.
+    pub const EGRESS_HOST_NOT_ALLOWED: &str = "E_EGRESS_HOST_NOT_ALLOWED";
+    /// The url is not `https://` with a host.
+    pub const EGRESS_BAD_URL: &str = "E_EGRESS_BAD_URL";
+    /// A meeting session is active, so no network call is allowed.
+    pub const EGRESS_MEETING_RUNNING: &str = "E_EGRESS_MEETING_RUNNING";
     pub const MODEL_CHECKSUM: &str = "E_MODEL_CHECKSUM";
     pub const MODEL_SIZE_CAP: &str = "E_MODEL_SIZE_CAP";
     pub const JOB_OUT_OF_ATTEMPTS: &str = "E_JOB_OUT_OF_ATTEMPTS";
@@ -169,6 +175,22 @@ mod tests {
         out.lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn egress_codes_are_distinct_and_start_with_e_egress() {
+        let codes = [
+            code::EGRESS_LOCAL_ONLY,
+            code::EGRESS_NO_CONSENT,
+            code::EGRESS_HOST_NOT_ALLOWED,
+            code::EGRESS_BAD_URL,
+            code::EGRESS_MEETING_RUNNING,
+        ];
+        for c in codes {
+            assert!(c.starts_with("E_EGRESS_"), "{c}");
+        }
+        let distinct: std::collections::BTreeSet<_> = codes.into_iter().collect();
+        assert_eq!(distinct.len(), codes.len());
     }
 
     #[test]

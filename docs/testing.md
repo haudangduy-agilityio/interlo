@@ -39,6 +39,16 @@
 - Never weaken a test to make it pass: no `#[ignore]`, `.skip`, `.only`, or a
   removed assertion.
 
+## Network-off check
+
+The guard tests use a fake transport (`NetworkOff` counts attempts; feature `test-support` of `meeting-core`). To prove that they pass with the real network denied by the operating system, run them through the script:
+
+```bash
+scripts/network-off.sh cargo test -p meeting-core --offline --features test-support egress
+```
+
+The script runs a canary first. A canary that reaches the network, or a sandbox that cannot run a command, is NOT RUN (exit 2), never a pass. M1-08 and M4-03 reuse it. It needs a Mac with `sandbox-exec` and is not part of `scripts/check.sh`.
+
 ## Updater and driver installer tests
 
 These tests are expected when the code lands (M4-15 for the updater, M1 for the

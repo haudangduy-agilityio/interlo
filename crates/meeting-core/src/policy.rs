@@ -11,7 +11,7 @@
 //! link-local names are refused, so a download cannot be aimed at the
 //! owner's own network.
 
-use crate::protocol::DataKind;
+use crate::protocol::{DataKind, SessionStatus};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
@@ -62,6 +62,12 @@ pub struct PrivacyPolicy {
     /// Hosts the owner allows for model downloads (lowercase). Empty by default.
     /// A model request carries no user data, so this list never affects `check`.
     model_hosts: BTreeSet<String>,
+    /// Hosts the owner allows for the driver installer download (lowercase).
+    /// Empty by default. Kept apart from `model_hosts`.
+    driver_hosts: BTreeSet<String>,
+    /// True while a meeting session exists, a paused one included (D-103). Only
+    /// the egress guard reads it; the checks below do not.
+    session_active: bool,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -72,6 +78,10 @@ pub enum EgressDenied {
     NoConsent(String, DataKind),
     #[error("model host {0} is not on the allow list")]
     ModelHostNotAllowed(String),
+    #[error("driver host {0} is not on the allow list")]
+    DriverHostNotAllowed(String),
+    #[error("no network while a meeting session is active")]
+    MeetingRunning,
 }
 
 /// Why `PrivacyPolicy::allow_model_host` refused a host name.
@@ -168,6 +178,8 @@ impl PrivacyPolicy {
             local_only: true,
             consents: BTreeSet::new(),
             model_hosts: BTreeSet::new(),
+            driver_hosts: BTreeSet::new(),
+            session_active: false,
         }
     }
 
@@ -208,6 +220,44 @@ impl PrivacyPolicy {
         } else {
             Err(EgressDenied::ModelHostNotAllowed(host.to_string()))
         }
+    }
+
+    /// Allow driver installer downloads from `host`. Same rules as
+    /// `allow_model_host`, on a separate list (D-69).
+    pub fn allow_driver_host(&mut self, host: &str) -> Result<(), ModelHostRejected> {
+        self.driver_hosts.insert(normalize_model_host(host)?);
+        Ok(())
+    }
+
+    pub fn revoke_driver_host(&mut self, host: &str) {
+        self.driver_hosts.remove(&host.to_ascii_lowercase());
+    }
+
+    /// Gate for a driver installer download. Like `check_model_download`, it
+    /// passes in any mode and grants no `DataKind`.
+    pub fn check_driver_download(&self, host: &str) -> Result<(), EgressDenied> {
+        if self.driver_hosts.contains(&host.to_ascii_lowercase()) {
+            Ok(())
+        } else {
+            Err(EgressDenied::DriverHostNotAllowed(host.to_string()))
+        }
+    }
+
+    /// Record the lifecycle state of the meeting session. It does no
+    /// transition check: the caller owns the lifecycle. `Preparing`, `Running`,
+    /// `Paused` and `Stopping` count as active.
+    pub fn set_session_status(&mut self, status: SessionStatus) {
+        self.session_active = matches!(
+            status,
+            SessionStatus::Preparing
+                | SessionStatus::Running
+                | SessionStatus::Paused
+                | SessionStatus::Stopping
+        );
+    }
+
+    pub fn is_session_active(&self) -> bool {
+        self.session_active
     }
 
     pub fn check(&self, provider: &Provider, kind: DataKind) -> Result<(), EgressDenied> {
@@ -418,6 +468,106 @@ mod tests {
                 "{host:?} must not pass the gate"
             );
         }
+    }
+
+    #[test]
+    fn allow_driver_host_rejects_unsafe_names() {
+        let bad = [
+            "",
+            "127.0.0.1",
+            "10.0.0.5",
+            "::1",
+            "2130706433",
+            "localhost",
+            "nas.lan",
+            "intranet",
+            "models.example.com:8080",
+            "https://x.example.com",
+            "bad host.example.com",
+        ];
+        for host in bad {
+            let mut p = PrivacyPolicy::local_only();
+            assert!(
+                p.allow_driver_host(host).is_err(),
+                "{host:?} must be refused"
+            );
+            assert!(
+                p.check_driver_download(host).is_err(),
+                "{host:?} must not pass the driver gate"
+            );
+        }
+    }
+
+    #[test]
+    fn allow_driver_host_accepts_a_public_name_on_its_own_list() {
+        let mut p = PrivacyPolicy::local_only();
+        p.allow_driver_host("Drivers.Example.com")
+            .expect("public host");
+        assert!(p.check_driver_download("drivers.example.com").is_ok());
+        assert_eq!(
+            p.check_model_download("drivers.example.com"),
+            Err(EgressDenied::ModelHostNotAllowed(
+                "drivers.example.com".into()
+            ))
+        );
+        assert_eq!(
+            p.check_driver_download("other.example.com"),
+            Err(EgressDenied::DriverHostNotAllowed(
+                "other.example.com".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn revoke_driver_host_removes_a_host_ignoring_case() {
+        let mut p = PrivacyPolicy::local_only();
+        p.allow_driver_host("drivers.example.com")
+            .expect("public host");
+        p.revoke_driver_host("DRIVERS.example.com");
+        assert_eq!(
+            p.check_driver_download("drivers.example.com"),
+            Err(EgressDenied::DriverHostNotAllowed(
+                "drivers.example.com".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn default_policy_is_closed_and_the_session_is_inactive() {
+        let p = PrivacyPolicy::default();
+        assert_eq!(p, PrivacyPolicy::local_only());
+        assert!(p.is_local_only());
+        assert!(!p.is_session_active());
+        for host in ["models.example.com", "drivers.example.com", ""] {
+            assert!(p.check_model_download(host).is_err(), "{host:?}");
+            assert!(p.check_driver_download(host).is_err(), "{host:?}");
+        }
+    }
+
+    #[test]
+    fn session_status_marks_the_session_active_for_the_four_live_states() {
+        let live = [
+            (SessionStatus::Idle, false),
+            (SessionStatus::Preparing, true),
+            (SessionStatus::Running, true),
+            (SessionStatus::Paused, true),
+            (SessionStatus::Stopping, true),
+            (SessionStatus::Completed, false),
+            (SessionStatus::Failed, false),
+        ];
+        let mut p = PrivacyPolicy::local_only();
+        for (status, active) in live {
+            p.set_session_status(status);
+            assert_eq!(p.is_session_active(), active, "{status:?}");
+        }
+        // The policy checks do not read the session status (AC-17).
+        p.allow_model_host("models.example.com")
+            .expect("public host");
+        p.allow_driver_host("drivers.example.com")
+            .expect("public host");
+        p.set_session_status(SessionStatus::Running);
+        assert!(p.check_model_download("models.example.com").is_ok());
+        assert!(p.check_driver_download("drivers.example.com").is_ok());
     }
 
     #[test]

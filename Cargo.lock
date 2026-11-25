@@ -2133,6 +2133,7 @@ dependencies = [
 name = "meeting-core"
 version = "0.1.0"
 dependencies = [
+ "diagnostics",
  "rusqlite",
  "serde",
  "serde_json",

@@ -5,7 +5,13 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Test helpers for other crates (`NetworkOff`, `FakeTransport`, `RecordingLog`).
+# Not a default feature: the product build holds none of them.
+test-support = []
+
 [dependencies]
+diagnostics = { path = "../diagnostics" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rusqlite = { workspace = true }

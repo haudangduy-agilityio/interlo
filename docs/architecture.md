@@ -28,7 +28,7 @@ wire type `ipc::Direction` converts to and from it (ADR 0020).
 
 | Crate | Owns | Threads | Must never |
 |---|---|---|---|
-| meeting-core | Protocol, session states, coordinator (line state), journal, policy gate | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
+| meeting-core | Protocol, session states, coordinator (line state), journal, policy gate, egress guard (`GuardedClient`) | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
 | audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`) | One worker thread per model | Open a network connection; hand out an engine the policy refuses |
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
@@ -119,8 +119,10 @@ Rows say what exists in the skeleton. Text marked "planned" is not built yet.
 
 Network only for a model download or a driver installer download the owner
 starts, and the update check outside meetings (guardrail 1, D-61, D-69). Every
-call goes through the policy-owned client (ADR 0007); the model host, the update
-host and the driver host are on the policy allow list. The update check sends
+call goes through the policy-owned client, `GuardedClient` in `crates/meeting-core/src/egress.rs` (ADR 0007); the model host, the update
+host and the driver host are on the policy allow list. The guard refuses every request
+while a meeting session is active, a paused one included (D-192), and logs each refusal
+with an error code only. The update check sends
 only the request for the manifest file.
 
 Updater flow (ADR 0015):
