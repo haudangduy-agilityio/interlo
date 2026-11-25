@@ -86,7 +86,8 @@ apps/ui/package-lock.json pin the exact versions. A full licence list for the
 shipped build is still to be generated before a release (TODO).
 
 Rust: serde, serde_json, thiserror, rusqlite (bundled SQLite), tauri 2,
-tauri-build 2. Planned: cpal, rubato, ort (ONNX Runtime), tokio.
+tauri-build 2, cpal (Apache-2.0), rubato (MIT OR Apache-2.0). Planned: ort (ONNX
+Runtime), tokio.
 
 UI: react, react-dom, vite, @vitejs/plugin-react, typescript, vitest, jsdom,
 @testing-library/react, @testing-library/user-event, @playwright/test, eslint,
