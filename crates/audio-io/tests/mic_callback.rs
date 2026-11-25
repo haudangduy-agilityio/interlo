@@ -55,6 +55,11 @@ fn level_follows_the_input_peak() {
     }
     let peak = level.peak_since_last_read();
     assert!((0.45..=0.55).contains(&peak), "peak was {peak}");
+    assert_eq!(
+        level.peak_since_last_read(),
+        0.0,
+        "a second read with no new input fed"
+    );
 }
 
 #[test]

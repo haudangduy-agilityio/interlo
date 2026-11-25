@@ -86,19 +86,41 @@ fn a_panic_inside_a_section_still_leaves_the_section() {
     assert_eq!(thread_violations(), before, "the flag was left set");
 }
 
+#[cfg(unix)]
 #[test]
 fn total_violations_include_other_threads() {
+    // The totals are process-wide, so a parallel test in this binary raises
+    // them too and an exact count is only possible with one test thread. The
+    // real check runs in a child process that runs that one test.
+    let status = run_child("child_counts_a_violation_from_another_thread");
+    assert!(status.success(), "{status:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn child_counts_a_violation_from_another_thread() {
+    if std::env::var_os(CHILD_ENV).is_none() {
+        return;
+    }
     count_mode();
     let total_before = total_violations();
     let mine_before = thread_violations();
     thread::spawn(|| {
-        section(allocating_callback);
+        section(|| {
+            std::hint::black_box(Box::new(1u8));
+        });
     })
     .join()
     .unwrap();
     assert_eq!(thread_violations(), mine_before, "per-thread counter moved");
+    let total_after = total_violations();
     #[cfg(debug_assertions)]
-    assert!(total_violations().allocations > total_before.allocations);
+    {
+        assert_eq!(total_after.allocations, total_before.allocations + 1);
+        assert_eq!(total_after.locks, total_before.locks);
+    }
+    #[cfg(not(debug_assertions))]
+    assert_eq!(total_after, total_before);
 }
 
 #[test]
@@ -244,8 +266,12 @@ fn child_without_a_violation() {
 
 use audio_io::{ring_buffer, MicCallback};
 
-/// Feeds many blocks through a real `MicCallback` in Count mode and returns the
-/// violations seen on this thread. The ring is drained outside the section.
+/// Blocks fed after the warm-up block (AC-05).
+const BLOCKS_MEASURED: usize = 1000;
+
+/// Feeds one warm-up block and then `BLOCKS_MEASURED` blocks through a real
+/// `MicCallback` in Count mode and asserts that this thread saw no violation.
+/// The ring is drained outside the section.
 fn violations_of_a_real_callback(rate: u32, channels: u16, block_frames: usize, i16_input: bool) {
     count_mode();
     let (producer, mut consumer) = ring_buffer(65_536);
@@ -264,7 +290,7 @@ fn violations_of_a_real_callback(rate: u32, channels: u16, block_frames: usize, 
     }
     while consumer.pop_slice(&mut drain) > 0 {}
     let before = thread_violations();
-    for _ in 0..200 {
+    for _ in 0..BLOCKS_MEASURED {
         if i16_input {
             cb.process_i16(&i16_block);
         } else {
@@ -281,23 +307,23 @@ fn violations_of_a_real_callback(rate: u32, channels: u16, block_frames: usize, 
 }
 
 #[test]
-fn mic_callback_does_not_allocate_48k_stereo_f32() {
-    violations_of_a_real_callback(48_000, 2, 512, false);
+fn mic_callback_does_not_allocate_stereo_48k_f32() {
+    violations_of_a_real_callback(48_000, 2, 480, false);
 }
 
 #[test]
-fn mic_callback_does_not_allocate_44k1_mono_i16() {
+fn mic_callback_does_not_allocate_mono_44k1_i16() {
     violations_of_a_real_callback(44_100, 1, 441, true);
 }
 
 #[test]
-fn mic_callback_does_not_allocate_16k_mono_f32() {
+fn mic_callback_does_not_allocate_mono_16k_f32() {
     violations_of_a_real_callback(16_000, 1, 160, false);
 }
 
 #[test]
-fn mic_callback_does_not_allocate_96k_four_channels_f32() {
-    violations_of_a_real_callback(96_000, 4, 1000, false);
+fn mic_callback_does_not_allocate_quad_96k_f32() {
+    violations_of_a_real_callback(96_000, 4, 960, false);
 }
 
 #[test]
