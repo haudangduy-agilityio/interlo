@@ -109,7 +109,10 @@ fn model_info_list_round_trips() {
     assert_eq!(models.len(), 4);
     let tr = models.iter().find(|m| m.id == "tr").unwrap();
     assert!(tr.non_commercial);
-    assert_eq!(tr.licence, "CC BY-NC-SA training data");
+    assert_eq!(
+        tr.licence,
+        "Apache-2.0. Training data is CC BY-NC-SA: personal use only"
+    );
     assert!(models.iter().filter(|m| m.non_commercial).count() == 1);
     assert!(models.iter().all(|m| !m.licence.trim().is_empty()));
 }

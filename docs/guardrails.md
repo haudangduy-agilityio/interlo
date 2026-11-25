@@ -17,7 +17,11 @@ Rules for every change. A change that breaks one is not done.
    microphone", "virtual audio device".
    The README and every other text in the repository name only Interlo.
    Libraries and models are named only in `docs/tech-stack.md` and `NOTICE` as
-   dependency attribution (D-56).
+   dependency attribution (D-56). One exception: the url strings and the pinned
+   host list of the model table in `crates/model-store/src/manifest.rs` hold the
+   model-hosting names of the sources, because a download needs the real address
+   (M1-04, ADR 0012). Those names appear nowhere else in code, tests or
+   comments.
 4. **English** in code, comments, identifiers, docs and UI text. Vietnamese UI text
    comes from the interface-language setting, never from hard-coded strings.
 5. **Secrets.** API keys live in the macOS Keychain only. They never reach the

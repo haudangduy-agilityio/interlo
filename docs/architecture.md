@@ -32,7 +32,7 @@ wire type `ipc::Direction` converts to and from it (ADR 0020).
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
 | store | SQLite projections, schema, full-text index, cascade delete | One writer, background reads | Store audio |
 | summary-jobs | Job queue (3 attempts, retry 30 s and 60 s, 3-minute lease), citation check, question answerer | Background task | Replace good notes with a bad reply; keep a point without evidence line ids |
-| model-store | Model specs, size caps, checksums, download gate | Background download task | Run a model that failed its checksum; download without the owner's click |
+| model-store | Compiled-in model table, size caps, checksums, download gate | Background download task | Run a model that failed its checksum; download without the owner's click |
 | settings | Settings values, when each applies, hotkey map and conflict check | UI thread through the bridge | Store API keys outside the Keychain; accept a system key |
 | diagnostics | Log events, timings, error codes, redacted export | Background writer | Write transcript text unless debug logs are on |
 | workspace-notes | Notes (one tag), tasks, drafts from meetings, export, auto-delete (E1) | One store writer | Send notes or tasks to a network service |

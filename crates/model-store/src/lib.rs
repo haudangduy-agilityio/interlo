@@ -1,6 +1,8 @@
 //! model-store: local model files, their pinned checksums and size caps.
 //!
-//! Owns: the model spec (id, url, pinned SHA-256, size cap), the download gate
+//! Owns: the compiled-in model table (`manifest.rs`: models, packs, files with
+//! url, pinned SHA-256 and exact size, pinned hosts), the model spec (id, url,
+//! pinned SHA-256, size cap), the download gate
 //! (owner confirmation + https + the policy's model-host allow list, re-checked
 //! on every redirect hop) and file verification. The hash function is passed in
 //! through the `Hasher` trait.
@@ -11,15 +13,18 @@
 //! and never opens the path again, so a swap after the check cannot reach it.
 //! The file length comes from the same open file that is hashed, never from the
 //! caller. A download starts only with an `OwnerConfirmation` (ADR 0006), and
-//! only for a model found by id in the compiled-in table (`spec_for`): the
+//! only for a model found by id in the compiled-in table (`entry_for`): the
 //! webview never supplies a URL.
 
 use meeting_core::policy::{EgressDenied, PrivacyPolicy, Provider};
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::LazyLock;
 use thiserror::Error;
+
+mod manifest;
+
+pub use manifest::{ModelEntry, ModelFile, Pack};
 
 #[derive(Debug, Error)]
 pub enum ModelError {
@@ -106,7 +111,7 @@ impl Verified {
 }
 
 /// Proof that the owner confirmed the download of one model in the shell's
-/// native dialog (ADR 0006). No webview value can make one: it has no public
+/// native dialog (ADR 0012). No webview value can make one: it has no public
 /// field, no `Default`, no `Clone` and no `Deserialize`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct OwnerConfirmation {
@@ -225,21 +230,43 @@ pub fn check_redirect(
     Ok(())
 }
 
-/// The models this build can download. Compiled in: the webview and the
-/// settings never supply a url. Empty until the model list is decided (M0).
-fn compiled_models() -> &'static [ModelSpec] {
-    static TABLE: LazyLock<Vec<ModelSpec>> = LazyLock::new(Vec::new);
-    &TABLE
+/// The models of the compiled-in table, in Setup order. The webview and the
+/// settings never supply a url: this table is the only source (ADR 0012).
+pub fn entries() -> &'static [ModelEntry] {
+    manifest::ENTRIES
 }
 
-fn find_spec<'a>(table: &'a [ModelSpec], id: &str) -> Option<&'a ModelSpec> {
+/// The packs of the compiled-in table. The downloader (M1-04.4) walks them.
+pub fn packs() -> &'static [Pack] {
+    manifest::PACKS
+}
+
+/// The hosts a download may contact (`PINNED_HOSTS`). The downloader (M1-04.4)
+/// checks every redirect hop against them.
+pub fn pinned_hosts() -> &'static [&'static str] {
+    manifest::PINNED_HOSTS
+}
+
+fn find_entry<'a>(table: &'a [ModelEntry], id: &str) -> Option<&'a ModelEntry> {
     table.iter().find(|m| m.id == id)
 }
 
-/// Resolve a model by id in the compiled-in table. An unknown id returns
-/// `None`; the id is never read as a url.
-pub fn spec_for(id: &str) -> Option<&'static ModelSpec> {
-    find_spec(compiled_models(), id)
+/// Resolve a model by id in the compiled-in table. Only an exact id matches: an
+/// unknown id, a different case or a url returns `None`. The id is never read as
+/// a url.
+pub fn entry_for(id: &str) -> Option<&'static ModelEntry> {
+    find_entry(entries(), id)
+}
+
+/// The pack that holds the files of `entry`. The test
+/// `every_entry_names_an_existing_pack` guarantees that it exists, so a missing
+/// pack is a build error of the table, not a runtime case.
+#[allow(clippy::expect_used)] // invariant pinned by the table test named above
+pub fn pack_of(entry: &ModelEntry) -> &'static Pack {
+    packs()
+        .iter()
+        .find(|p| p.id == entry.pack)
+        .expect("every entry names a pack of the table")
 }
 
 /// Fetch a model to `dest`. Stub: this crate has no network code yet. The gate
@@ -650,40 +677,23 @@ mod tests {
         assert!(check_redirect(&p, &spec(), "https://models.example.com/b").is_err());
     }
 
-    fn entry(id: &str) -> ModelSpec {
-        ModelSpec {
-            id: id.into(),
-            ..spec()
+    fn model_entry(id: &'static str) -> ModelEntry {
+        ModelEntry {
+            id,
+            name: "Test model",
+            licence: "Test licence",
+            non_commercial: false,
+            pack: "test",
         }
-    }
-
-    #[test]
-    fn an_unknown_id_resolves_to_nothing() {
-        assert!(spec_for("no-such-model").is_none());
-        assert!(spec_for("").is_none());
-    }
-
-    #[test]
-    fn a_url_is_never_read_as_an_id() {
-        assert!(spec_for("https://models.example.com/files/small.bin").is_none());
     }
 
     #[test]
     fn lookup_matches_the_exact_id_only() {
-        let table = [entry("small-model"), entry("large-model")];
-        assert_eq!(find_spec(&table, "large-model").unwrap().id, "large-model");
-        assert!(find_spec(&table, "Large-Model").is_none());
-        assert!(find_spec(&table, "large").is_none());
-        assert!(find_spec(&table, "https://models.example.com/files/small.bin").is_none());
-    }
-
-    #[test]
-    fn every_compiled_in_model_is_pinned_and_served_over_https() {
-        for m in compiled_models() {
-            assert!(is_sha256_hex(&m.sha256_hex), "{} has a bad pin", m.id);
-            assert!(host_provider(m).is_ok(), "{} has a bad url", m.id);
-            assert!(m.size_cap_bytes > 0, "{} has no size cap", m.id);
-        }
+        let table = [model_entry("small-model"), model_entry("large-model")];
+        assert_eq!(find_entry(&table, "large-model").unwrap().id, "large-model");
+        assert!(find_entry(&table, "Large-Model").is_none());
+        assert!(find_entry(&table, "large").is_none());
+        assert!(find_entry(&table, "https://models.example.com/files/small.bin").is_none());
     }
 
     #[test]
