@@ -1,0 +1,4 @@
+# sample 1795577514746
+COMMAND   PID      USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Python  32045 saccerwin    3u  IPv4 0xa93a13478c996dcd      0t0  TCP 127.0.0.1:PORT (LISTEN)
+# lsof exit=0

@@ -136,6 +136,7 @@ start_spike() { # run-name [spike options...]
 
 hashes() {
   (cd "$EVID" && find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name SHOT-SHA256SUMS | sort | xargs shasum -a 256 > SHA256SUMS)
+  [ "$MODE" = "sitting" ] || return 0
   (cd "$SHOTS" && ls ./*.png > /dev/null 2>&1 && shasum -a 256 ./*.png > "$EVID/SHOT-SHA256SUMS") || true
 }
 
@@ -168,6 +169,35 @@ do_controls() {
     *) res "CONTROL AC-23 FAIL (the check did not say NO): $line" ;;
   esac
   collect control-ac23 control-ac23
+  # AC-29 control (run level). The PLAN named a `steal` command for it; it was dropped, because an
+  # application taking the focus on its own does not repeat on demand (see the AC-23 control).
+  # Instead the check runs on a real log: the native log of the sitting (20 equal snapshots, PASS),
+  # and on a copy of it in which the snapshot of cycle 5 (shown) has another frontmost pid, which
+  # must give NO. A live cycle run is also recorded, as it is: with nobody at the keyboard another
+  # application can come to the front during the run, and then the check says NO for a real reason.
+  local sitting_log="${M0B06_SITTING_LOG:-$BENCH/../../docs/m0/M0b-06/evidence/native-spike.log}"
+  if [ -f "$sitting_log" ]; then
+    line="$(analyze ac29 "$sitting_log")"
+    res "CONTROL AC-29 sitting log, unaltered: $line"
+    sed -e 's#\( SNAP cyc-05-shown front_pid=\)[0-9]*#\1999999#' "$sitting_log" > "$BASE/control-ac29-altered.log"
+    line="$(analyze ac29 "$BASE/control-ac29-altered.log")"
+    case "$line" in
+      "AC-29 NO "*) res "CONTROL AC-29 PASS (the check says NO when the snapshot of cycle 5 has another frontmost pid): $line" ;;
+      *) res "CONTROL AC-29 FAIL (the check did not say NO): $line" ;;
+    esac
+  else
+    res "CONTROL AC-29 NOT RUN (no sitting log at $sitting_log)"
+  fi
+  "$BENCH/run.sh" control-ac29 --mechanism native --prime > /dev/null
+  wait_for 30 grep -q READY "$(run_log control-ac29)"
+  wait_for 20 grep -q PRIMED "$(run_log control-ac29)" || hlog "control-ac29: prime did not finish"
+  sendcmd control-ac29 "snapshot before"; sleep 0.5
+  sendcmd control-ac29 "cycle 10"
+  wait_for 90 bash -c "[ \"\$(grep -c ' SNAP cyc-' '$(run_log control-ac29)')\" -ge 20 ]" || hlog "control-ac29: cycle did not finish in 90 s"
+  sendcmd control-ac29 "quit"; sleep 2
+  line="$(analyze ac29 "$(run_log control-ac29)")"
+  res "AC-29 live cycle run without a person (informational, depends on the front application): $line"
+  collect control-ac29 control-ac29
   # AC-31 control: a synthetic wildcard listener must make the check say NO.
   printf '# sample 1\nCOMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nm0b06 1 u 9u IPv4 0x1 0t0 TCP *:8080 (LISTEN)\n# lsof exit=0\n' > "$BASE/synthetic-lsof.log"
   line="$(analyze lsof "$BASE/synthetic-lsof.log")"
@@ -175,6 +205,27 @@ do_controls() {
     "AC-31 NO "*) res "CONTROL AC-31 PASS (synthetic wildcard listener): $line" ;;
     *) res "CONTROL AC-31 FAIL: $line" ;;
   esac
+  # AC-31 positive control: the sampler command of run.sh (`lsof -nP -a -p <pid> -i`) must list a
+  # loopback socket that a process holds. A helper process listens on 127.0.0.1; the same command
+  # samples it; the check must say PASS and count 1 socket line. This shows that the sampler sees
+  # sockets. It does not show that the spike would be caught: the spike's own sockets are not
+  # opened on purpose here.
+  python3 -c 'import socket,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(1); print("up", flush=True); time.sleep(30)' > "$BASE/helper.out" &
+  local helper=$!
+  wait_for 10 grep -q up "$BASE/helper.out"
+  {
+    echo "# sample $(now_ms)"
+    local lsof_exit=0
+    lsof -nP -a -p "$helper" -i 2>/dev/null || lsof_exit=$?
+    echo "# lsof exit=$lsof_exit"
+  } > "$BASE/positive-lsof.log"
+  kill "$helper" 2>/dev/null || true
+  line="$(analyze lsof "$BASE/positive-lsof.log")"
+  case "$line" in
+    "AC-31 PASS 1 sample(s), 1 socket line(s)"*) res "CONTROL AC-31 POSITIVE PASS (the sampler lists a loopback listener): $line" ;;
+    *) res "CONTROL AC-31 POSITIVE FAIL: $line" ;;
+  esac
+  sed -e 's#127\.0\.0\.1:[0-9]*#127.0.0.1:PORT#g' "$BASE/positive-lsof.log" > "$EVID/control-ac31-positive-lsof.log"
   hashes
 }
 

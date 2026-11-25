@@ -1,2 +1,6 @@
-CONTROL AC-23 PASS (the check says NO when the after snapshot has another frontmost pid): AC-23 NO focus changed: before front_pid=76617 window=None, after front_pid=999999 window=None
+CONTROL AC-23 PASS (the check says NO when the after snapshot has another frontmost pid): AC-23 NO focus changed: before front_pid=651 window=Some((51, 651)), after front_pid=999999 window=Some((51, 651))
+CONTROL AC-29 sitting log, unaltered: AC-29 PASS all 20 snapshots equal the baseline (front_pid=37390)
+CONTROL AC-29 PASS (the check says NO when the snapshot of cycle 5 has another frontmost pid): AC-29 NO one of the 20 snapshots differs from the baseline, or the spike was active
+AC-29 live cycle run without a person (informational, depends on the front application): AC-29 PASS all 20 snapshots equal the baseline (front_pid=651)
 CONTROL AC-31 PASS (synthetic wildcard listener): AC-31 NO wildcard listener: m0b06 1 u 9u IPv4 0x1 0t0 TCP *:8080 (LISTEN)
+CONTROL AC-31 POSITIVE PASS (the sampler lists a loopback listener): AC-31 PASS 1 sample(s), 1 socket line(s), all loopback, no wildcard listener
