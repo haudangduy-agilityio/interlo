@@ -2,7 +2,19 @@
 //!
 //! One call takes the samples of one speech span (0.1 s to 30 s, 16 kHz mono)
 //! and returns the Vietnamese text of the whole span. A partial text is a
-//! second call on a longer buffer; the caller owns that.
+//! second call on a longer buffer; the caller owns that. A span outside the
+//! limits, a model that never writes its end token and a failed run are typed
+//! errors, never a cut or a guess. The adapter keeps nothing of a call.
+//!
+//! The adapter does not check the size or the SHA-256 of the model files. The
+//! caller must pass a folder that the model manager has verified in the same
+//! run, before the call: a model that fails its checksum never runs
+//! (guardrail 7). The check is owned by M1-04 and M1-42. The adapter opens no
+//! connection and logs nothing. It allocates, so it runs on a worker thread,
+//! never in an audio callback.
+//!
+//! The runtime writes its own log lines through `tracing`; those lines can hold
+//! the model path and are not scrubbed. A log sink must filter the `ort` target.
 
 use crate::error::EngineError;
 use crate::onnx_vad::{file_name, scrub, shared_environment};
