@@ -4,17 +4,25 @@
 Cargo.toml                 Rust workspace; every crate below is a member
 crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
-  audio-io/                devices, device list, setup report, capture plan, output, ring buffer, resampler trait
+  audio-io/                devices, device list, setup report, capture plan, microphone capture, callback guards, output, ring buffer, resampler
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
     src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
+    src/mic.rs               microphone source (`MicCapture`), backend trait, device choice by name, error mapping
+    src/mic_callback.rs      the callback core: mono mix-down, level, conversion to 16 kHz, ring push (callback safe)
+    src/realtime.rs          callback guards: section flag, allocation guard, `RtMutex` lock check (debug builds)
     examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
+    examples/mic_level.rs    manual run: level meter of the microphone, text output (`cargo run -p audio-io --example mic_level`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
+    tests/realtime_guard.rs  the allocation guard and the lock check fail a bad callback and pass a good one
+    tests/realtime_scan.rs   callback-side files name no lock, blocking or log call
+    tests/mic_callback.rs    callback core without a sound card: level, ring never blocks, conversion, counters
+    tests/mic_capture.rs     microphone source on a fake backend: device by name, errors, start and stop
   engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
   playback/                playback queue, speed-up, mixer
   store/                   SQLite projections, schema, full-text index
   summary-jobs/            job queue, citation check, question answerer
-  model-store/             model specs, size and checksum checks, download gate
+  model-store/             compiled-in model table (manifest.rs), size and checksum checks, download gate
   settings/                settings values, apply timing, hotkeys
   diagnostics/             log events, redaction
   workspace-notes/         notes, tasks, export, auto-delete (E1)
@@ -60,7 +68,7 @@ apps/
     src/shared/useFocusTrap.ts  Tab wrap for dialogs and the settings sheet
     src/shared/testing/    test helpers (renderApp.tsx); never imported by app code
     e2e/                   Playwright journeys (one file per journey)
-bench/<task-id>/           throwaway spike or measurement crate (M0b-05, M1-35); its own [workspace], not a member of the root workspace; merged with its note docs/m0/<task-id>.md
+bench/<task-id>/           throwaway spike or measurement crate (M0b-05, M1-35, M0-03); its own [workspace], not a member of the root workspace; merged with its note docs/m0/<task-id>.md
 assets/icon/               icon sources
 docs/                      reference files (routed from CLAUDE.md)
   adr/                     one file per architecture decision

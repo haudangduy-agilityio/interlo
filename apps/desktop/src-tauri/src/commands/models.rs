@@ -1,58 +1,40 @@
 use model_store::OwnerConfirmation;
-use serde_json::Value;
 
 #[cfg(any(test, feature = "demo-data"))]
 use crate::ipc::ModelState;
-use crate::ipc::{
-    CancelModelDownloadArgs, DownloadModelArgs, IpcError, IpcResult, ModelInfo, SetupItemId,
-};
+use crate::ipc::{CancelModelDownloadArgs, DownloadModelArgs, IpcError, IpcResult, ModelInfo};
 use crate::native_confirm;
 
 /// Sample rows. Tests and a `demo-data` build only.
 #[cfg(any(test, feature = "demo-data"))]
 pub fn sample_models() -> Vec<ModelInfo> {
-    let row = |id: &str, name: &str, size_bytes: u64, state: ModelState, licence: &str| ModelInfo {
-        id: id.to_string(),
-        name: name.to_string(),
-        size_bytes,
-        state,
-        licence: licence.to_string(),
-        non_commercial: id == "tr",
-    };
-    vec![
-        row(
-            "sr",
-            "Speech recognition",
-            244_000_000,
-            ModelState::Ok,
-            "See NOTICE",
-        ),
-        row(
-            "tr",
-            "Translation",
-            312_000_000,
-            ModelState::Ok,
-            "CC BY-NC-SA training data",
-        ),
-        row(
-            "enV",
-            "English voice",
-            63_000_000,
-            ModelState::Missing,
-            "See NOTICE",
-        ),
-        row(
-            "viV",
-            "Vietnamese voice",
-            58_000_000,
-            ModelState::Ok,
-            "See NOTICE",
-        ),
-    ]
+    // Names, licence lines and flags come from the compiled-in table; the sizes
+    // and states are sample values.
+    model_store::entries()
+        .iter()
+        .map(|entry| {
+            let (size_bytes, state) = match entry.id {
+                "sr" => (244_000_000, ModelState::Ok),
+                "tr" => (312_000_000, ModelState::Ok),
+                "enV" => (63_000_000, ModelState::Missing),
+                "viV" => (58_000_000, ModelState::Ok),
+                other => unreachable!("sample sizes cover every table id, not {other}"),
+            };
+            ModelInfo {
+                id: entry.id.to_string(),
+                name: entry.name.to_string(),
+                size_bytes,
+                state,
+                licence: entry.licence.to_string(),
+                non_commercial: entry.non_commercial,
+            }
+        })
+        .collect()
 }
 
-/// The model list the owner sees. There is no model table or disk scan yet, so a
-/// default build answers `NOT_IMPLEMENTED` instead of inventing rows.
+/// The model list the owner sees. There is no disk scan yet (the table gives
+/// names and licences only), so a default build answers `NOT_IMPLEMENTED`
+/// instead of inventing sizes and states.
 #[cfg(any(test, feature = "demo-data"))]
 pub fn current_models() -> IpcResult<Vec<ModelInfo>> {
     Ok(sample_models())
@@ -69,10 +51,17 @@ pub async fn list_models() -> IpcResult<Vec<ModelInfo>> {
     current_models()
 }
 
-/// A model id is the `SetupItemId` of one of the four models, spelled exactly.
+/// A model id is an exact id of the compiled-in table (ADR 0012, D-52). The
+/// webview can send no url, host or path: an id that is not in the table, in
+/// whatever form, is unknown.
 fn is_known_model_id(id: &str) -> bool {
-    serde_json::from_value::<SetupItemId>(Value::String(id.to_string()))
-        .is_ok_and(SetupItemId::is_model)
+    is_known_in(model_store::entries(), id)
+}
+
+/// The decision of `is_known_model_id` over a given table, so a test can use a
+/// table that differs from the Setup enum.
+fn is_known_in(table: &[model_store::ModelEntry], id: &str) -> bool {
+    model_store::entry_in(table, id).is_some()
 }
 
 fn require_known_model_id(id: &str) -> IpcResult<()> {
@@ -107,7 +96,7 @@ pub fn request_download_with(
     let Some(_confirmation) = confirm(id) else {
         return Err(IpcError::not_implemented("Model download"));
     };
-    // The downloader and the compiled-in model table do not exist yet.
+    // The downloader does not exist yet.
     Err(IpcError::not_implemented("Model download"))
 }
 
@@ -144,26 +133,7 @@ mod tests {
     }
 
     use crate::commands::setup::sample_setup_status;
-    use crate::ipc::{ErrorCode, SetupGroup};
-
-    #[test]
-    fn model_ids_equal_the_setup_item_ids_of_the_models() {
-        let setup: Vec<String> = sample_setup_status()
-            .items
-            .iter()
-            .filter(|i| i.group == SetupGroup::Models)
-            .map(|i| {
-                serde_json::to_value(i.id)
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect();
-        let models: Vec<String> = sample_models().into_iter().map(|m| m.id).collect();
-        assert_eq!(models, setup);
-        assert_eq!(models, ["sr", "tr", "enV", "viV"]);
-    }
+    use crate::ipc::{ErrorCode, SetupGroup, SetupItemId};
 
     #[test]
     fn download_of_a_known_model_with_licence_is_not_implemented() {
@@ -260,14 +230,14 @@ mod tests {
     }
 
     #[test]
-    fn sample_models_carry_the_licence_data_of_the_fixture() {
+    fn the_table_carries_the_licence_data_of_the_fixture() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../fixtures/ipc/model_info_list.json");
         let fixture_models: Vec<ModelInfo> =
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        let shell: Vec<(String, String, bool)> = sample_models()
-            .into_iter()
-            .map(|m| (m.id, m.licence, m.non_commercial))
+        let shell: Vec<(String, String, bool)> = model_store::entries()
+            .iter()
+            .map(|e| (e.id.to_string(), e.licence.to_string(), e.non_commercial))
             .collect();
         let expected: Vec<(String, String, bool)> = fixture_models
             .into_iter()
@@ -277,19 +247,114 @@ mod tests {
     }
 
     #[test]
-    fn only_the_translation_model_is_non_commercial() {
-        let flagged: Vec<String> = sample_models()
-            .into_iter()
-            .filter(|m| m.non_commercial)
-            .map(|m| m.id)
-            .collect();
-        assert_eq!(flagged, ["tr"]);
+    fn model_info_serializes_licence_fields_in_camel_case() {
+        let json = serde_json::to_value(&sample_models()[1]).unwrap();
+        assert_eq!(
+            json["licence"],
+            "Apache-2.0. Training data is CC BY-NC-SA: non-commercial use only"
+        );
+        assert_eq!(json["nonCommercial"], true);
     }
 
     #[test]
-    fn model_info_serializes_licence_fields_in_camel_case() {
-        let json = serde_json::to_value(&sample_models()[1]).unwrap();
-        assert_eq!(json["licence"], "CC BY-NC-SA training data");
-        assert_eq!(json["nonCommercial"], true);
+    fn a_url_as_the_model_id_is_invalid_input_and_asks_nothing() {
+        use std::cell::Cell;
+        let asked = Cell::new(0);
+        let ask = |_: &str| {
+            asked.set(asked.get() + 1);
+            Some(native_confirm::confirmation_for_tests("sr"))
+        };
+        for id in [
+            "https://models.example.com/x/y/model.onnx",
+            "http://example.com/model.bin",
+            "file:///tmp/model.bin",
+            "../sr",
+            "sr/../tr",
+        ] {
+            let err = request_download_with(id, true, ask).unwrap_err();
+            assert_eq!(err.code, ErrorCode::InvalidInput, "id {id:?}");
+            assert_eq!(err.message, format!("Unknown model: {id}."));
+            let err = request_cancel_download(id).unwrap_err();
+            assert_eq!(err.code, ErrorCode::InvalidInput, "cancel id {id:?}");
+        }
+        assert_eq!(
+            asked.get(),
+            0,
+            "no dialog for an id that is not in the table"
+        );
+    }
+
+    /// Every variant of `SetupItemId`. The match has no wildcard, so a new variant
+    /// does not compile until it is listed here.
+    fn all_setup_items() -> [SetupItemId; 8] {
+        let all = [
+            SetupItemId::Mic,
+            SetupItemId::Capture,
+            SetupItemId::Vmic,
+            SetupItemId::Phones,
+            SetupItemId::Sr,
+            SetupItemId::Tr,
+            SetupItemId::EnV,
+            SetupItemId::ViV,
+        ];
+        for item in all {
+            match item {
+                SetupItemId::Mic
+                | SetupItemId::Capture
+                | SetupItemId::Vmic
+                | SetupItemId::Phones
+                | SetupItemId::Sr
+                | SetupItemId::Tr
+                | SetupItemId::EnV
+                | SetupItemId::ViV => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_id_check_reads_the_table_not_the_setup_enum() {
+        let fake = [model_store::ModelEntry {
+            id: "fake-model",
+            name: "Fake",
+            licence: "Test",
+            non_commercial: false,
+            pack: "none",
+        }];
+        assert!(
+            is_known_in(&fake, "fake-model"),
+            "an id of the table is known"
+        );
+        assert!(
+            !is_known_in(&fake, "sr"),
+            "an id that is not in the table is unknown"
+        );
+        for item in all_setup_items().into_iter().filter(|i| i.is_model()) {
+            let json = serde_json::to_value(item).unwrap();
+            let id = json.as_str().unwrap();
+            assert!(is_known_model_id(id), "{id} has no entry in the table");
+        }
+    }
+
+    #[test]
+    fn table_ids_equal_the_models_group_of_setup_item_id() {
+        let table: Vec<&str> = model_store::entries().iter().map(|e| e.id).collect();
+        let setup: Vec<String> = sample_setup_status()
+            .items
+            .iter()
+            .filter(|i| i.group == SetupGroup::Models)
+            .map(|i| {
+                serde_json::to_value(i.id)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(table, setup);
+        for id in &table {
+            let parsed: SetupItemId = serde_json::from_value(serde_json::json!(id)).unwrap();
+            assert!(parsed.is_model(), "{id} is not a models-group id");
+        }
     }
 }

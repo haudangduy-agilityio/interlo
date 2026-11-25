@@ -29,12 +29,12 @@ wire type `ipc::Direction` converts to and from it (ADR 0020).
 | Crate | Owns | Threads | Must never |
 |---|---|---|---|
 | meeting-core | Protocol, session states, coordinator (line state), journal, policy gate | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
-| audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs | Allocate, lock or log in the callback; block capture when a consumer is slow |
+| audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`) | One worker thread per model | Open a network connection; hand out an engine the policy refuses |
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
 | store | SQLite projections, schema, full-text index, cascade delete | One writer, background reads | Store audio |
 | summary-jobs | Job queue (3 attempts, retry 30 s and 60 s, 3-minute lease), citation check, question answerer | Background task | Replace good notes with a bad reply; keep a point without evidence line ids |
-| model-store | Model specs, size caps, checksums, download gate | Background download task | Run a model that failed its checksum; download without the owner's click |
+| model-store | Compiled-in model table, size caps, checksums, download gate | Background download task | Run a model that failed its checksum; download without the owner's click |
 | settings | Settings values, when each applies, hotkey map and conflict check | UI thread through the bridge | Store API keys outside the Keychain; accept a system key |
 | diagnostics | Log events, timings, error codes, redacted export | Background writer | Write transcript text unless debug logs are on |
 | workspace-notes | Notes (one tag), tasks, drafts from meetings, export, auto-delete (E1) | One store writer | Send notes or tasks to a network service |
@@ -69,8 +69,12 @@ CaptureSource (process tap, 2ch virtual device, later others)
   never `Ok(0)`; the caller owns the retry policy. `write_frames` runs on a
   control-side worker thread, never in an audio callback. `flush` ends a stream.
 - **Adapters now.** The process tap and the 2ch virtual device are the two
-  decided routes (`capture_plan`). Only the placeholder implementers exist; the
-  real ones come in M1-06 and M1-34.
+  decided routes (`capture_plan`). The microphone is a third source,
+  `MicCapture` (M1-06): it opens an input device by exact name, mixes it down to
+  mono and converts it to 16 kHz inside the audio callback, and pushes to the
+  ring. The callback runs inside `realtime::section`; a debug build counts an
+  allocation (`GuardAllocator`) or an `RtMutex` lock made there. The process tap
+  is still a placeholder (M1-34).
 - **A new source** is one implementer of `CaptureSource`, one `CaptureMethod`
   variant and one line in `capture_plan`. The engine and the playback queue do
   not change.

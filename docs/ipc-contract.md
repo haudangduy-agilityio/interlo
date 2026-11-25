@@ -61,7 +61,7 @@ Behaviour rules:
 - `download_model`: `id` is a `ModelInfo.id`, which equals the `SetupItemId` of
   the model: `"sr"`, `"tr"`, `"enV"` or `"viV"`, spelled exactly. Both fields are
   required and no other key is accepted. Refusals run in this order: an unknown id
-  (also `"mic"`, `"SR"`, `""`) returns INVALID_INPUT with `Unknown model: <id>.`;
+  (also `"mic"`, `"SR"`, `""`, or a URL) returns INVALID_INPUT with `Unknown model: <id>.`;
   `licenceAccepted: false` returns INVALID_INPUT with the message
   `Accept the licence first.`; a known id with the licence accepted returns
   NOT_IMPLEMENTED until downloads exist. The shell resolves the id against its

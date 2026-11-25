@@ -1,6 +1,6 @@
 [
-  { "id": "sr", "name": "Speech recognition", "sizeBytes": 244000000, "state": "ok", "licence": "See NOTICE", "nonCommercial": false },
-  { "id": "tr", "name": "Translation", "sizeBytes": 310000000, "state": "downloading", "licence": "CC BY-NC-SA training data", "nonCommercial": true },
-  { "id": "enV", "name": "English voice", "sizeBytes": 63000000, "state": "missing", "licence": "See NOTICE", "nonCommercial": false },
-  { "id": "viV", "name": "Vietnamese voice", "sizeBytes": 58000000, "state": "error", "licence": "See NOTICE", "nonCommercial": false }
+  { "id": "sr", "name": "Speech recognition", "sizeBytes": 244000000, "state": "ok", "licence": "BSD-3-Clause (recognition), MIT (speech gate)", "nonCommercial": false },
+  { "id": "tr", "name": "Translation", "sizeBytes": 310000000, "state": "downloading", "licence": "Apache-2.0. Training data is CC BY-NC-SA: non-commercial use only", "nonCommercial": true },
+  { "id": "enV", "name": "English voice", "sizeBytes": 63000000, "state": "missing", "licence": "MIT (weights and code), Apache-2.0 (audio codec)", "nonCommercial": false },
+  { "id": "viV", "name": "Vietnamese voice", "sizeBytes": 58000000, "state": "error", "licence": "MIT (weights and code), Apache-2.0 (audio codec)", "nonCommercial": false }
 ]

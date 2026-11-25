@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>m0b06 panel</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #E6007E; color: #fff; font: 28px sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; user-select: none; }
+</style>
+</head>
+<body>
+<span>PANEL</span>
+<script>
+// A click or a key that reaches this page goes to the spike through Tauri IPC (no network),
+// where it is logged as PANEL_CLICK or PANEL_KEY. Click-through must keep both from arriving.
+const invoke = window.__TAURI_INTERNALS__.invoke;
+window.addEventListener('mousedown', (e) => invoke('panel_click', { x: e.screenX, y: e.screenY }));
+window.addEventListener('keydown', () => invoke('panel_key'));
+</script>
+</body>
+</html>

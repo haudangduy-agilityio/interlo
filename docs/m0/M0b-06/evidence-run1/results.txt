@@ -1,0 +1,23 @@
+FULLSCREEN PASS the page fills the display
+AC-24 control (flags) before show: PASS control: panel colour covers 0.00 of the rectangle, page colour 0.99 of the rest
+PRECONDITION (flags) the test window's browser is the frontmost application: yes (front_pid=84647)
+AC-23 (flags): AC-23 NO no key reached the test page after SHOWN
+AC-24 (flags) 1 s timing: SHOT-TIMING PASS capture 1042..1240 ms after the event, window 500..1500
+AC-24 (flags) 1 s shot: NO panel colour covers 0.00 of the rectangle, need 0.95 (page colour 1.00 of the rest)
+AC-24 (flags) 60 s timing: SHOT-TIMING PASS capture 59040..59200 ms after the event, window 58000..62000
+AC-24 (flags) 60 s shot: NO panel colour covers 0.00 of the rectangle, need 0.95 (page colour 1.00 of the rest)
+AC-25 (flags): AC-25 PASS 2 click(s) reached the test page inside the square; the panel logged none
+AC-25 control (flags): AC-25-control NO control: the panel logged no click with click-through off
+AC-29 (flags): AC-29 PASS all 20 snapshots equal the baseline (front_pid=84647)
+AC-24 control (native) before show: PASS control: panel colour covers 0.00 of the rectangle, page colour 1.00 of the rest
+PRECONDITION (native) the test window's browser is the frontmost application: yes (front_pid=84647)
+AC-23 (native): AC-23 NO focus changed: before front_pid=84647 window=Some((556, 84647)), after front_pid=84590 window=None
+AC-24 (native) 1 s timing: SHOT-TIMING PASS capture 1045..1171 ms after the event, window 500..1500
+AC-24 (native) 1 s shot: PASS panel colour covers 1.00 of the rectangle, page colour 1.00 of the rest
+AC-24 (native) 60 s timing: SHOT-TIMING PASS capture 59052..59196 ms after the event, window 58000..62000
+AC-24 (native) 60 s shot: PASS panel colour covers 1.00 of the rectangle, page colour 1.00 of the rest
+AC-25 (native): AC-25 PASS 1 click(s) reached the test page inside the square; the panel logged none
+AC-25 control (native): AC-25-control NO control: the page also logged 1 click(s)
+AC-29 (native): AC-29 PASS all 20 snapshots equal the baseline (front_pid=84647)
+AC-31 (sit-flags): AC-31 PASS 213 sample(s), 0 socket line(s), all loopback, no wildcard listener
+AC-31 (sit-native): AC-31 PASS 213 sample(s), 0 socket line(s), all loopback, no wildcard listener
