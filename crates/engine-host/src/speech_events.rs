@@ -10,6 +10,18 @@ use crate::traits::Vad;
 /// Samples in one frame: 32 ms of mono audio at 16 kHz.
 pub const FRAME_SAMPLES: usize = 512;
 
+/// A frame must hold exactly `FRAME_SAMPLES` samples.
+pub(crate) fn check_frame(frame: &[f32]) -> Result<(), EngineError> {
+    if frame.len() == FRAME_SAMPLES {
+        Ok(())
+    } else {
+        Err(EngineError::Backend(format!(
+            "a frame holds {FRAME_SAMPLES} samples, got {}",
+            frame.len()
+        )))
+    }
+}
+
 /// How many frames in a row confirm a start and an end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpeechConfig {
@@ -34,7 +46,8 @@ impl SpeechConfig {
 }
 
 impl Default for SpeechConfig {
-    /// 3 frames (96 ms) to start, 8 frames (256 ms) to end.
+    /// 3 frames (96 ms) to start, 8 frames (256 ms) to end. Starting values:
+    /// M1-26 may tune them.
     fn default() -> Self {
         Self {
             start_frames: 3,
@@ -80,15 +93,10 @@ impl SpeechDetector {
         vad: &mut dyn Vad,
         frame: &[f32],
     ) -> Result<Option<SpeechEvent>, EngineError> {
-        if frame.len() != FRAME_SAMPLES {
-            return Err(EngineError::Backend(format!(
-                "a frame holds {FRAME_SAMPLES} samples, got {}",
-                frame.len()
-            )));
-        }
+        check_frame(frame)?;
         let speech = vad.is_speech(frame)?;
-        self.position = self.position.saturating_add(FRAME_SAMPLES as u64);
         let frame_len = FRAME_SAMPLES as u64;
+        self.position = self.position.saturating_add(frame_len);
         if self.in_speech {
             if speech {
                 self.silence_run = 0;
@@ -324,6 +332,17 @@ mod tests {
         det.reset();
         let after = feed(&mut det, &[true, true, true])?;
         assert_eq!(events(&after), vec![SpeechEvent::Start { at_sample: 0 }]);
+        // The silence counted before the reset is forgotten: 7 silent frames
+        // after the new start make no End, the 8th does.
+        let seven = feed(&mut det, &[false; 7])?;
+        assert!(seven.iter().all(Option::is_none));
+        let eighth = feed(&mut det, &[false])?;
+        assert_eq!(
+            events(&eighth),
+            vec![SpeechEvent::End {
+                at_sample: (3 * FRAME_SAMPLES) as u64
+            }]
+        );
         Ok(())
     }
 

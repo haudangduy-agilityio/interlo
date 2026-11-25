@@ -5,11 +5,17 @@
 //! and needs the last 64 samples of the frame before; both live in the adapter,
 //! so frames must arrive in order and `reset` starts a new stream.
 //!
-//! The adapter takes a path that the caller has already checked (the checksum
-//! belongs to the model manager). It opens no connection and keeps no audio.
+//! The adapter does not check the size or the SHA-256 of the model file. The
+//! caller must pass a path that the model manager has verified in the same run,
+//! before the call: a model that fails its checksum never runs (guardrail 7).
+//! The check is owned by M1-04 and M1-42. The adapter opens no connection and
+//! keeps no audio.
+//!
+//! The runtime writes its own log lines through `tracing`; those lines can hold
+//! the model path and are not scrubbed. A log sink must filter the `ort` target.
 
 use crate::error::EngineError;
-use crate::speech_events::FRAME_SAMPLES;
+use crate::speech_events::{check_frame, FRAME_SAMPLES};
 use crate::traits::{Engine, Vad};
 use meeting_core::policy::Provider;
 use ort::environment::Environment;
@@ -20,10 +26,12 @@ use std::sync::OnceLock;
 
 /// Samples of the previous frame that the model reads before the new frame.
 const CONTEXT_SAMPLES: usize = 64;
-/// Values of the recurrent state: shape `[2, 1, 128]`.
-const STATE_VALUES: usize = 2 * 128;
+/// Shape of the recurrent state.
+const STATE_SHAPE: [usize; 3] = [2, 1, 128];
+const STATE_VALUES: usize = STATE_SHAPE[0] * STATE_SHAPE[1] * STATE_SHAPE[2];
 const SAMPLE_RATE_HZ: i64 = 16_000;
-/// A frame with a probability at or above this is speech.
+/// A frame with a probability at or above this is speech. Starting value:
+/// M1-26 may tune it.
 const DEFAULT_THRESHOLD: f32 = 0.5;
 
 /// True when `probability` reaches `threshold`: a value equal to it is speech.
@@ -48,14 +56,17 @@ fn file_name(path: &Path) -> String {
         .map_or_else(|| "?".to_string(), |n| n.to_string_lossy().into_owned())
 }
 
-/// Runtime error text with the model path (and its folder) cut out, so a path
-/// never reaches the user or a log.
+/// Runtime error text without any path. The model path as given becomes the
+/// file name; any other word that holds a `/` (the same path in another form,
+/// a file the model names) keeps only its last component.
 fn scrub(text: &str, path: &Path) -> String {
-    let mut out = text.replace(&path.to_string_lossy().into_owned(), &file_name(path));
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        out = out.replace(&dir.to_string_lossy().into_owned(), "");
-    }
-    out
+    let text = text
+        .replace(&path.to_string_lossy().into_owned(), &file_name(path))
+        .replace(['\n', '\r'], " ");
+    text.split(' ')
+        .map(|word| word.rsplit('/').next().unwrap_or(word))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn backend(what: &str, error: impl std::fmt::Display) -> EngineError {
@@ -92,7 +103,10 @@ impl std::fmt::Debug for OnnxVad {
 impl OnnxVad {
     /// Load the model at `path` with one intra-op thread (the model is small).
     /// A missing or unreadable file is `EngineError::Backend` that names the
-    /// file and not its folder.
+    /// file and not its folder. This call does not verify the file: the caller
+    /// passes a path that the model manager has already checked (see the module
+    /// doc). It reads the file, so it runs on a worker thread, never in an audio
+    /// callback.
     pub fn open(path: &Path) -> Result<Self, EngineError> {
         let name = file_name(path);
         if !path.is_file() {
@@ -134,11 +148,11 @@ impl OnnxVad {
     /// Speech probability of one frame. The context and the state advance only
     /// when the run succeeded.
     fn probability(&mut self, frame: &[f32]) -> Result<f32, EngineError> {
-        if frame.len() != FRAME_SAMPLES {
-            return Err(EngineError::Backend(format!(
-                "a frame holds {FRAME_SAMPLES} samples, got {}",
-                frame.len()
-            )));
+        check_frame(frame)?;
+        if frame.iter().any(|sample| !sample.is_finite()) {
+            return Err(EngineError::Backend(
+                "a frame holds a sample that is not a finite number".into(),
+            ));
         }
         let mut input = Vec::with_capacity(CONTEXT_SAMPLES + FRAME_SAMPLES);
         input.extend_from_slice(&self.context);
@@ -152,7 +166,7 @@ impl OnnxVad {
             ),
             (
                 "state",
-                Tensor::from_array(([2_usize, 1, 128], self.state.to_vec()))
+                Tensor::from_array((STATE_SHAPE, self.state.to_vec()))
                     .map_err(|e| backend("state tensor", e))?
                     .into_dyn(),
             ),
@@ -214,6 +228,32 @@ mod tests {
         assert!(is_speech_probability(0.5, 0.5));
         assert!(!is_speech_probability(0.4999, 0.5));
         assert!(is_speech_probability(0.9, 0.5));
+    }
+
+    #[test]
+    fn scrub_keeps_the_file_name_and_drops_every_folder() {
+        let path = Path::new("/tmp/x/m.onnx");
+        let absolute = scrub(
+            "Load model from /tmp/x/m.onnx failed:Protobuf parsing failed.",
+            path,
+        );
+        assert_eq!(
+            absolute,
+            "Load model from m.onnx failed:Protobuf parsing failed."
+        );
+        // The same file under a canonical folder name, and a file the model names.
+        let other = scrub(
+            "cannot open /private/tmp/x/m.onnx or /private/tmp/x/w.data",
+            path,
+        );
+        assert!(!other.contains('/'), "{other}");
+        assert!(
+            other.contains("m.onnx") && other.contains("w.data"),
+            "{other}"
+        );
+        // A relative path leaves the other words alone.
+        let relative = scrub("failed parsing ./a/m.onnx", Path::new("./a/m.onnx"));
+        assert_eq!(relative, "failed parsing m.onnx");
     }
 
     #[test]

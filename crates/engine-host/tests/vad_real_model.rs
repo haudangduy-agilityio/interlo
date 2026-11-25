@@ -16,8 +16,12 @@ use std::time::Instant;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const SKIP_LINE: &str = "SKIP real-model test: INTERLO_MODELS_DIR is not set";
-const LEAD_IN: usize = 8_000;
-const TAIL: usize = 16_000;
+const LEAD_IN_SAMPLES: usize = 8_000;
+const TAIL_SAMPLES: usize = 16_000;
+/// Half a second of speech at 16 kHz.
+const MIN_SPEECH_SAMPLES: u64 = 8_000;
+/// Frames compared between two adapters.
+const COMPARE_FRAMES: usize = 40;
 
 /// The models folder from the variable value, or the skip line.
 fn resolve(value: Option<&str>) -> Result<PathBuf, &'static str> {
@@ -102,9 +106,9 @@ fn fixture() -> Result<Option<Fixture>, String> {
     };
     let model = require(&dir, "M1-35/vad/vad.onnx")?;
     let wav = read_wav(&require(&dir, "M1-36/vi_001.wav")?)?;
-    let mut padded = vec![0.0_f32; LEAD_IN];
+    let mut padded = vec![0.0_f32; LEAD_IN_SAMPLES];
     padded.extend_from_slice(&wav);
-    padded.extend(std::iter::repeat_n(0.0_f32, TAIL));
+    padded.extend(std::iter::repeat_n(0.0_f32, TAIL_SAMPLES));
     Ok(Some(Fixture { model, padded }))
 }
 
@@ -129,9 +133,12 @@ fn check_speech_events(events: &[SpeechEvent], padded_len: usize) {
     else {
         panic!("expected Start then End, got {events:?}");
     };
-    assert!(start >= 7_488, "start inside the lead-in: {start}");
     assert!(
-        end >= start + 8_000,
+        start >= (LEAD_IN_SAMPLES - FRAME_SAMPLES) as u64,
+        "start inside the lead-in: {start}"
+    );
+    assert!(
+        end >= start + MIN_SPEECH_SAMPLES,
         "speech shorter than 0.5 s: {start}..{end}"
     );
     assert!(end <= padded_len as u64, "end after the stream: {end}");
@@ -157,21 +164,64 @@ fn zero_frame_is_not_speech_and_wrong_length_is_refused() -> TestResult {
     let Some(f) = fixture()? else { return Ok(()) };
     let mut vad = OnnxVad::open(&f.model)?;
     assert_eq!(vad.is_speech(&[0.0; FRAME_SAMPLES]), Ok(false));
-    vad.reset();
-    let mut fresh = OnnxVad::open(&f.model)?;
     for len in [511_usize, 513] {
         assert!(matches!(
             vad.is_speech(&vec![0.0; len]),
             Err(EngineError::Backend(_))
         ));
     }
-    // The refused frames left no trace: both adapters answer alike on speech.
-    for frame in f.padded[LEAD_IN..LEAD_IN + 40 * FRAME_SAMPLES]
-        .as_chunks::<FRAME_SAMPLES>()
-        .0
-    {
-        assert_eq!(vad.is_speech(frame), fresh.is_speech(frame));
+    Ok(())
+}
+
+#[test]
+fn refused_frames_leave_the_adapter_state_unchanged() -> TestResult {
+    let Some(f) = fixture()? else { return Ok(()) };
+    let frames = f.padded[LEAD_IN_SAMPLES..].as_chunks::<FRAME_SAMPLES>().0;
+    let (warm_up, rest) = frames.split_at(10);
+    let mut touched = OnnxVad::open(&f.model)?;
+    let mut fresh = OnnxVad::open(&f.model)?;
+    for frame in warm_up {
+        assert_eq!(touched.is_speech(frame), fresh.is_speech(frame));
     }
+    // Speech samples, one too short or one too long, and one that is not finite.
+    let mut not_finite = warm_up[0];
+    not_finite[3] = f32::NAN;
+    assert!(touched.is_speech(&rest[0][1..]).is_err());
+    assert!(touched
+        .is_speech(&[rest[0].as_slice(), &[0.5]].concat())
+        .is_err());
+    let text = touched
+        .is_speech(&not_finite)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(!text.is_empty() && !text.contains("NaN"), "{text}");
+    // The refused frames left no trace: both adapters answer alike afterwards.
+    for frame in &rest[..COMPARE_FRAMES] {
+        assert_eq!(touched.is_speech(frame), fresh.is_speech(frame));
+    }
+    Ok(())
+}
+
+#[test]
+fn threshold_changes_which_frames_are_speech() -> TestResult {
+    let Some(f) = fixture()? else { return Ok(()) };
+    let count_speech = |threshold: f32| -> Result<usize, EngineError> {
+        let mut vad = OnnxVad::open(&f.model)?.with_threshold(threshold)?;
+        let mut count = 0;
+        for frame in f.padded.as_chunks::<FRAME_SAMPLES>().0 {
+            count += usize::from(vad.is_speech(frame)?);
+        }
+        Ok(count)
+    };
+    let (low, middle, high) = (count_speech(0.01)?, count_speech(0.5)?, count_speech(0.99)?);
+    println!("speech frames: threshold 0.01 -> {low}, 0.5 -> {middle}, 0.99 -> {high}");
+    assert!(low >= middle && middle >= high);
+    assert!(low > high, "the threshold had no effect");
+    assert!(matches!(
+        OnnxVad::open(&f.model)?.with_threshold(1.0),
+        Err(EngineError::Backend(_))
+    ));
     Ok(())
 }
 
