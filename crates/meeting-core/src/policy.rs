@@ -4,9 +4,11 @@
 //! Remote providers need: local-only mode off, and an explicit consent record
 //! for that provider AND that data kind (audio vs text).
 //!
-//! A model download is the one other network use. It sends no user data, so it
-//! has its own path: `check_model_download` passes only for a host on the
-//! owner's allow list. That list never grants a data kind to `check`. Only a
+//! A model download and a driver installer download are the other network uses.
+//! They send no user data, so each has its own path: `check_model_download` and
+//! `check_driver_download` pass only for a host on the owner's allow list of
+//! that purpose. `egress::GuardedClient` is the one client that calls these
+//! checks, together with the https and session-status rules. That list never grants a data kind to `check`. Only a
 //! public DNS name can join the list: IP literals, `localhost` and private or
 //! link-local names are refused, so a download cannot be aimed at the
 //! owner's own network.
@@ -229,8 +231,12 @@ impl PrivacyPolicy {
         Ok(())
     }
 
+    /// Remove `host` from the driver allow list. The text is read the way
+    /// `allow_driver_host` reads it (case, trailing dot, spaces), so a host
+    /// that was allowed under one spelling is revoked under the same one.
     pub fn revoke_driver_host(&mut self, host: &str) {
-        self.driver_hosts.remove(&host.to_ascii_lowercase());
+        let key = normalize_model_host(host).unwrap_or_else(|_| host.to_ascii_lowercase());
+        self.driver_hosts.remove(&key);
     }
 
     /// Gate for a driver installer download. Like `check_model_download`, it
@@ -247,13 +253,15 @@ impl PrivacyPolicy {
     /// transition check: the caller owns the lifecycle. `Preparing`, `Running`,
     /// `Paused` and `Stopping` count as active.
     pub fn set_session_status(&mut self, status: SessionStatus) {
-        self.session_active = matches!(
-            status,
+        // No wildcard arm: a new `SessionStatus` stops the build here until
+        // someone decides whether it counts as active.
+        self.session_active = match status {
             SessionStatus::Preparing
-                | SessionStatus::Running
-                | SessionStatus::Paused
-                | SessionStatus::Stopping
-        );
+            | SessionStatus::Running
+            | SessionStatus::Paused
+            | SessionStatus::Stopping => true,
+            SessionStatus::Idle | SessionStatus::Completed | SessionStatus::Failed => false,
+        };
     }
 
     pub fn is_session_active(&self) -> bool {
@@ -533,6 +541,25 @@ mod tests {
     }
 
     #[test]
+    fn revoke_driver_host_normalizes_like_allow_driver_host() {
+        for spelled in [
+            "drivers.example.com.",
+            " Drivers.Example.com ",
+            "DRIVERS.example.com",
+        ] {
+            let mut p = PrivacyPolicy::local_only();
+            p.allow_driver_host("drivers.example.com.")
+                .expect("public host");
+            assert!(p.check_driver_download("drivers.example.com").is_ok());
+            p.revoke_driver_host(spelled);
+            assert!(
+                p.check_driver_download("drivers.example.com").is_err(),
+                "{spelled:?} must revoke the host"
+            );
+        }
+    }
+
+    #[test]
     fn default_policy_is_closed_and_the_session_is_inactive() {
         let p = PrivacyPolicy::default();
         assert_eq!(p, PrivacyPolicy::local_only());
@@ -545,8 +572,8 @@ mod tests {
     }
 
     #[test]
-    fn session_status_marks_the_session_active_for_the_four_live_states() {
-        let live = [
+    fn session_status_marks_only_the_four_live_states_active() {
+        let expected_active = [
             (SessionStatus::Idle, false),
             (SessionStatus::Preparing, true),
             (SessionStatus::Running, true),
@@ -556,7 +583,7 @@ mod tests {
             (SessionStatus::Failed, false),
         ];
         let mut p = PrivacyPolicy::local_only();
-        for (status, active) in live {
+        for (status, active) in expected_active {
             p.set_session_status(status);
             assert_eq!(p.is_session_active(), active, "{status:?}");
         }

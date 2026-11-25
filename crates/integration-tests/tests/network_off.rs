@@ -1,7 +1,5 @@
-//! The network-off check that M1-08 and M4-03 repeat: a guarded client over the
-//! `NetworkOff` transport. A request that the policy refuses never reaches the
-//! transport, so `attempts()` stays 0. A test of the outgoing chain asserts
-//! the same number after it runs with the default policy.
+//! A guarded client over the `NetworkOff` transport: a request that the policy
+//! refuses never reaches the transport, so `attempts()` stays 0.
 
 use meeting_core::egress::test_support::{NetworkOff, RecordingLog};
 use meeting_core::egress::{GuardedClient, Purpose, Request};

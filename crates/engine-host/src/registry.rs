@@ -42,10 +42,9 @@ fn denial(role: EngineRole, provider: &Provider, denied: EgressDenied) -> Engine
         // `PrivacyPolicy::check` never returns these; they belong to the
         // download paths and to the egress guard, which have no engine role.
         // Defensive fallback: a refusal never turns into an accepted engine.
-        EgressDenied::ModelHostNotAllowed(_) => {
-            return EngineError::Backend("model host is not an engine data path".into())
-        }
-        EgressDenied::DriverHostNotAllowed(_) | EgressDenied::MeetingRunning => {
+        EgressDenied::ModelHostNotAllowed(_)
+        | EgressDenied::DriverHostNotAllowed(_)
+        | EgressDenied::MeetingRunning => {
             return EngineError::Backend("this refusal is not an engine data path".into())
         }
     };

@@ -8,10 +8,16 @@
 # Test hooks (environment): NETWORK_OFF_SANDBOX_EXEC replaces the sandbox tool;
 # NETWORK_OFF_CANARY replaces the canary command (run inside the sandbox).
 set -u
+# The canary is split into words on purpose, but never expanded as a pattern.
+set -f
 
 SANDBOX_EXEC="${NETWORK_OFF_SANDBOX_EXEC:-/usr/bin/sandbox-exec}"
 PROFILE='(version 1)(allow default)(deny network*)'
 DEFAULT_CANARY='/usr/bin/curl -sS --max-time 3 -o /dev/null https://example.com'
+
+if [ -n "${NETWORK_OFF_SANDBOX_EXEC:-}${NETWORK_OFF_CANARY:-}" ]; then
+  echo "network-off: test hook in use (NETWORK_OFF_SANDBOX_EXEC or NETWORK_OFF_CANARY)" >&2
+fi
 
 if [ "$#" -eq 0 ]; then
   echo "usage: scripts/network-off.sh <command> [args...]" >&2
@@ -29,7 +35,7 @@ not_run() {
 
 CANARY="${NETWORK_OFF_CANARY:-$DEFAULT_CANARY}"
 # The canary is a plain command line; it holds no quotes, so word splitting is
-# the intended parsing.
+# the intended parsing and `set -f` blocks pattern expansion.
 # shellcheck disable=SC2086
 if "$SANDBOX_EXEC" -p "$PROFILE" $CANARY >/dev/null 2>&1; then
   not_run "the canary reached the network"

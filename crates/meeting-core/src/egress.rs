@@ -22,6 +22,22 @@
 //! }
 //! let _ = make::<meeting_core::egress::Permit>();
 //! ```
+//!
+//! ```compile_fail,E0061
+//! // A transport can not be called without a permit.
+//! use meeting_core::egress::{Permit, Transport, TransportError, TransportResponse};
+//! struct Silent;
+//! impl Transport for Silent {
+//!     fn get(&self, _: &Permit, _: &str) -> Result<TransportResponse, TransportError> {
+//!         Err(TransportError::Unreachable)
+//!     }
+//! }
+//! let _ = Silent.get("https://models.example.com/a.bin");
+//! ```
+//!
+//! The policy is passed by reference at every call. The app keeps one
+//! `PrivacyPolicy` and passes that one: a clone made before a meeting starts
+//! does not see the session status that is set later.
 
 use crate::policy::{EgressDenied, PrivacyPolicy, Provider};
 use crate::protocol::DataKind;
@@ -42,10 +58,27 @@ pub enum Purpose {
     DriverDownload,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Request {
     pub purpose: Purpose,
     pub url: String,
+}
+
+/// Prints the kind of the purpose only. The url can hold a credential or a
+/// token and the provider id names a service, so neither reaches a log line
+/// that formats a request with `{:?}` (guardrail 6).
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let purpose = match self.purpose {
+            Purpose::ProviderData { .. } => "ProviderData",
+            Purpose::ModelDownload => "ModelDownload",
+            Purpose::DriverDownload => "DriverDownload",
+        };
+        f.debug_struct("Request")
+            .field("purpose", &purpose)
+            .field("url", &"<hidden>")
+            .finish()
+    }
 }
 
 impl Request {
@@ -79,6 +112,10 @@ pub enum TransportError {
 /// The only thing that touches a network. A real client implements it in the
 /// task that owns the download (M1-04.4, M4-19); tests use `FakeTransport` or
 /// `NetworkOff`. Starting shape: one GET (A-5 of the M1-12 SPEC).
+///
+/// One call is one request to one url. An implementation must not follow a
+/// redirect: it returns the answer, and the caller sends the next hop through
+/// the guard again (ADR 0021), so every hop is checked.
 pub trait Transport {
     fn get(&self, permit: &Permit, url: &str) -> Result<TransportResponse, TransportError>;
 }
@@ -108,14 +145,6 @@ impl<T: Transport, L: EgressLog> GuardedClient<T, L> {
         Self { transport, log }
     }
 
-    pub fn transport(&self) -> &T {
-        &self.transport
-    }
-
-    pub fn log(&self) -> &L {
-        &self.log
-    }
-
     /// Send one GET if the policy allows it. `policy` is read at every call,
     /// so a change of the policy takes effect at the next request.
     pub fn get(
@@ -138,11 +167,17 @@ impl<T: Transport, L: EgressLog> GuardedClient<T, L> {
 }
 
 /// The text between `https://` and the first `/`, `?` or `#`. `None` when the
-/// scheme is not exactly `https://` or the host is empty.
+/// scheme is not exactly `https://` or the authority holds no host (nothing, or
+/// only a user and a port such as `user@:443`).
 fn https_authority(url: &str) -> Option<&str> {
     let rest = url.strip_prefix("https://")?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    (!authority.is_empty()).then_some(authority)
+    let after_user = authority.rsplit('@').next().unwrap_or_default();
+    let host = match after_user.strip_prefix('[') {
+        Some(ipv6) => ipv6.split(']').next().unwrap_or_default(),
+        None => after_user.split(':').next().unwrap_or_default(),
+    };
+    (!host.is_empty()).then_some(authority)
 }
 
 /// Why `admit` refused a request, before any transport was reached.
@@ -529,7 +564,8 @@ mod tests {
         );
         assert_eq!(upper, Err(GuardError::BadUrl));
         assert!(transport.calls().is_empty());
-        assert_eq!(codes(&log), vec![Some(code::EGRESS_BAD_URL); 13]);
+        // 4 bad urls x 3 purposes, plus the upper-case scheme.
+        assert_eq!(codes(&log), vec![Some(code::EGRESS_BAD_URL); 4 * 3 + 1]);
 
         // The url check comes before the policy check (A-1).
         let (client, _, log) = rig();
@@ -539,6 +575,49 @@ mod tests {
         );
         assert_eq!(result, Err(GuardError::BadUrl));
         assert_one_block(&log, code::EGRESS_BAD_URL);
+    }
+
+    #[test]
+    fn an_authority_without_a_host_is_a_bad_url() {
+        let (client, transport, log) = rig();
+        let policy = open_policy();
+        let urls = [
+            "https://:443/x",
+            "https://user@/x",
+            "https://@/x",
+            "https://user:pw@:8080/x",
+        ];
+        let purposes = [
+            provider_text(),
+            Purpose::ModelDownload,
+            Purpose::DriverDownload,
+        ];
+        for url in urls {
+            for purpose in &purposes {
+                let result = client.get(&policy, &Request::new(purpose.clone(), url));
+                assert_eq!(result, Err(GuardError::BadUrl), "{url} {purpose:?}");
+            }
+        }
+        assert!(transport.calls().is_empty());
+        assert_eq!(
+            codes(&log),
+            vec![Some(code::EGRESS_BAD_URL); urls.len() * purposes.len()]
+        );
+    }
+
+    #[test]
+    fn a_request_prints_no_url_and_no_provider_id_in_debug() {
+        let request = Request::new(
+            Purpose::ProviderData {
+                provider: Provider::remote("secret-provider"),
+                kind: DataKind::Text,
+            },
+            "https://user:secret-pw@secret-host.example/private?token=abc",
+        );
+        let printed = format!("{request:?}");
+        for secret in ["secret-pw", "secret-host", "secret-provider", "token"] {
+            assert!(!printed.contains(secret), "{secret} in {printed}");
+        }
     }
 
     #[test]
@@ -566,7 +645,10 @@ mod tests {
             );
         }
         assert!(transport.calls().is_empty());
-        assert_eq!(codes(&log), vec![Some(code::EGRESS_HOST_NOT_ALLOWED); 5]);
+        assert_eq!(
+            codes(&log),
+            vec![Some(code::EGRESS_HOST_NOT_ALLOWED); urls.len()]
+        );
     }
 
     #[test]
@@ -620,7 +702,8 @@ mod tests {
             }
         }
         assert!(transport.calls().is_empty());
-        assert_eq!(codes(&log), vec![Some(code::EGRESS_MEETING_RUNNING); 12]);
+        // 4 active statuses x 3 requests.
+        assert_eq!(codes(&log), vec![Some(code::EGRESS_MEETING_RUNNING); 4 * 3]);
     }
 
     #[test]
@@ -711,6 +794,7 @@ mod tests {
         }
 
         let events = log.events();
+        // 1 + 1 + 1 + 4 bad urls + 3 purposes while the session is active.
         assert_eq!(events.len(), 10);
         let out = diagnostics::export_json_lines(&events, true).expect("export");
         for line in out.lines() {
