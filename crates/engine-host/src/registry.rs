@@ -39,11 +39,13 @@ fn denial(role: EngineRole, provider: &Provider, denied: EgressDenied) -> Engine
     let cause = match denied {
         EgressDenied::LocalOnly(_) => DenyCause::LocalOnly,
         EgressDenied::NoConsent(_, kind) => DenyCause::NoConsent(kind),
-        // `PrivacyPolicy::check` never returns this one; it belongs to the
-        // model download path, which has no engine role. Defensive fallback:
-        // a refusal never turns into an accepted engine.
-        EgressDenied::ModelHostNotAllowed(_) => {
-            return EngineError::Backend("model host is not an engine data path".into())
+        // `PrivacyPolicy::check` never returns these; they belong to the
+        // download paths and to the egress guard, which have no engine role.
+        // Defensive fallback: a refusal never turns into an accepted engine.
+        EgressDenied::ModelHostNotAllowed(_)
+        | EgressDenied::DriverHostNotAllowed(_)
+        | EgressDenied::MeetingRunning => {
+            return EngineError::Backend("this refusal is not an engine data path".into())
         }
     };
     EngineError::Denied {
@@ -449,6 +451,17 @@ mod tests {
             EgressDenied::ModelHostNotAllowed("host.example.com".into()),
         );
         assert!(matches!(error, EngineError::Backend(_)), "{error:?}");
+    }
+
+    #[test]
+    fn session_and_driver_refusals_map_to_a_backend_error() {
+        for denied in [
+            EgressDenied::MeetingRunning,
+            EgressDenied::DriverHostNotAllowed("host.example.com".into()),
+        ] {
+            let error = denial(EngineRole::Vad, &Provider::local("p"), denied);
+            assert!(matches!(error, EngineError::Backend(_)), "{error:?}");
+        }
     }
 
     #[test]

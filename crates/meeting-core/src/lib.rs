@@ -8,6 +8,7 @@
 //! default.
 
 pub mod coordinator;
+pub mod egress;
 pub mod journal;
 pub mod policy;
 pub mod protocol;

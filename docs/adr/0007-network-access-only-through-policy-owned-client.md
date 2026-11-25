@@ -33,7 +33,16 @@ allows the Accessibility API that quick actions need (E2).
   from the network. Only the type and the CI check enforce the gate.
 - Part 2 would add a second binary to build and sign (ADR 0022), and
   an IPC path between the app and the helper.
-- Status: the policy-owned client type is not built yet. `Provider` can no longer
+- Status (M1-12): `GuardedClient` in `crates/meeting-core/src/egress.rs` is the
+  policy-owned client. It wraps a `Transport` trait whose `get` needs a `Permit`
+  that only the guard can build, and it refuses and logs a request before the
+  transport is reached (https url, no active meeting session, a remote provider
+  for provider data, then the policy rule of the purpose). A transport never follows a redirect: the caller sends
+  each hop through the guard again (ADR 0021). No real transport exists yet:
+  M1-04.4 and M4-19 write one and move their callers onto the guard. The CI check
+  for a crate that opens a socket by another route is still not written (X-16
+  part b).
+- Status: `Provider` can no longer
   be built with a free `remote` field: use `Provider::local` or `Provider::remote`.
   A first check exists in `apps/desktop/src-tauri/tests/network_boundary.rs`: it
   fails when a workspace crate declares an HTTP or socket crate, or when source

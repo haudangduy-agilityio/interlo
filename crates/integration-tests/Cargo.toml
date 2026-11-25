@@ -10,7 +10,7 @@ publish.workspace = true
 [dev-dependencies]
 audio-io = { path = "../audio-io" }
 engine-host = { path = "../engine-host", features = ["mock"] }
-meeting-core = { workspace = true }
+meeting-core = { workspace = true, features = ["test-support"] }
 playback = { path = "../playback" }
 settings = { path = "../settings" }
 store = { path = "../store" }
