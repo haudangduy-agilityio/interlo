@@ -11,17 +11,16 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    for variable in ["DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
     match runtime_library() {
-        Some(library) => {
-            if let (Some(dir), Some(name)) = (library.parent(), library.file_stem()) {
-                let name = name.to_string_lossy();
-                let name = name.strip_prefix("lib").unwrap_or(&name);
-                println!("cargo:rustc-link-search=native={}", dir.display());
-                println!("cargo:rustc-link-lib=static={name}");
-            }
+        Some((dir, name)) => {
+            println!("cargo:rustc-link-search=native={}", dir.display());
+            println!("cargo:rustc-link-lib=static={name}");
         }
         None => println!(
             "cargo:warning=libclang_rt.osx.a not found; a release link of the ONNX runtime may fail"
@@ -29,9 +28,9 @@ fn main() {
     }
 }
 
-/// The path of `libclang_rt.osx.a` as the C compiler reports it.
-fn runtime_library() -> Option<PathBuf> {
-    let output = Command::new("xcrun")
+/// The folder and the link name of `libclang_rt.osx.a` as the C compiler reports it.
+fn runtime_library() -> Option<(PathBuf, &'static str)> {
+    let output = Command::new("/usr/bin/xcrun")
         .args(["clang", "--print-file-name=libclang_rt.osx.a"])
         .output()
         .ok()?;
@@ -39,5 +38,13 @@ fn runtime_library() -> Option<PathBuf> {
         return None;
     }
     let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-    path.is_absolute().then_some(path).filter(|p| p.is_file())
+    let plain = !path.to_string_lossy().chars().any(char::is_control);
+    let named = path
+        .file_name()
+        .is_some_and(|name| name == "libclang_rt.osx.a");
+    if plain && named && path.is_absolute() && path.is_file() {
+        Some((path.parent()?.to_path_buf(), "clang_rt.osx"))
+    } else {
+        None
+    }
 }

@@ -43,12 +43,14 @@ const INTRA_OP_THREADS: usize = 4;
 /// no time stamps.
 const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
 /// Sample rate of a span.
-const SAMPLE_RATE: usize = 16_000;
-/// Text tokens per second of speech that bound the decoding of a span. The real
-/// model gave at most 9.33 per second on the test sentence (14 tokens in the first
-/// 1.5 s); this is more than 2 times that.
+const SAMPLE_RATE_HZ: usize = 16_000;
+/// Text tokens per second of speech that bound the decoding of a span. Starting
+/// value: the real model gave at most 9.33 per second on the test sentence (14
+/// tokens in the first 1.5 s), and this is more than 2 times that. A measurement on
+/// more speakers (M0-05) may replace it.
 const TOKENS_PER_SECOND: usize = 20;
-/// Tokens added to the bound, so that a very short span still has room.
+/// Tokens added to the bound, so that a very short span still has room. Starting
+/// value: no measurement; it is about 1 s of speech at the rate above.
 const TOKEN_MARGIN: usize = 8;
 /// A size in the config must lie between 1 and this value.
 const MAX_CONFIG_VALUE: i64 = 65_536;
@@ -416,10 +418,10 @@ fn token_limit(max_target_positions: usize, prompt_len: usize) -> Result<usize, 
 }
 
 /// The token limit for one span: a short span cannot hold the text of a long
-/// one, so a model that never ends is stopped early. A span of 30 s keeps the
-/// limit of the model. Reaching the limit is still an error, never a cut text.
+/// one, so a model that never ends is stopped early. A span of about 17.4 s or
+/// longer keeps the limit of the model. Reaching the limit is still an error, never a cut text.
 fn span_token_limit(model_limit: usize, span_samples: usize) -> usize {
-    let spoken = (span_samples * TOKENS_PER_SECOND).div_ceil(SAMPLE_RATE);
+    let spoken = (span_samples * TOKENS_PER_SECOND).div_ceil(SAMPLE_RATE_HZ);
     model_limit.min(spoken + TOKEN_MARGIN)
 }
 
@@ -626,7 +628,7 @@ mod tests {
 
     #[test]
     fn a_model_that_never_ends_stops_at_the_bounded_limit_for_short_and_long_spans() {
-        for (span_samples, steps) in [(16_000_usize, 29_usize), (480_000, 445)] {
+        for span_samples in [16_000_usize, 480_000] {
             let limit = span_token_limit(444, span_samples);
             let mut calls = 0;
             let result = greedy_decode(9, limit, |_| {
@@ -636,7 +638,8 @@ mod tests {
                 Ok(scores)
             });
             assert!(matches!(result, Err(EngineError::Backend(_))), "{result:?}");
-            assert_eq!(calls, steps, "span of {span_samples} samples");
+            // The end token is asked for on call `limit + 1` at the latest.
+            assert_eq!(calls, limit + 1, "span of {span_samples} samples");
         }
     }
 
