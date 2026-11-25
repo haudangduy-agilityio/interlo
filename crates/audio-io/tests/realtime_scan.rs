@@ -28,6 +28,24 @@ const BANNED: &[&str] = &[
     "diagnostics::",
 ];
 
+/// Names that allocate. The probe block handler runs in a real-time section and
+/// must hold none of them.
+const ALLOCATING: &[&str] = &[
+    "Box::new",
+    "Vec::",
+    "vec!",
+    "String::",
+    "format!",
+    ".to_string(",
+    ".to_vec(",
+    ".to_owned(",
+    ".collect(",
+    ".push(",
+    "Arc::new",
+    "Rc::new",
+    ".clone()",
+];
+
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
@@ -50,8 +68,12 @@ fn contains_whole(text: &str, token: &str) -> bool {
 
 /// The banned names that `text` contains.
 fn banned_names_in(text: &str) -> Vec<&'static str> {
-    BANNED
-        .iter()
+    names_in(text, BANNED)
+}
+
+/// The names of `list` that `text` contains.
+fn names_in(text: &str, list: &'static [&'static str]) -> Vec<&'static str> {
+    list.iter()
         .copied()
         .filter(|name| contains_whole(text, name))
         .collect()
@@ -96,6 +118,103 @@ fn callback_files_hold_no_lock_or_log_name() {
             "{relative} names a lock, a blocking primitive or a log call"
         );
     }
+}
+
+/// The text between the marker lines `// realtime-scan:begin <name>` and
+/// `// realtime-scan:end <name>`. An error names the marker that is wrong: a
+/// marker that is missing or twice in the text, an end before its begin, or a
+/// region with fewer than 3 code lines.
+fn marked_region<'a>(text: &'a str, name: &str) -> Result<&'a str, String> {
+    let begin = format!("// realtime-scan:begin {name}");
+    let end = format!("// realtime-scan:end {name}");
+    let line_start = |marker: &str| -> Result<(usize, usize), String> {
+        let hits: Vec<usize> = text.match_indices(marker).map(|(at, _)| at).collect();
+        match hits.as_slice() {
+            [] => Err(format!("the marker `{marker}` is missing")),
+            [at] => {
+                let after = text[*at..].find('\n').map_or(text.len(), |n| at + n + 1);
+                Ok((*at, after))
+            }
+            _ => Err(format!("the marker `{marker}` appears more than once")),
+        }
+    };
+    let (_, region_start) = line_start(&begin)?;
+    let (region_end, _) = line_start(&end)?;
+    if region_end < region_start {
+        return Err(format!("`{end}` comes before `{begin}`"));
+    }
+    let region = &text[region_start..region_end];
+    let code_lines = region
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("//"))
+        .count();
+    if code_lines < 3 {
+        return Err(format!(
+            "the region of `{name}` holds {code_lines} code lines, fewer than 3"
+        ));
+    }
+    Ok(region)
+}
+
+#[test]
+fn the_probe_block_handler_region_holds_no_lock_or_log_name() {
+    let text = read_source("src/probe.rs");
+    let region = marked_region(&text, "probe-block-handler").unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        banned_names_in(region),
+        Vec::<&str>::new(),
+        "the probe block handler names a lock, a blocking primitive or a log call"
+    );
+    assert_eq!(
+        names_in(region, ALLOCATING),
+        Vec::<&str>::new(),
+        "the probe block handler names an allocating call"
+    );
+}
+
+#[test]
+fn a_marker_that_is_missing_twice_or_misplaced_fails() {
+    let body = "a();\nb();\nc();\n";
+    let ok = format!("// realtime-scan:begin x\n{body}// realtime-scan:end x\n");
+    assert_eq!(marked_region(&ok, "x"), Ok(body));
+    let no_begin = format!("{body}// realtime-scan:end x\n");
+    assert!(marked_region(&no_begin, "x")
+        .unwrap_err()
+        .contains("begin x` is missing"));
+    let no_end = format!("// realtime-scan:begin x\n{body}");
+    assert!(marked_region(&no_end, "x")
+        .unwrap_err()
+        .contains("end x` is missing"));
+    let twice = format!("{ok}// realtime-scan:begin x\n");
+    assert!(marked_region(&twice, "x")
+        .unwrap_err()
+        .contains("more than once"));
+    let swapped = format!("// realtime-scan:end x\n{body}// realtime-scan:begin x\n");
+    assert!(marked_region(&swapped, "x")
+        .unwrap_err()
+        .contains("comes before"));
+    let empty = "// realtime-scan:begin x\n// realtime-scan:end x\n";
+    assert!(marked_region(empty, "x")
+        .unwrap_err()
+        .contains("fewer than 3"));
+    let thin = "// realtime-scan:begin x\na();\n// note\n// realtime-scan:end x\n";
+    assert!(marked_region(thin, "x")
+        .unwrap_err()
+        .contains("fewer than 3"));
+}
+
+#[test]
+fn an_allocating_name_inside_the_marked_region_is_caught() {
+    let text = "// realtime-scan:begin x\nlet a = 1;\nlet b = Box::new(2);\nlet c = v.push(3);\n// realtime-scan:end x\n";
+    let region = marked_region(text, "x").unwrap();
+    assert_eq!(names_in(region, ALLOCATING), vec!["Box::new", ".push("]);
+}
+
+#[test]
+fn a_banned_name_inside_the_marked_region_is_caught() {
+    let text = "// realtime-scan:begin x\nlet a = 1;\nlet g = m.lock();\nlet b = 2;\n// realtime-scan:end x\n";
+    let region = marked_region(text, "x").unwrap();
+    assert_eq!(banned_names_in(region), vec![".lock("]);
 }
 
 #[test]

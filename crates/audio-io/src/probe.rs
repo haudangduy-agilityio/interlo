@@ -203,12 +203,14 @@ pub(crate) fn probe_microphone(
         let stats = Arc::clone(&ctx.stats);
         Box::new(move |block| {
             realtime::section(|| {
+                // realtime-scan:begin probe-block-handler
                 if abandon.load(Ordering::SeqCst) {
                     return;
                 }
                 #[cfg(test)]
                 stats.blocks_read.fetch_add(1, Ordering::SeqCst);
                 watch.record(ms(clock.now()), block_has_signal(&block));
+                // realtime-scan:end probe-block-handler
             });
         })
     };
@@ -642,6 +644,32 @@ mod tests {
             clock.now_ms(),
             backend.dropped.load(Ordering::SeqCst),
         )
+    }
+
+    // ---- AC-20: the block handler under the guard allocator ----
+
+    /// The handler runs inside one real-time section. The names inside it are
+    /// scanned by `tests/realtime_scan.rs`. No guard allocator runs here: the
+    /// lib tests already hold the counting allocator of the resampler tests, a
+    /// binary has one, and `tests/realtime_guard.rs` cannot reach this handler.
+    /// A release build checks nothing.
+    #[test]
+    fn the_block_handler_runs_in_one_realtime_section() {
+        let clock = FakeClock::new(&[(100, 0.25)]);
+        let mut backend = ScriptBackend::new(&clock);
+        let ctx = ProbeCtx::new(Arc::new(clock));
+        let sections = realtime::sections_entered();
+        let verdict = probe_microphone(&mut backend, &MicConfig::default(), &ctx);
+        assert_eq!(verdict, MicPermission::Granted);
+        if cfg!(debug_assertions) {
+            assert_eq!(realtime::sections_entered() - sections, 1);
+        } else {
+            assert_eq!(
+                realtime::sections_entered(),
+                sections,
+                "release builds check nothing"
+            );
+        }
     }
 
     // ---- AC-01 ----
