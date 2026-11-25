@@ -221,14 +221,16 @@ fn admit(policy: &PrivacyPolicy, request: &Request) -> Result<(), Refusal> {
     if policy.is_session_active() {
         return Err(Refusal::Denied(EgressDenied::MeetingRunning));
     }
-    // A local provider never needs the network, and the policy allows it
-    // everywhere. The guard has no path for it, so a caller can not skip the
-    // guard by declaring its provider local.
-    if matches!(&request.purpose, Purpose::ProviderData { provider, .. } if !provider.is_remote()) {
-        return Err(Refusal::LocalProvider);
-    }
     match &request.purpose {
-        Purpose::ProviderData { provider, kind } => policy.check(provider, *kind),
+        Purpose::ProviderData { provider, kind } => {
+            // A local provider never needs the network, and the policy allows
+            // it everywhere. The guard has no path for it, so a caller can not
+            // skip the guard by declaring its provider local.
+            if !provider.is_remote() {
+                return Err(Refusal::LocalProvider);
+            }
+            policy.check(provider, *kind)
+        }
         Purpose::ModelDownload => policy.check_model_download(authority),
         Purpose::DriverDownload => policy.check_driver_download(authority),
     }
