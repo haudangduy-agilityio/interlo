@@ -51,7 +51,7 @@ pub(crate) fn check_threshold(threshold: f32) -> Result<f32, EngineError> {
 }
 
 /// The last component of a path: an error never carries the folder.
-fn file_name(path: &Path) -> String {
+pub(crate) fn file_name(path: &Path) -> String {
     path.file_name()
         .map_or_else(|| "?".to_string(), |n| n.to_string_lossy().into_owned())
 }
@@ -59,7 +59,7 @@ fn file_name(path: &Path) -> String {
 /// Runtime error text without any path. The model path as given becomes the
 /// file name; any other word that holds a `/` (the same path in another form,
 /// a file the model names) keeps only its last component.
-fn scrub(text: &str, path: &Path) -> String {
+pub(crate) fn scrub(text: &str, path: &Path) -> String {
     let text = text
         .replace(&path.to_string_lossy().into_owned(), &file_name(path))
         .replace(['\n', '\r'], " ");
@@ -75,7 +75,7 @@ fn backend(what: &str, error: impl std::fmt::Display) -> EngineError {
 
 /// The runtime allows one environment per process, and builds it once for the
 /// life of the process. Every adapter shares this one.
-fn shared_environment() -> Result<Environment, EngineError> {
+pub(crate) fn shared_environment() -> Result<Environment, EngineError> {
     static ENVIRONMENT: OnceLock<Result<Environment, String>> = OnceLock::new();
     ENVIRONMENT
         .get_or_init(|| ort::init().build().map_err(|e| e.to_string()))

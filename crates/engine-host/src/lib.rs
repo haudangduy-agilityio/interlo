@@ -11,6 +11,7 @@ pub mod error;
 pub mod language_gate;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
+pub mod onnx_asr;
 pub mod onnx_vad;
 pub mod registry;
 pub mod segmenter;
