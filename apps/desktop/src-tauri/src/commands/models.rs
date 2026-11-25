@@ -469,6 +469,9 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let result = std::thread::scope(|scope| {
+            // Owned by this closure, so a failed assertion below drops the sender,
+            // the transfer wakes with an error and the scope ends instead of hanging.
+            let release_tx = release_tx;
             let download = scope.spawn(|| {
                 request_download_with(
                     "enV",
