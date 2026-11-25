@@ -44,7 +44,8 @@ pub(crate) fn check_span(samples: &[f32]) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// Slaney mel scale: linear below 1 kHz, logarithmic above.
+/// Slaney mel scale: linear below 1 kHz (200/3 Hz per mel), logarithmic above
+/// (above 1 kHz, 27 mel steps span a frequency ratio of 6.4).
 const MEL_F_SP: f64 = 200.0 / 3.0;
 const MEL_LOG_HZ: f64 = 1_000.0;
 
@@ -134,7 +135,6 @@ impl FeatureExtractor {
         let used = samples.len().min(WINDOW_SAMPLES);
         padded[..used].copy_from_slice(&samples[..used]);
 
-        // Reflect padding of half a window on both sides (centred frames).
         let pad = N_FFT / 2;
         let mut x = Vec::with_capacity(WINDOW_SAMPLES + 2 * pad);
         x.extend((1..=pad).rev().map(|i| padded[i]));

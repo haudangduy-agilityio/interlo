@@ -43,14 +43,14 @@ const INTRA_OP_THREADS: usize = 4;
 /// no time stamps.
 const PROMPT_TOKENS: [&str; 3] = ["<|vi|>", "<|transcribe|>", "<|notimestamps|>"];
 /// A size in the config must lie between 1 and this value.
-const MAX_CONFIG_SIZE: i64 = 65_536;
+const MAX_CONFIG_VALUE: i64 = 65_536;
 
 /// Sizes of the decoder, read from the model config.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DecoderShape {
-    pub(crate) layers: usize,
-    pub(crate) heads: usize,
-    pub(crate) head_dim: usize,
+struct DecoderShape {
+    layers: usize,
+    heads: usize,
+    head_dim: usize,
 }
 
 /// The recognition engine. Local: it never leaves this Mac.
@@ -168,13 +168,25 @@ struct DecoderRun<'a> {
     cache: Vec<DynValue>,
 }
 
+/// What one decoder step feeds and stores.
+enum Pass<'p> {
+    /// The whole prefix with empty past tensors; nothing is stored.
+    Whole(&'p [i64]),
+    /// The prompt with empty past tensors; the cache is stored.
+    Prime(&'p [i64]),
+    /// One token with the stored cache; the decoder-side cache is replaced.
+    Cached(i64),
+}
+
 impl DecoderRun<'_> {
-    /// Run the decoder over `ids` and return the scores of the next position.
-    /// With `with_cache` the step feeds the kept cache and `ids` is the last
-    /// token only; without it the step gets empty past tensors. `keep` stores
-    /// what the step wrote into the cache.
-    fn step(&mut self, ids: &[i64], with_cache: bool, keep: bool) -> Result<Vec<f32>, EngineError> {
-        let ids_tensor = Tensor::from_array(([1_usize, ids.len()], ids.to_vec()))
+    /// Run the decoder for one `pass` and return the scores of the next position.
+    fn step(&mut self, pass: &Pass<'_>) -> Result<Vec<f32>, EngineError> {
+        let (ids, with_cache, keep) = match pass {
+            Pass::Whole(ids) => (ids.to_vec(), false, false),
+            Pass::Prime(ids) => (ids.to_vec(), false, true),
+            Pass::Cached(last) => (vec![*last], true, true),
+        };
+        let ids_tensor = Tensor::from_array(([1_usize, ids.len()], ids))
             .map_err(|_| run_failed("token tensor"))?;
         let flag = Tensor::from_array(([1_usize], vec![with_cache]))
             .map_err(|_| run_failed("flag tensor"))?;
@@ -222,7 +234,9 @@ impl OnnxRecognizer {
         let positions = config_size(&config, "max_target_positions")?;
         let tokenizer = read_text_file(&dir.join(TOKENIZER_FILE))?
             .parse::<Tokenizer>()
-            .map_err(|e| EngineError::Backend(format!("{TOKENIZER_FILE}: {e}")))?;
+            .map_err(|_| {
+                EngineError::Backend(format!("{TOKENIZER_FILE} is not a valid tokenizer"))
+            })?;
         let prompt = prompt_ids(&tokenizer, start_token)?;
         let token_limit = token_limit(positions, prompt.len())?;
         for name in [ENCODER_FILE, DECODER_FILE] {
@@ -232,7 +246,8 @@ impl OnnxRecognizer {
                 )));
             }
         }
-        let environment = shared_environment()?;
+        let environment = shared_environment()
+            .map_err(|_| EngineError::Backend("recognition model: runtime start failed".into()))?;
         let encoder = load_session(&environment, &dir.join(ENCODER_FILE))?;
         let decoder = load_session(&environment, &dir.join(DECODER_FILE))?;
         Ok(Self {
@@ -284,14 +299,20 @@ impl OnnxRecognizer {
             cache: Vec::new(),
         };
         let (prompt, use_cache) = (&self.prompt, self.use_cache);
-        let mut sequence = prompt.clone();
+        // The whole prefix, used only when the cache is off.
+        let mut prefix = if use_cache {
+            Vec::new()
+        } else {
+            prompt.clone()
+        };
         greedy_decode(self.end_token, self.token_limit, |previous| {
             match (previous, use_cache) {
-                (None, _) => run.step(prompt, false, use_cache),
-                (Some(last), true) => run.step(&[last], true, true),
+                (None, true) => run.step(&Pass::Prime(prompt)),
+                (None, false) => run.step(&Pass::Whole(&prefix)),
+                (Some(last), true) => run.step(&Pass::Cached(last)),
                 (Some(last), false) => {
-                    sequence.push(last);
-                    run.step(&sequence, false, false)
+                    prefix.push(last);
+                    run.step(&Pass::Whole(&prefix))
                 }
             }
         })
@@ -327,7 +348,7 @@ fn config_error(what: &str, key: &str) -> EngineError {
 
 /// The integer after `"key":` in a flat JSON text. The model config is flat; a
 /// JSON parser is not a dependency of this crate.
-pub(crate) fn config_int(text: &str, key: &str) -> Result<i64, EngineError> {
+fn config_int(text: &str, key: &str) -> Result<i64, EngineError> {
     let needle = format!("\"{key}\"");
     let at = text
         .find(&needle)
@@ -348,7 +369,7 @@ pub(crate) fn config_int(text: &str, key: &str) -> Result<i64, EngineError> {
 /// Like `config_int`, for a size: it must lie between 1 and 65536.
 fn config_size(text: &str, key: &str) -> Result<usize, EngineError> {
     let value = config_int(text, key)?;
-    if (1..=MAX_CONFIG_SIZE).contains(&value) {
+    if (1..=MAX_CONFIG_VALUE).contains(&value) {
         usize::try_from(value).map_err(|_| config_error("value is out of range", key))
     } else {
         Err(config_error("value is out of range", key))
@@ -357,7 +378,7 @@ fn config_size(text: &str, key: &str) -> Result<usize, EngineError> {
 
 /// Layers, heads and head size of the decoder. The features make 80 mel bands,
 /// so a model with another number of bands is refused.
-pub(crate) fn decoder_shape(config: &str) -> Result<DecoderShape, EngineError> {
+fn decoder_shape(config: &str) -> Result<DecoderShape, EngineError> {
     let layers = config_size(config, "decoder_layers")?;
     let heads = config_size(config, "decoder_attention_heads")?;
     let width = config_size(config, "d_model")?;
@@ -378,10 +399,7 @@ pub(crate) fn decoder_shape(config: &str) -> Result<DecoderShape, EngineError> {
 }
 
 /// The largest number of text tokens: the decoder positions minus the prompt.
-pub(crate) fn token_limit(
-    max_target_positions: usize,
-    prompt_len: usize,
-) -> Result<usize, EngineError> {
+fn token_limit(max_target_positions: usize, prompt_len: usize) -> Result<usize, EngineError> {
     if max_target_positions > prompt_len {
         Ok(max_target_positions - prompt_len)
     } else {
@@ -389,7 +407,7 @@ pub(crate) fn token_limit(
     }
 }
 
-pub(crate) fn check_text_size(length: u64) -> Result<(), EngineError> {
+fn check_text_size(length: u64) -> Result<(), EngineError> {
     if length > MAX_TEXT_FILE_BYTES {
         Err(EngineError::Backend(format!(
             "a text file is larger than {MAX_TEXT_FILE_BYTES} bytes"
@@ -401,19 +419,21 @@ pub(crate) fn check_text_size(length: u64) -> Result<(), EngineError> {
 
 /// The only place that reads a file: the size is checked before the read, and
 /// an error names the file and not its folder.
-pub(crate) fn read_text_file(path: &Path) -> Result<String, EngineError> {
+fn read_text_file(path: &Path) -> Result<String, EngineError> {
     let name = file_name(path);
     let unreadable = |e: std::io::Error| EngineError::Backend(format!("cannot read {name}: {e}"));
     let length = std::fs::metadata(path).map_err(unreadable)?.len();
-    if let Err(EngineError::Backend(text)) = check_text_size(length) {
-        return Err(EngineError::Backend(format!("{name}: {text}")));
+    if check_text_size(length).is_err() {
+        return Err(EngineError::Backend(format!(
+            "{name} is larger than {MAX_TEXT_FILE_BYTES} bytes"
+        )));
     }
     std::fs::read_to_string(path).map_err(unreadable)
 }
 
 /// The start token, then the ids of the language, task and time stamp tokens
 /// looked up by name.
-pub(crate) fn prompt_ids(tokenizer: &Tokenizer, start_id: i64) -> Result<Vec<i64>, EngineError> {
+fn prompt_ids(tokenizer: &Tokenizer, start_id: i64) -> Result<Vec<i64>, EngineError> {
     let mut ids = vec![start_id];
     for name in PROMPT_TOKENS {
         let id = tokenizer
@@ -425,7 +445,7 @@ pub(crate) fn prompt_ids(tokenizer: &Tokenizer, start_id: i64) -> Result<Vec<i64
 }
 
 /// Text of generated ids; special tokens are skipped.
-pub(crate) fn ids_to_text(tokenizer: &Tokenizer, ids: &[i64]) -> Result<String, EngineError> {
+fn ids_to_text(tokenizer: &Tokenizer, ids: &[i64]) -> Result<String, EngineError> {
     let failed = || EngineError::Backend("recognition model: token decode failed".into());
     let ids: Vec<u32> = ids
         .iter()
@@ -437,7 +457,7 @@ pub(crate) fn ids_to_text(tokenizer: &Tokenizer, ids: &[i64]) -> Result<String, 
 /// The next token: the largest score among the text tokens and the end token
 /// (every id above the end token is a control or time stamp token). The lowest
 /// id wins a tie. A score that is not finite is an error.
-pub(crate) fn pick_next_token(logits: &[f32], end_token: i64) -> Result<i64, EngineError> {
+fn pick_next_token(logits: &[f32], end_token: i64) -> Result<i64, EngineError> {
     if logits.iter().any(|score| !score.is_finite()) {
         return Err(EngineError::Backend(
             "recognition model: a score is not a finite number".into(),
@@ -461,7 +481,7 @@ pub(crate) fn pick_next_token(logits: &[f32], end_token: i64) -> Result<i64, Eng
 /// returned. At most `token_limit` text tokens are allowed: the end token must
 /// come on call `token_limit + 1` at the latest, else the result is an error
 /// that holds no token id.
-pub(crate) fn greedy_decode(
+fn greedy_decode(
     end_token: i64,
     token_limit: usize,
     mut step: impl FnMut(Option<i64>) -> Result<Vec<f32>, EngineError>,
@@ -485,7 +505,7 @@ pub(crate) fn greedy_decode(
 
 /// The text composed (NFC), trimmed, and marked Vietnamese: this model writes
 /// Vietnamese only.
-pub(crate) fn build_recognition(raw: &str) -> Result<Recognition, EngineError> {
+fn build_recognition(raw: &str) -> Result<Recognition, EngineError> {
     let mut normalized = NormalizedString::from(raw);
     NFC.normalize(&mut normalized)
         .map_err(|_| EngineError::Backend("recognition model: text compose failed".into()))?;
