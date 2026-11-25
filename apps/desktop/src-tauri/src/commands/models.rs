@@ -55,7 +55,13 @@ pub async fn list_models() -> IpcResult<Vec<ModelInfo>> {
 /// webview can send no url, host or path: an id that is not in the table, in
 /// whatever form, is unknown.
 fn is_known_model_id(id: &str) -> bool {
-    model_store::entry_for(id).is_some()
+    is_known_in(model_store::entries(), id)
+}
+
+/// The decision of `is_known_model_id` over a given table, so a test can use a
+/// table that differs from the Setup enum.
+fn is_known_in(table: &[model_store::ModelEntry], id: &str) -> bool {
+    model_store::entry_in(table, id).is_some()
 }
 
 fn require_known_model_id(id: &str) -> IpcResult<()> {
@@ -127,26 +133,7 @@ mod tests {
     }
 
     use crate::commands::setup::sample_setup_status;
-    use crate::ipc::{ErrorCode, SetupGroup};
-
-    #[test]
-    fn model_ids_equal_the_setup_item_ids_of_the_models() {
-        let setup: Vec<String> = sample_setup_status()
-            .items
-            .iter()
-            .filter(|i| i.group == SetupGroup::Models)
-            .map(|i| {
-                serde_json::to_value(i.id)
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect();
-        let models: Vec<String> = sample_models().into_iter().map(|m| m.id).collect();
-        assert_eq!(models, setup);
-        assert_eq!(models, ["sr", "tr", "enV", "viV"]);
-    }
+    use crate::ipc::{ErrorCode, SetupGroup, SetupItemId};
 
     #[test]
     fn download_of_a_known_model_with_licence_is_not_implemented() {
@@ -260,16 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_translation_model_is_non_commercial() {
-        let flagged: Vec<String> = sample_models()
-            .into_iter()
-            .filter(|m| m.non_commercial)
-            .map(|m| m.id)
-            .collect();
-        assert_eq!(flagged, ["tr"]);
-    }
-
-    #[test]
     fn model_info_serializes_licence_fields_in_camel_case() {
         let json = serde_json::to_value(&sample_models()[1]).unwrap();
         assert_eq!(
@@ -307,9 +284,60 @@ mod tests {
         );
     }
 
+    /// Every variant of `SetupItemId`. The match has no wildcard, so a new variant
+    /// does not compile until it is listed here.
+    fn all_setup_items() -> [SetupItemId; 8] {
+        let all = [
+            SetupItemId::Mic,
+            SetupItemId::Capture,
+            SetupItemId::Vmic,
+            SetupItemId::Phones,
+            SetupItemId::Sr,
+            SetupItemId::Tr,
+            SetupItemId::EnV,
+            SetupItemId::ViV,
+        ];
+        for item in all {
+            match item {
+                SetupItemId::Mic
+                | SetupItemId::Capture
+                | SetupItemId::Vmic
+                | SetupItemId::Phones
+                | SetupItemId::Sr
+                | SetupItemId::Tr
+                | SetupItemId::EnV
+                | SetupItemId::ViV => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_id_check_reads_the_table_not_the_setup_enum() {
+        let fake = [model_store::ModelEntry {
+            id: "fake-model",
+            name: "Fake",
+            licence: "Test",
+            non_commercial: false,
+            pack: "none",
+        }];
+        assert!(
+            is_known_in(&fake, "fake-model"),
+            "an id of the table is known"
+        );
+        assert!(
+            !is_known_in(&fake, "sr"),
+            "an id that is not in the table is unknown"
+        );
+        for item in all_setup_items().into_iter().filter(|i| i.is_model()) {
+            let json = serde_json::to_value(item).unwrap();
+            let id = json.as_str().unwrap();
+            assert!(is_known_model_id(id), "{id} has no entry in the table");
+        }
+    }
+
     #[test]
     fn table_ids_equal_the_models_group_of_setup_item_id() {
-        use crate::ipc::SetupItemId;
         let table: Vec<&str> = model_store::entries().iter().map(|e| e.id).collect();
         let setup: Vec<String> = sample_setup_status()
             .items

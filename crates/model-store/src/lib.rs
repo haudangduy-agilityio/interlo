@@ -247,7 +247,8 @@ pub fn pinned_hosts() -> &'static [&'static str] {
     manifest::PINNED_HOSTS
 }
 
-fn find_entry<'a>(table: &'a [ModelEntry], id: &str) -> Option<&'a ModelEntry> {
+/// Resolve `id` in `table`: an exact id match, never read as a url.
+pub fn entry_in<'a>(table: &'a [ModelEntry], id: &str) -> Option<&'a ModelEntry> {
     table.iter().find(|m| m.id == id)
 }
 
@@ -255,7 +256,7 @@ fn find_entry<'a>(table: &'a [ModelEntry], id: &str) -> Option<&'a ModelEntry> {
 /// unknown id, a different case or a url returns `None`. The id is never read as
 /// a url.
 pub fn entry_for(id: &str) -> Option<&'static ModelEntry> {
-    find_entry(entries(), id)
+    entry_in(entries(), id)
 }
 
 /// The pack that holds the files of `entry`. The test
@@ -690,10 +691,10 @@ mod tests {
     #[test]
     fn lookup_matches_the_exact_id_only() {
         let table = [model_entry("small-model"), model_entry("large-model")];
-        assert_eq!(find_entry(&table, "large-model").unwrap().id, "large-model");
-        assert!(find_entry(&table, "Large-Model").is_none());
-        assert!(find_entry(&table, "large").is_none());
-        assert!(find_entry(&table, "https://models.example.com/files/small.bin").is_none());
+        assert_eq!(entry_in(&table, "large-model").unwrap().id, "large-model");
+        assert!(entry_in(&table, "Large-Model").is_none());
+        assert!(entry_in(&table, "large").is_none());
+        assert!(entry_in(&table, "https://models.example.com/files/small.bin").is_none());
     }
 
     #[test]

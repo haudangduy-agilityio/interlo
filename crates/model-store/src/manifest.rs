@@ -44,11 +44,12 @@ pub struct ModelEntry {
 }
 
 /// The hosts a download may contact: the hosts of the urls below and the content
-/// host that they redirect to. A host that is not here fails the download.
+/// host that they redirect to, which is listed last. A host that is not here
+/// fails the download.
 pub(crate) const PINNED_HOSTS: &[&str] = &[
     "huggingface.co",
-    "us.aws.cdn.hf.co",
     "raw.githubusercontent.com",
+    "us.aws.cdn.hf.co",
 ];
 
 pub(crate) static PACKS: &[Pack] = &[
@@ -370,6 +371,32 @@ mod tests {
             pinned_hosts().len(),
             "a host is listed twice"
         );
+    }
+
+    #[test]
+    fn every_pinned_host_is_used_by_a_url_or_is_the_one_redirect_target() {
+        let used: BTreeSet<String> = packs()
+            .iter()
+            .flat_map(|p| p.files.iter())
+            .map(|f| crate::https_host(f.url).unwrap())
+            .collect();
+        let unused: Vec<&&str> = pinned_hosts()
+            .iter()
+            .filter(|h| !used.contains(**h))
+            .collect();
+        // The one host that no url names is the content host that the listed
+        // hosts redirect to. It is the last entry of `PINNED_HOSTS`.
+        assert!(
+            unused.len() <= 1,
+            "pinned hosts that no url uses and that are not the redirect target: {unused:?}"
+        );
+        if let Some(host) = unused.first() {
+            assert_eq!(
+                pinned_hosts().last(),
+                Some(*host),
+                "the redirect host is listed last"
+            );
+        }
     }
 
     #[test]
