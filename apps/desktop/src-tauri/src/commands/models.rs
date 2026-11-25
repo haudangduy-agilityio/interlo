@@ -6,9 +6,9 @@ use model_store::{
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-#[cfg(any(test, feature = "demo-data"))]
-use crate::ipc::ModelState;
-use crate::ipc::{CancelModelDownloadArgs, DownloadModelArgs, IpcError, IpcResult, ModelInfo};
+use crate::ipc::{
+    CancelModelDownloadArgs, DownloadModelArgs, IpcError, IpcResult, ModelInfo, ModelState,
+};
 use crate::native_confirm::{self, ConfirmPrompt};
 
 /// Sample rows. Tests and a `demo-data` build only.
@@ -61,7 +61,7 @@ pub fn mark_running_downloads(
         let running =
             model_store::entry_for(&model.id).is_some_and(|entry| registry.is_running(entry.pack));
         if running {
-            model.state = crate::ipc::ModelState::Downloading;
+            model.state = ModelState::Downloading;
         }
     }
     models
@@ -111,8 +111,16 @@ pub fn models_dir_in(home: &Path) -> PathBuf {
     home.join("Library/Application Support/Interlo/models")
 }
 
+/// The folder for a given `HOME` value. A missing or relative value gives
+/// `None`: a relative path would put the models in whatever folder the app
+/// started in.
+fn models_dir_from_home(home: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let home = PathBuf::from(home?);
+    home.is_absolute().then(|| models_dir_in(&home))
+}
+
 fn models_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| models_dir_in(Path::new(&home)))
+    models_dir_from_home(std::env::var_os("HOME"))
 }
 
 /// The policy a model download runs under: local-only mode, and the model hosts
@@ -121,7 +129,7 @@ pub fn download_policy() -> PrivacyPolicy {
     let mut policy = PrivacyPolicy::local_only();
     for host in model_store::pinned_hosts() {
         // A host that the policy rejects stays off the list, so its download
-        // fails closed; the test `the_download_policy_allows_every_pinned_host`
+        // fails closed; the test `the_download_policy_allows_every_pinned_host_and_no_other`
         // pins the table.
         let _ = policy.allow_model_host(host);
     }
@@ -224,6 +232,7 @@ pub fn request_download(
     id: &str,
     licence_accepted: bool,
 ) -> IpcResult<()> {
+    // Refuse a bad request before anything reads the home folder.
     check_download_request(id, licence_accepted)?;
     let Some(dir) = models_dir() else {
         return Err(IpcError::not_implemented("Model download"));
@@ -282,11 +291,7 @@ mod tests {
     use super::*;
     use crate::commands::setup::sample_setup_status;
     use crate::ipc::{ErrorCode, SetupGroup, SetupItemId};
-    use meeting_core::egress::{FetchError, FetchRequest, FetchResponse, HttpFetch};
-    use meeting_core::policy::PrivacyPolicy;
-    use model_store::{CancelToken, DownloadRegistry, ModelError};
     use std::cell::{Cell, RefCell};
-    use std::path::{Path, PathBuf};
 
     const IDS: [&str; 4] = ["sr", "tr", "enV", "viV"];
 
@@ -367,7 +372,7 @@ mod tests {
             )
         }
 
-        fn state_of(&self, id: &str) -> crate::ipc::ModelState {
+        fn state_of(&self, id: &str) -> ModelState {
             listed_models(&self.registry)
                 .unwrap()
                 .into_iter()
@@ -384,7 +389,7 @@ mod tests {
         assert_eq!(json["state"], "ok");
     }
 
-    // ---- AC-09: the dialog is asked once, after the checks ----
+    // ---- the dialog is asked once, after the checks ----
 
     #[test]
     fn the_dialog_is_asked_once_after_id_and_licence_with_name_host_and_size() {
@@ -415,7 +420,7 @@ mod tests {
         );
     }
 
-    // ---- AC-10: a declined dialog changes nothing ----
+    // ---- a declined dialog changes nothing ----
 
     #[test]
     fn a_declined_dialog_makes_no_fetch_call_and_changes_nothing() {
@@ -424,11 +429,11 @@ mod tests {
         assert_eq!(env.asked.get(), 1);
         assert_eq!(env.fetch.0.get(), 0, "no fetch call");
         assert!(env.dir.is_empty(), "no file");
-        assert_eq!(env.state_of("enV"), crate::ipc::ModelState::Missing);
+        assert_eq!(env.state_of("enV"), ModelState::Missing);
         assert!(!env.registry.is_running("voice"), "the pack is free again");
     }
 
-    // ---- AC-11: the webview flag is not a confirmation ----
+    // ---- the webview flag is not a confirmation ----
 
     #[test]
     fn the_licence_flag_from_the_webview_is_not_a_confirmation() {
@@ -445,18 +450,24 @@ mod tests {
             let env = Env::new();
             let err = env.download(id, true, true).unwrap_err();
             assert_eq!(err.code, ErrorCode::NotImplemented, "id {id:?}");
+            let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../fixtures/ipc/ipc_error_not_implemented.json");
+            let expected: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+            assert_eq!(serde_json::to_value(&err).unwrap(), expected, "id {id:?}");
             assert_eq!(env.fetch.0.get(), 0, "the stub makes no fetch call");
             assert!(!env.registry.is_running("voice"), "id {id:?}: pack freed");
         }
     }
 
-    // ---- AC-13, AC-14: cancel ----
+    // ---- cancel ----
 
     #[test]
     fn cancel_stops_and_removes_the_partial_file() {
         let registry = DownloadRegistry::default();
         let dir = TempDir::new();
         let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let result = std::thread::scope(|scope| {
             let download = scope.spawn(|| {
                 request_download_with(
@@ -465,33 +476,30 @@ mod tests {
                     &registry,
                     dir.path(),
                     |prompt| Some(native_confirm::confirmation_for_tests(&prompt.model_id)),
-                    |job: TransferJob| {
+                    move |job: TransferJob| {
                         std::fs::create_dir_all(&job.pack_dir).unwrap();
                         std::fs::write(job.pack_dir.join("voice.bin.part"), b"half").unwrap();
                         started_tx.send(()).unwrap();
-                        // A cancel that never arrives ends the test in failure, not in a hang.
-                        let deadline =
-                            std::time::Instant::now() + std::time::Duration::from_secs(10);
-                        while !job.token.is_cancelled() {
-                            if std::time::Instant::now() > deadline {
-                                return Err(ModelError::NotImplemented("the cancel never arrived"));
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        // The test releases the transfer after it sent the cancel. A cancel
+                        // that never reached the flag ends the test in failure, not in a hang.
+                        release_rx.recv().unwrap();
+                        if job.token.is_cancelled() {
+                            Err(ModelError::Cancelled)
+                        } else {
+                            Err(ModelError::NotImplemented("the cancel never arrived"))
                         }
-                        Err(ModelError::Cancelled)
                     },
                 )
             });
-            started_rx
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .expect("the transfer started");
+            started_rx.recv().expect("the transfer started");
             let shown = mark_running_downloads(sample_models(), &registry);
             for id in ["enV", "viV"] {
                 let model = shown.iter().find(|m| m.id == id).unwrap();
-                assert_eq!(model.state, crate::ipc::ModelState::Downloading, "{id}");
+                assert_eq!(model.state, ModelState::Downloading, "{id}");
             }
             // The other id of the same pack cancels the transfer too.
             assert_eq!(request_cancel_download("viV", &registry), Ok(()));
+            release_tx.send(()).unwrap();
             download.join().unwrap()
         });
         assert_eq!(result, Ok(()), "the waiting download returns Ok");
@@ -502,7 +510,7 @@ mod tests {
         assert!(!registry.is_running("voice"));
         let shown = mark_running_downloads(sample_models(), &registry);
         let en = shown.iter().find(|m| m.id == "enV").unwrap();
-        assert_eq!(en.state, crate::ipc::ModelState::Missing);
+        assert_eq!(en.state, ModelState::Missing);
     }
 
     #[test]
@@ -548,7 +556,7 @@ mod tests {
         assert!(!env.registry.is_running("voice"));
     }
 
-    // ---- AC-16: one download per pack ----
+    // ---- one download per pack ----
 
     #[test]
     fn a_second_download_of_the_pack_is_refused() {
@@ -561,13 +569,9 @@ mod tests {
         }
         assert_eq!(env.asked.get(), 0, "no dialog for a pack that runs");
         for id in ["enV", "viV"] {
-            assert_eq!(
-                env.state_of(id),
-                crate::ipc::ModelState::Downloading,
-                "{id}"
-            );
+            assert_eq!(env.state_of(id), ModelState::Downloading, "{id}");
         }
-        assert_ne!(env.state_of("sr"), crate::ipc::ModelState::Downloading);
+        assert_ne!(env.state_of("sr"), ModelState::Downloading);
         // Another pack is not blocked.
         assert_eq!(env.download("sr", true, false), Ok(()));
         assert_eq!(env.asked.get(), 1);
@@ -587,7 +591,7 @@ mod tests {
         );
     }
 
-    // ---- AC-17 to AC-20: the licence flag ----
+    // ---- the licence flag ----
 
     #[test]
     fn download_without_licence_is_invalid_input_and_asks_nothing() {
@@ -672,6 +676,23 @@ mod tests {
     }
 
     #[test]
+    fn only_an_absolute_home_gives_a_models_folder() {
+        use std::ffi::OsString;
+        assert_eq!(
+            models_dir_from_home(Some(OsString::from("/Users/someone"))),
+            Some(PathBuf::from(
+                "/Users/someone/Library/Application Support/Interlo/models"
+            ))
+        );
+        assert_eq!(
+            models_dir_from_home(Some(OsString::from("relative/home"))),
+            None
+        );
+        assert_eq!(models_dir_from_home(Some(OsString::new())), None);
+        assert_eq!(models_dir_from_home(None), None);
+    }
+
+    #[test]
     fn the_transfer_gets_the_pack_folder_under_the_models_folder() {
         let env = Env::new();
         let seen: RefCell<Option<(PathBuf, String)>> = RefCell::new(None);
@@ -686,7 +707,6 @@ mod tests {
                     job.pack_dir.clone(),
                     job.confirmation.model_id().to_string(),
                 ));
-                let _: &CancelToken = &job.token;
                 Err(ModelError::NotImplemented("test"))
             },
         );

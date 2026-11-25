@@ -35,37 +35,42 @@ fn rust_files_under(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// `file:line: text` for every code line that names the constructor. Comment
-/// lines are skipped: a comment cannot build a confirmation.
-fn constructor_uses(source: &str, label: &str) -> Vec<String> {
+/// `file:line: text` for every code line that holds `needle`. Comment lines are
+/// skipped: a comment cannot build a confirmation or call a plugin.
+fn uses_of(needle: &str, source: &str, label: &str) -> Vec<String> {
     source
         .lines()
         .enumerate()
         .filter(|(_, line)| !line.trim_start().starts_with("//"))
-        .filter(|(_, line)| line.contains(CONSTRUCTOR))
+        .filter(|(_, line)| line.contains(needle))
         .map(|(i, line)| format!("{label}:{}: {}", i + 1, line.trim()))
         .collect()
 }
 
-#[test]
-fn only_the_native_dialog_module_builds_an_owner_confirmation() {
-    let root = workspace_root();
+/// Every Rust source of the shell and of the crates: the file and its label
+/// (the path relative to the workspace root).
+fn workspace_sources(root: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
     rust_files_under(&root.join("apps/desktop/src-tauri/src"), &mut files);
     for entry in fs::read_dir(root.join("crates")).unwrap() {
         rust_files_under(&entry.unwrap().path().join("src"), &mut files);
     }
-    let labels: Vec<(PathBuf, String)> = files
+    files
         .into_iter()
         .map(|f| {
             let label = f
-                .strip_prefix(&root)
+                .strip_prefix(root)
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
             (f, label)
         })
-        .collect();
+        .collect()
+}
+
+#[test]
+fn only_the_native_dialog_module_builds_an_owner_confirmation() {
+    let labels = workspace_sources(&workspace_root());
     let shell_files = labels
         .iter()
         .filter(|(_, l)| l.starts_with("apps/desktop/src-tauri/src/"))
@@ -79,7 +84,11 @@ fn only_the_native_dialog_module_builds_an_owner_confirmation() {
         if label == SHELL_DIALOG_FILE || label == DEFINING_FILE {
             continue;
         }
-        problems.extend(constructor_uses(&fs::read_to_string(file).unwrap(), label));
+        problems.extend(uses_of(
+            CONSTRUCTOR,
+            &fs::read_to_string(file).unwrap(),
+            label,
+        ));
     }
     assert!(
         problems.is_empty(),
@@ -89,11 +98,13 @@ fn only_the_native_dialog_module_builds_an_owner_confirmation() {
 }
 
 #[test]
-fn the_constructor_scan_flags_a_call_and_skips_comments() {
+fn the_source_scan_flags_a_call_and_skips_comments() {
     let call = "let c = OwnerConfirmation::from_native_dialog(&id);\n";
-    assert_eq!(constructor_uses(call, "x.rs").len(), 1);
+    assert_eq!(uses_of(CONSTRUCTOR, call, "x.rs").len(), 1);
     let comment = "// from_native_dialog is called only by native_confirm\nfn f() {}\n";
-    assert!(constructor_uses(comment, "x.rs").is_empty());
+    assert!(uses_of(CONSTRUCTOR, comment, "x.rs").is_empty());
+    let plugin = "    .plugin(tauri_plugin_dialog::init())\n";
+    assert_eq!(uses_of(PLUGIN_CRATE, plugin, "x.rs").len(), 1);
 }
 
 #[test]
@@ -102,34 +113,19 @@ fn the_native_dialog_module_exists_and_exposes_the_confirm_function() {
     assert!(source.contains("pub fn confirm_download"));
 }
 
+/// The dialog plugin crate, as Rust code names it.
+const PLUGIN_CRATE: &str = "tauri_plugin_dialog";
+
 /// The only shell files that may name the dialog plugin crate: the module that
 /// shows the dialog, and the builder that registers the plugin.
 const PLUGIN_FILES: [&str; 2] = [SHELL_DIALOG_FILE, "apps/desktop/src-tauri/src/lib.rs"];
 
 #[test]
 fn only_the_dialog_module_and_the_registration_name_the_dialog_plugin() {
-    let root = workspace_root();
-    let mut files = Vec::new();
-    rust_files_under(&root.join("apps/desktop/src-tauri/src"), &mut files);
-    for entry in fs::read_dir(root.join("crates")).unwrap() {
-        rust_files_under(&entry.unwrap().path().join("src"), &mut files);
-    }
     let mut seen_in_allowed = Vec::new();
     let mut problems = Vec::new();
-    for file in files {
-        let label = file
-            .strip_prefix(&root)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        let uses: Vec<String> = fs::read_to_string(&file)
-            .unwrap()
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| !line.trim_start().starts_with("//"))
-            .filter(|(_, line)| line.contains("tauri_plugin_dialog"))
-            .map(|(i, line)| format!("{label}:{}: {}", i + 1, line.trim()))
-            .collect();
+    for (file, label) in workspace_sources(&workspace_root()) {
+        let uses = uses_of(PLUGIN_CRATE, &fs::read_to_string(&file).unwrap(), &label);
         if PLUGIN_FILES.contains(&label.as_str()) {
             if !uses.is_empty() {
                 seen_in_allowed.push(label);
@@ -140,11 +136,33 @@ fn only_the_dialog_module_and_the_registration_name_the_dialog_plugin() {
     }
     assert!(
         problems.is_empty(),
-        "`tauri_plugin_dialog` named outside {PLUGIN_FILES:?}:\n{}",
+        "`{PLUGIN_CRATE}` named outside {PLUGIN_FILES:?}:\n{}",
         problems.join("\n")
     );
     seen_in_allowed.sort();
     let mut expected = PLUGIN_FILES.to_vec();
     expected.sort_unstable();
     assert_eq!(seen_in_allowed, expected, "both files use the plugin");
+}
+
+#[test]
+fn only_the_dialog_module_builds_a_confirm_prompt() {
+    // The dialog text and the model it confirms must come from one place:
+    // `prompt_for` builds the prompt from the compiled-in table.
+    let mut problems = Vec::new();
+    for (file, label) in workspace_sources(&workspace_root()) {
+        if label == SHELL_DIALOG_FILE {
+            continue;
+        }
+        problems.extend(uses_of(
+            "ConfirmPrompt {",
+            &fs::read_to_string(&file).unwrap(),
+            &label,
+        ));
+    }
+    assert!(
+        problems.is_empty(),
+        "`ConfirmPrompt` built outside {SHELL_DIALOG_FILE}:\n{}",
+        problems.join("\n")
+    );
 }

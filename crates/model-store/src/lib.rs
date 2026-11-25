@@ -4,7 +4,8 @@
 //! url, pinned SHA-256 and exact size, pinned hosts), the model spec (id, url,
 //! pinned SHA-256, size cap), the download gate
 //! (owner confirmation + https + the policy's model-host allow list, re-checked
-//! on every redirect hop) and file verification. The hash function is passed in
+//! on every redirect hop), the per-pack download registry with its cancel flag,
+//! partial-file cleanup, and file verification. The hash function is passed in
 //! through the `Hasher` trait.
 //!
 //! Must never: run a model that failed its checksum. Only `verify` can build a
@@ -12,9 +13,11 @@
 //! `Verified` holds the open file that was hashed; the loader reads that handle
 //! and never opens the path again, so a swap after the check cannot reach it.
 //! The file length comes from the same open file that is hashed, never from the
-//! caller. A download starts only with an `OwnerConfirmation` (ADR 0006), and
-//! only for a model found by id in the compiled-in table (`entry_for`): the
-//! webview never supplies a URL.
+//! caller. The registry lock is held only to read or change the map, never while
+//! a dialog is open or a file is transferred, so a cancel always gets in. A
+//! download starts only with an `OwnerConfirmation` (ADR 0006), and only for a
+//! model found by id in the compiled-in table (`entry_for`): the webview never
+//! supplies a URL.
 
 use meeting_core::egress::HttpFetch;
 use meeting_core::policy::{EgressDenied, PrivacyPolicy, Provider};
@@ -281,6 +284,7 @@ pub fn pack_of(entry: &ModelEntry) -> &'static Pack {
 pub fn pack_hosts(pack: &Pack) -> Vec<String> {
     let mut hosts: Vec<String> = Vec::new();
     for file in pack.files {
+        // The table test pins https urls, so a url that fails here is a table bug.
         if let Ok(host) = https_host(file.url) {
             if !hosts.contains(&host) {
                 hosts.push(host);
@@ -380,10 +384,17 @@ impl Drop for DownloadGuard<'_> {
     }
 }
 
-/// Remove every file whose name ends in `.part` under `dir`. A cancelled or
-/// failed download leaves no partial file (A-2). A folder that does not exist is
+/// Remove every file whose name ends in `.part` under `dir`. A cancelled
+/// download leaves no partial file (A-2); M1-04.4 calls this for a failed one too. A folder that does not exist is
 /// fine; finished files stay.
 pub fn remove_partial_files(dir: &Path) -> io::Result<()> {
+    // A pack folder that is a symlink leads somewhere that is not ours to clean.
+    if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the folder is a symlink",
+        ));
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -937,6 +948,20 @@ mod tests {
         assert!(
             outside.path().join("other.bin.part").exists(),
             "a file behind a symlink is not ours to remove"
+        );
+    }
+
+    #[test]
+    fn remove_partial_files_refuses_a_symlink_as_the_folder() {
+        let outside = TempDir::new();
+        std::fs::write(outside.path().join("other.bin.part"), b"x").unwrap();
+        let holder = TempDir::new();
+        let link = holder.path().join("voice");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(remove_partial_files(&link).is_err());
+        assert!(
+            outside.path().join("other.bin.part").exists(),
+            "a folder behind a symlink is not ours to clean"
         );
     }
 

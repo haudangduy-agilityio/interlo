@@ -291,7 +291,9 @@ fn error_fixtures_equal_the_errors_the_commands_return() {
         fixture("ipc_error_start_check_failed.json")
     );
 
-    // A confirmed download stops at the downloader stub until M1-04.4 fills it.
+    // A confirmed download stops at the downloader stub until M1-04.4 fills it. This line pins
+    // the fixture's shape only; the unit test `a_confirmed_download_still_stops_at_the_missing_downloader`
+    // compares the error of the real flow to the same fixture.
     let download = IpcError::not_implemented("Model download");
     assert_eq!(
         serialized(&download),

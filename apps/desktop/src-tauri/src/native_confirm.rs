@@ -17,6 +17,9 @@ pub struct ConfirmPrompt {
     pub message: String,
 }
 
+const BYTES_PER_MB: u64 = 1_000_000;
+const BYTES_PER_GB: u64 = 1_000_000_000;
+
 /// The prompt for `entry`, built from the compiled-in table only.
 pub fn prompt_for(entry: &ModelEntry) -> ConfirmPrompt {
     let pack = model_store::pack_of(entry);
@@ -32,11 +35,11 @@ pub fn prompt_for(entry: &ModelEntry) -> ConfirmPrompt {
 /// The size the owner reads. It rounds up, so the download is never bigger than
 /// the dialog says. Decimal units, as the disk and the network count them.
 pub fn format_size(bytes: u64) -> String {
-    if bytes >= 1_000_000_000 {
-        let tenths = bytes.div_ceil(100_000_000);
+    if bytes >= BYTES_PER_GB {
+        let tenths = bytes.div_ceil(BYTES_PER_GB / 10);
         format!("{}.{} GB", tenths / 10, tenths % 10)
     } else {
-        format!("{} MB", bytes.div_ceil(1_000_000))
+        format!("{} MB", bytes.div_ceil(BYTES_PER_MB))
     }
 }
 
