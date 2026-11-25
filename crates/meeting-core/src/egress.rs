@@ -120,6 +120,43 @@ pub trait Transport {
     fn get(&self, permit: &Permit, url: &str) -> Result<TransportResponse, TransportError>;
 }
 
+/// One request of the model downloader (M1-04). The downloader fills it from the
+/// compiled-in table only: the webview never supplies a url. It carries no
+/// cookie, no credential and no body, so there is no field for them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchRequest {
+    pub url: String,
+    /// Seconds from the start of the request until the secure connection is open.
+    pub connect_timeout_secs: u64,
+    /// Seconds allowed between two received chunks.
+    pub read_timeout_secs: u64,
+}
+
+/// The answer to one request. The caller reads `body` in chunks it chooses and
+/// follows a redirect itself, after it checked `location` with the policy.
+pub struct FetchResponse {
+    pub status: u16,
+    /// The `Location` header of a redirect answer.
+    pub location: Option<String>,
+    pub body: Box<dyn std::io::Read + Send>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum FetchError {
+    #[error("the connection failed")]
+    Connection,
+    #[error("the connection timed out")]
+    Timeout,
+}
+
+/// The fetch the model downloader uses. The real client (M1-04.4) is built from
+/// a `&PrivacyPolicy` and lives in this crate; tests use a scripted fake. One
+/// call is one request to one url, and an implementation must not follow a
+/// redirect. This is the starting shape; M1-04.4 may extend it.
+pub trait HttpFetch {
+    fn get(&self, request: &FetchRequest) -> Result<FetchResponse, FetchError>;
+}
+
 /// Receives the log event of each refusal.
 pub trait EgressLog {
     fn record(&self, event: LogEvent);

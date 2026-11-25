@@ -101,3 +101,50 @@ fn the_native_dialog_module_exists_and_exposes_the_confirm_function() {
     let source = fs::read_to_string(workspace_root().join(SHELL_DIALOG_FILE)).unwrap();
     assert!(source.contains("pub fn confirm_download"));
 }
+
+/// The only shell files that may name the dialog plugin crate: the module that
+/// shows the dialog, and the builder that registers the plugin.
+const PLUGIN_FILES: [&str; 2] = [SHELL_DIALOG_FILE, "apps/desktop/src-tauri/src/lib.rs"];
+
+#[test]
+fn only_the_dialog_module_and_the_registration_name_the_dialog_plugin() {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    rust_files_under(&root.join("apps/desktop/src-tauri/src"), &mut files);
+    for entry in fs::read_dir(root.join("crates")).unwrap() {
+        rust_files_under(&entry.unwrap().path().join("src"), &mut files);
+    }
+    let mut seen_in_allowed = Vec::new();
+    let mut problems = Vec::new();
+    for file in files {
+        let label = file
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let uses: Vec<String> = fs::read_to_string(&file)
+            .unwrap()
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim_start().starts_with("//"))
+            .filter(|(_, line)| line.contains("tauri_plugin_dialog"))
+            .map(|(i, line)| format!("{label}:{}: {}", i + 1, line.trim()))
+            .collect();
+        if PLUGIN_FILES.contains(&label.as_str()) {
+            if !uses.is_empty() {
+                seen_in_allowed.push(label);
+            }
+        } else {
+            problems.extend(uses);
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "`tauri_plugin_dialog` named outside {PLUGIN_FILES:?}:\n{}",
+        problems.join("\n")
+    );
+    seen_in_allowed.sort();
+    let mut expected = PLUGIN_FILES.to_vec();
+    expected.sort_unstable();
+    assert_eq!(seen_in_allowed, expected, "both files use the plugin");
+}

@@ -279,6 +279,7 @@ describe("IPC contract fixtures: errors", () => {
   // A code has one main fixture named after it. Another fixture of the same code names its case.
   const EXTRA_ERROR_FIXTURES: Record<string, string> = {
     "ipc_error_licence_not_accepted.json": "INVALID_INPUT",
+    "ipc_error_already_downloading.json": "INVALID_INPUT",
   };
 
   it("every error code has a fixture, and the codes are exactly the UI's list", () => {

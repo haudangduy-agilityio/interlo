@@ -16,10 +16,14 @@
 //! only for a model found by id in the compiled-in table (`entry_for`): the
 //! webview never supplies a URL.
 
+use meeting_core::egress::HttpFetch;
 use meeting_core::policy::{EgressDenied, PrivacyPolicy, Provider};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 
 mod manifest;
@@ -46,6 +50,8 @@ pub enum ModelError {
     ChecksumMismatch { expected: String, actual: String },
     #[error("io: {0}")]
     Io(#[from] io::Error),
+    #[error("the download was cancelled")]
+    Cancelled,
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
 }
@@ -270,12 +276,140 @@ pub fn pack_of(entry: &ModelEntry) -> &'static Pack {
         .expect("every entry names a pack of the table")
 }
 
-/// Fetch a model to `dest`. Stub: this crate has no network code yet. The gate
-/// runs first, so a missing or wrong confirmation is refused before anything else.
+/// The hosts a pack's files come from, each once, in file order. The native
+/// dialog names them so the owner sees where the bytes come from.
+pub fn pack_hosts(pack: &Pack) -> Vec<String> {
+    let mut hosts: Vec<String> = Vec::new();
+    for file in pack.files {
+        if let Ok(host) = https_host(file.url) {
+            if !hosts.contains(&host) {
+                hosts.push(host);
+            }
+        }
+    }
+    hosts
+}
+
+/// The total download size of a pack: the sum of its files' table sizes.
+pub fn pack_size_bytes(pack: &Pack) -> u64 {
+    pack.files.iter().map(|f| f.size_bytes).sum()
+}
+
+/// A cancel flag shared by the downloader and the cancel command. A clone sees
+/// the same flag.
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// A download of this pack is already running.
+#[derive(Debug, PartialEq, Eq, Error)]
+#[error("a download of this pack is already running")]
+pub struct AlreadyRunning;
+
+/// The downloads that run now, one per pack. The lock is held only to read or
+/// change the map, never while a dialog is open or a file is transferred, so a
+/// cancel can always get in.
+#[derive(Debug, Default)]
+pub struct DownloadRegistry {
+    running: Mutex<HashMap<&'static str, CancelToken>>,
+}
+
+impl DownloadRegistry {
+    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<&'static str, CancelToken>> {
+        self.running.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Start a download of `pack_id`. The returned guard frees the pack when it
+    /// is dropped, whatever way the download ends.
+    pub fn begin(&self, pack_id: &'static str) -> Result<DownloadGuard<'_>, AlreadyRunning> {
+        let mut running = self.map();
+        if running.contains_key(pack_id) {
+            return Err(AlreadyRunning);
+        }
+        let token = CancelToken::default();
+        running.insert(pack_id, token.clone());
+        Ok(DownloadGuard {
+            registry: self,
+            pack_id,
+            token,
+        })
+    }
+
+    pub fn is_running(&self, pack_id: &str) -> bool {
+        self.map().contains_key(pack_id)
+    }
+
+    /// Ask the running download of `pack_id` to stop. `false` when none runs.
+    pub fn cancel(&self, pack_id: &str) -> bool {
+        match self.map().get(pack_id) {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// Proof that a pack's download is registered. Dropping it frees the pack.
+#[derive(Debug)]
+pub struct DownloadGuard<'a> {
+    registry: &'a DownloadRegistry,
+    pack_id: &'static str,
+    token: CancelToken,
+}
+
+impl DownloadGuard<'_> {
+    pub fn token(&self) -> &CancelToken {
+        &self.token
+    }
+}
+
+impl Drop for DownloadGuard<'_> {
+    fn drop(&mut self) {
+        self.registry.map().remove(self.pack_id);
+    }
+}
+
+/// Remove every file whose name ends in `.part` under `dir`. A cancelled or
+/// failed download leaves no partial file (A-2). A folder that does not exist is
+/// fine; finished files stay.
+pub fn remove_partial_files(dir: &Path) -> io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        // `file_type` does not follow a symlink, so a link is never walked into.
+        if entry.file_type()?.is_dir() {
+            remove_partial_files(&path)?;
+        } else if path.extension().is_some_and(|ext| ext == "part") {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Fetch a model to `dest`. Stub: the transfer is M1-04.4. The gate runs first,
+/// so a missing or wrong confirmation is refused before anything else. The stub
+/// makes no fetch call.
 pub fn download(
     spec: &ModelSpec,
     confirmation: Option<OwnerConfirmation>,
     policy: &PrivacyPolicy,
+    _fetch: &dyn HttpFetch,
     _dest: &Path,
 ) -> Result<(), ModelError> {
     may_download(confirmation.as_ref(), policy, spec)?;
@@ -285,6 +419,7 @@ pub fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use meeting_core::egress::{FetchError, FetchRequest, FetchResponse, HttpFetch};
     use meeting_core::protocol::DataKind;
     use std::cell::Cell;
 
@@ -697,6 +832,128 @@ mod tests {
         assert!(entry_in(&table, "https://models.example.com/files/small.bin").is_none());
     }
 
+    /// A fetch that fails the test when it is used: the stub downloader must not
+    /// reach for the network.
+    struct NoFetch;
+
+    impl HttpFetch for NoFetch {
+        fn get(&self, _request: &FetchRequest) -> Result<FetchResponse, FetchError> {
+            panic!("the stub downloader must make no fetch call");
+        }
+    }
+
+    /// A folder in the temp dir that is removed on drop.
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("model-store-dir-{}-{n}", std::process::id()));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_registry_allows_one_download_per_pack() {
+        let registry = DownloadRegistry::default();
+        let first = registry.begin("voice").unwrap();
+        assert!(registry.is_running("voice"));
+        assert!(registry.begin("voice").is_err(), "same pack twice");
+        let other = registry.begin("asr").expect("another pack may run");
+        assert!(registry.is_running("asr"));
+        drop(first);
+        assert!(
+            !registry.is_running("voice"),
+            "a finished download frees its pack"
+        );
+        assert!(registry.is_running("asr"), "the other pack still runs");
+        registry.begin("voice").expect("the pack can start again");
+        drop(other);
+    }
+
+    #[test]
+    fn cancel_sets_the_token_of_the_running_pack_only() {
+        let registry = DownloadRegistry::default();
+        let voice = registry.begin("voice").unwrap();
+        let asr = registry.begin("asr").unwrap();
+        assert!(registry.cancel("voice"), "a running pack is cancelled");
+        assert!(voice.token().is_cancelled());
+        assert!(!asr.token().is_cancelled(), "no other pack is touched");
+    }
+
+    #[test]
+    fn cancel_of_a_pack_with_no_download_changes_nothing() {
+        let registry = DownloadRegistry::default();
+        assert!(!registry.cancel("voice"));
+        let guard = registry.begin("voice").unwrap();
+        assert!(
+            !guard.token().is_cancelled(),
+            "an earlier cancel does not carry over to a later download"
+        );
+    }
+
+    #[test]
+    fn remove_partial_files_removes_part_files_and_keeps_the_rest() {
+        let dir = TempDir::new();
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("a.bin.part"), b"x").unwrap();
+        std::fs::write(dir.path().join("sub/b.bin.part"), b"x").unwrap();
+        std::fs::write(dir.path().join("keep.bin"), b"x").unwrap();
+        std::fs::write(dir.path().join("sub/part"), b"x").unwrap();
+        remove_partial_files(dir.path()).unwrap();
+        assert!(!dir.path().join("a.bin.part").exists());
+        assert!(!dir.path().join("sub/b.bin.part").exists());
+        assert!(
+            dir.path().join("keep.bin").exists(),
+            "a finished file stays"
+        );
+        assert!(
+            dir.path().join("sub/part").exists(),
+            "only a name that ends in .part goes"
+        );
+        remove_partial_files(&dir.path().join("missing")).expect("a missing folder is fine");
+    }
+
+    #[test]
+    fn a_pack_names_its_hosts_once_and_its_size_is_the_sum_of_its_files() {
+        for pack in packs() {
+            let mut expected: Vec<String> = Vec::new();
+            for file in pack.files {
+                let host = file
+                    .url
+                    .strip_prefix("https://")
+                    .unwrap()
+                    .split('/')
+                    .next()
+                    .unwrap()
+                    .to_string();
+                if !expected.contains(&host) {
+                    expected.push(host);
+                }
+            }
+            assert_eq!(pack_hosts(pack), expected, "pack {}", pack.id);
+            assert_eq!(
+                pack_size_bytes(pack),
+                pack.files.iter().map(|f| f.size_bytes).sum::<u64>(),
+                "pack {}",
+                pack.id
+            );
+        }
+    }
+
     #[test]
     fn download_is_a_stub() {
         assert!(matches!(
@@ -704,6 +961,7 @@ mod tests {
                 &spec(),
                 Some(click()),
                 &consenting_policy(),
+                &NoFetch,
                 Path::new("m.bin")
             ),
             Err(ModelError::NotImplemented(_))
@@ -777,7 +1035,13 @@ mod tests {
     #[test]
     fn download_without_a_confirmation_is_refused_before_the_stub_answer() {
         assert!(matches!(
-            download(&spec(), None, &consenting_policy(), Path::new("m.bin")),
+            download(
+                &spec(),
+                None,
+                &consenting_policy(),
+                &NoFetch,
+                Path::new("m.bin")
+            ),
             Err(ModelError::NotClicked)
         ));
     }
@@ -789,6 +1053,7 @@ mod tests {
                 &spec(),
                 Some(click()),
                 &PrivacyPolicy::local_only(),
+                &NoFetch,
                 Path::new("m.bin")
             ),
             Err(ModelError::Egress(EgressDenied::ModelHostNotAllowed(_)))

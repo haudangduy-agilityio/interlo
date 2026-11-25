@@ -97,6 +97,22 @@ fn main_window_is_granted_exactly_the_app_commands_core_defaults_and_window_show
     assert_eq!(granted, expected);
 }
 
+#[test]
+fn the_main_window_is_granted_no_dialog_permission() {
+    // The dialog plugin serves the native confirmation from Rust only (ADR 0006).
+    // Any `dialog:` permission would let the webview open a dialog or read a path.
+    let capability = json("capabilities/default.json");
+    for permission in capability["permissions"].as_array().unwrap() {
+        let name = permission.as_str().unwrap();
+        assert!(
+            !name.starts_with("dialog:"),
+            "the main window holds `{name}`"
+        );
+    }
+    let build = read("build.rs");
+    assert!(!build.contains("dialog"), "build.rs names a dialog command");
+}
+
 /// The CSP as a map: directive name to its source list, in lowercase.
 fn csp_directives() -> std::collections::BTreeMap<String, Vec<String>> {
     let config = json("tauri.conf.json");

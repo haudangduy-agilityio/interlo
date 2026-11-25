@@ -29,6 +29,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | thiserror              | all                                                                                        | Error enums                                             |
 | rusqlite (bundled)     | meeting-core, store                                                                        | SQLite with WAL, journal, projections, full-text search |
 | tauri 2, tauri-build 2 | apps/desktop                                                                               | App shell, commands, event channels                     |
+| tauri-plugin-dialog 2  | apps/desktop                                                                               | The native confirmation dialog before a model download (ADR 0006). Called from Rust only, in `native_confirm.rs`; the main window is granted no `dialog:` permission. Added in M1-04.2 with the owner's approval (2026-11-25); `cargo deny check` passes. Brings in `rfd`, `tauri-plugin` and `tauri-plugin-fs` (MIT OR Apache-2.0) |
 | cpal `=0.18.2`         | audio-io                                                                                   | Microphone capture through Core Audio, with the default input configuration of the chosen device; exact pin (Apache-2.0) |
 | rubato `=5.1.0`        | audio-io                                                                                   | Conversion of the microphone input to 16 kHz in `RateConverter`, without allocation in the audio callback; exact pin (MIT OR Apache-2.0) |
 
