@@ -928,6 +928,19 @@ mod tests {
     }
 
     #[test]
+    fn remove_partial_files_does_not_follow_a_symlink() {
+        let dir = TempDir::new();
+        let outside = TempDir::new();
+        std::fs::write(outside.path().join("other.bin.part"), b"x").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+        remove_partial_files(dir.path()).unwrap();
+        assert!(
+            outside.path().join("other.bin.part").exists(),
+            "a file behind a symlink is not ours to remove"
+        );
+    }
+
+    #[test]
     fn a_pack_names_its_hosts_once_and_its_size_is_the_sum_of_its_files() {
         for pack in packs() {
             let mut expected: Vec<String> = Vec::new();
