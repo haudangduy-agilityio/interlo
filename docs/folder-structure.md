@@ -4,18 +4,19 @@
 Cargo.toml                 Rust workspace; every crate below is a member
 crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
-  audio-io/                devices, device list, setup report, capture plan, microphone capture, callback guards, output, ring buffer, resampler
+  audio-io/                devices, device list, setup report, readiness probe, capture plan, microphone capture, callback guards, output, ring buffer, resampler
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
     src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
+    src/probe.rs             readiness probe: microphone permission by a short open, version check, tap fact, fact assembly
     src/mic.rs               microphone source (`MicCapture`), backend trait, device choice by name, error mapping
     src/mic_callback.rs      the callback core: mono mix-down, level, conversion to 16 kHz, ring push (callback safe)
     src/realtime.rs          callback guards: section flag, allocation guard, `RtMutex` lock check (debug builds)
-    examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
+    examples/list_devices.rs manual run: prints the devices and the probed setup rows of this Mac, opens the microphone for a moment (`cargo run -p audio-io --example list_devices`)
     examples/mic_level.rs    manual run: level meter of the microphone, text output (`cargo run -p audio-io --example mic_level`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
     tests/realtime_guard.rs  the allocation guard and the lock check fail a bad callback and pass a good one
-    tests/realtime_scan.rs   callback-side files name no lock, blocking or log call
+    tests/realtime_scan.rs   callback-side files, and the marked audio-thread regions of probe.rs, name no lock, blocking, allocating or log call
     tests/mic_callback.rs    callback core without a sound card: level, ring never blocks, conversion, counters
     tests/mic_capture.rs     microphone source on a fake backend: device by name, errors, start and stop
   engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
@@ -44,6 +45,8 @@ apps/
     tests/                 IPC contract, security config, demo-data gate, native confirm gate,
                            network boundary
     build.rs               registers the command list for the capability check
+    Info.plist             merged into the macOS bundle: the microphone usage text
+    tests/info_plist.rs    the plist holds the microphone usage text and no other key
     tauri.conf.json        window, CSP and bundle settings
     src/ipc.rs             command DTOs and IpcError
     src/events.rs          event names and payloads

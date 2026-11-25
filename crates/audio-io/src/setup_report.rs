@@ -64,6 +64,9 @@ pub enum MicPermission {
     Granted,
     Denied,
     NotDetermined,
+    /// The stream opened but carried digital silence only for the whole probe
+    /// window: the permission is refused, or the input is muted or not routed.
+    NoSignal,
     /// The caller could not read the permission.
     Unknown,
 }
@@ -172,6 +175,12 @@ fn mic_item(facts: &SetupFacts) -> SetupItem {
             SetupItemId::Mic,
             SetupState::Missing,
             "Microphone access has not been asked yet",
+            Some(SetupFix::AllowMicrophone),
+        ),
+        MicPermission::NoSignal => item(
+            SetupItemId::Mic,
+            SetupState::Missing,
+            "Microphone gives no sound. Check access in System Settings and the input device",
             Some(SetupFix::AllowMicrophone),
         ),
         MicPermission::Unknown => item(
@@ -417,6 +426,7 @@ mod tests {
             MicPermission::Granted,
             MicPermission::Denied,
             MicPermission::NotDetermined,
+            MicPermission::NoSignal,
             MicPermission::Unknown,
         ] {
             let mut f = facts_with(vec![v2(), v16(), phones()]);
@@ -428,6 +438,37 @@ mod tests {
                 (SetupState::Missing, Some(SetupFix::ConnectMicrophone))
             );
         }
+    }
+
+    #[test]
+    fn mic_without_signal_is_missing_with_the_allow_fix_and_its_own_detail() {
+        let mut denied = all_ok();
+        denied.mic_permission = MicPermission::Denied;
+        let mut asked = all_ok();
+        asked.mic_permission = MicPermission::NotDetermined;
+        let mut silent = all_ok();
+        silent.mic_permission = MicPermission::NoSignal;
+        let (d, a, n) = (
+            build_report(&denied),
+            build_report(&asked),
+            build_report(&silent),
+        );
+        let (d, a, n) = (
+            find_item(&d, SetupItemId::Mic),
+            find_item(&a, SetupItemId::Mic),
+            find_item(&n, SetupItemId::Mic),
+        );
+        assert_eq!(
+            (n.state, n.fix),
+            (SetupState::Missing, Some(SetupFix::AllowMicrophone))
+        );
+        assert_ne!(n.detail, d.detail);
+        assert_ne!(n.detail, a.detail);
+        let others = |r: &SetupReport| r.items[1..].to_vec();
+        assert_eq!(
+            others(&build_report(&silent)),
+            others(&build_report(&all_ok()))
+        );
     }
 
     #[test]

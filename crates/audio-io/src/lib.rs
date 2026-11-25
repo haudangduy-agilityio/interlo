@@ -1,5 +1,5 @@
-//! audio-io owns audio devices, the device list and setup report, capture,
-//! playback output, resampling and ring buffers.
+//! audio-io owns audio devices, the device list and setup report, the
+//! readiness probe, capture, playback output, resampling and ring buffers.
 //!
 //! Must never allocate, lock or log in the real-time callback, and must
 //! never block capture when a consumer is slow.
@@ -11,6 +11,7 @@ pub mod error;
 pub mod mic;
 pub mod mic_callback;
 pub mod output;
+pub mod probe;
 pub mod realtime;
 pub mod resample;
 pub mod ring;
@@ -25,6 +26,9 @@ pub use mic_callback::{
     InputLevel, MicCallback, MicCounters, MicSetupError, MicStats, MAX_CHUNK_FRAMES,
 };
 pub use output::{check_listening_device, AudioOutput, OutputError};
+pub use probe::{
+    probe_setup, read_system_macos_version, ProbeEnv, ProbeGate, ProbeOutcome, SystemEnv,
+};
 pub use resample::{RateConverter, Resampler, UnsupportedRate, TARGET_SAMPLE_RATE};
 pub use ring::{ring_buffer, RingConsumer, RingProducer};
 pub use setup_report::{

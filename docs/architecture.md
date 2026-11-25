@@ -22,14 +22,17 @@ meeting-core --(events)--> apps/desktop (Tauri bridge) --(channels)--> apps/ui
 ```
 
 `apps/desktop` also depends on `playback`, only for `playback::Direction`: the
-wire type `ipc::Direction` converts to and from it (ADR 0020).
+wire type `ipc::Direction` converts to and from it (ADR 0020). It depends on
+`audio-io` for the readiness probe behind `check_setup` (M1-41): the shell maps the
+report to the IPC status and runs the probe on a blocking thread. Overlapping calls
+share one run, and no microphone is opened while a meeting runs (`MeetingState`).
 
 ## Crates
 
 | Crate | Owns | Threads | Must never |
 |---|---|---|---|
 | meeting-core | Protocol, session states, coordinator (line state), journal, policy gate, egress guard (`GuardedClient`) | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
-| audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs | Allocate, lock or log in the callback; block capture when a consumer is slow |
+| audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), readiness probe (microphone permission by a short open, macOS version, tap fact), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs; a `mic-probe` worker for the microphone check, which can outlive the call while a system dialog is open | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`) | One worker thread per model | Open a network connection; hand out an engine the policy refuses |
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
 | store | SQLite projections, schema, full-text index, cascade delete | One writer, background reads | Store audio |

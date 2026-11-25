@@ -1,9 +1,11 @@
-//! Manual run for M1-01: reads the audio devices of this Mac and prints them,
-//! then the report items that depend on devices only. It only reads; it starts
-//! no process other than the one the reader starts and changes no setting.
+//! Manual run for M1-01 and M1-41: reads the audio devices of this Mac and prints
+//! them, then the probed setup rows (microphone permission, capture route,
+//! virtual microphone, headphones). It only reads; it opens the microphone for a
+//! moment, starts only the two fixed system tools and changes no setting.
 
 use audio_io::{
-    build_report, microphone, read_devices, MicPermission, ModelState, SetupFacts, SetupItemId,
+    microphone, probe_setup, read_devices, read_system_macos_version, ModelState, ProbeGate,
+    SetupItemId, SystemEnv,
 };
 
 const NOT_READ: &str = "not read in this task";
@@ -42,26 +44,24 @@ fn main() {
             "none"
         }
     );
-    // The permission, the tap check and the models are read by later tasks:
-    // the facts below are placeholders, and their items are printed as not read.
-    let facts = SetupFacts {
-        devices: snapshot,
-        tap_available: false,
-        mic_permission: MicPermission::Unknown,
-        models: [ModelState::Missing; 4],
-    };
-    for r in build_report(&facts).items {
+    // The microphone is opened for a moment (the permission is the one of the
+    // terminal app, M0b-05 finding 1). Device names, levels and samples are
+    // never printed. The models are read by the model manager (M1-04).
+    match read_system_macos_version() {
+        Some((major, minor)) => println!("macos version: {major}.{minor}"),
+        None => println!("macos version: not read"),
+    }
+    let mut env = SystemEnv::new(ProbeGate::new());
+    let outcome = probe_setup(&mut env, [ModelState::Missing; 4], false);
+    println!("mic permission fact: {:?}", outcome.mic_permission);
+    for r in outcome.report.items {
         match r.id {
-            SetupItemId::Vmic | SetupItemId::Phones => println!(
+            SetupItemId::Mic => println!("item {:?} state={:?} fix={:?}", r.id, r.state, r.fix),
+            SetupItemId::Capture | SetupItemId::Vmic | SetupItemId::Phones => println!(
                 "item {:?} state={:?} detail={} fix={:?} warning={:?}",
                 r.id, r.state, r.detail, r.fix, r.warning
             ),
-            SetupItemId::Mic
-            | SetupItemId::Capture
-            | SetupItemId::Sr
-            | SetupItemId::Tr
-            | SetupItemId::EnV
-            | SetupItemId::ViV => {
+            SetupItemId::Sr | SetupItemId::Tr | SetupItemId::EnV | SetupItemId::ViV => {
                 println!("item {:?} {NOT_READ}", r.id)
             }
         }
