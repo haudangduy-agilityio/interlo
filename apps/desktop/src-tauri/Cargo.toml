@@ -22,6 +22,7 @@ tauri = { version = "2", features = [] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+audio-io = { path = "../../../crates/audio-io" }
 meeting-core = { path = "../../../crates/meeting-core" }
 model-store = { path = "../../../crates/model-store" }
 playback = { path = "../../../crates/playback" }

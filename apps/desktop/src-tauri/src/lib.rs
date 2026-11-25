@@ -27,6 +27,7 @@ pub fn run() {
             Ok(())
         })
         .manage(MeetingState::default())
+        .manage(commands::setup::SetupCheck::default())
         .invoke_handler(tauri::generate_handler![
             commands::setup::check_setup,
             commands::models::list_models,
