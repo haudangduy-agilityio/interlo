@@ -36,8 +36,8 @@ allow = [
   "CC0-1.0",
   "Unicode-3.0",
   "MPL-2.0",
-  # Permissive licence for data: the root-certificate list of `webpki-root-certs`,
-  # reached only through the build script of `ort-sys` (build time, not shipped).
+  # webpki-root-certs, via ort-sys and ureq (bench/M1-35, and the ort crate once it joins
+  # the root workspace). Build-time download only; not linked into the app.
   "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
