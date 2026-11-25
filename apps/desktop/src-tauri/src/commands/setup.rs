@@ -482,8 +482,16 @@ mod tests {
         ] {
             let check = SetupCheck::default();
             let mut env = FakeEnv::new(&[first, MicPermission::Granted]);
-            assert_ne!(mic_state(&check.run(&mut env, false)), SetupState::Ok, "{first:?}");
-            assert_eq!(mic_state(&check.run(&mut env, false)), SetupState::Ok, "{first:?}");
+            assert_ne!(
+                mic_state(&check.run(&mut env, false)),
+                SetupState::Ok,
+                "{first:?}"
+            );
+            assert_eq!(
+                mic_state(&check.run(&mut env, false)),
+                SetupState::Ok,
+                "{first:?}"
+            );
             assert_eq!(env.probes.load(Ordering::SeqCst), 2, "{first:?}");
         }
     }
@@ -527,7 +535,11 @@ mod tests {
             })
             .collect();
         let answers: Vec<SetupStatus> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        assert_eq!(probes.load(Ordering::SeqCst), 1, "one run opens the microphone once");
+        assert_eq!(
+            probes.load(Ordering::SeqCst),
+            1,
+            "one run opens the microphone once"
+        );
         assert_eq!(answers[1], answers[0]);
         assert_eq!(answers[2], answers[0]);
         assert_eq!(
@@ -539,7 +551,11 @@ mod tests {
         let mut later = FakeEnv::new(&[MicPermission::Denied, MicPermission::Granted]);
         later.probes = Arc::clone(&probes);
         assert_eq!(mic_state(&check.run(&mut later, false)), SetupState::Ok);
-        assert_eq!(probes.load(Ordering::SeqCst), 2, "a call after the run starts a new run");
+        assert_eq!(
+            probes.load(Ordering::SeqCst),
+            2,
+            "a call after the run starts a new run"
+        );
     }
 
     #[test]
@@ -552,7 +568,9 @@ mod tests {
         std::thread::sleep(Duration::from_millis(40));
         let waiter = {
             let check = check.clone();
-            std::thread::spawn(move || check.run(&mut FakeEnv::new(&[MicPermission::Granted]), false))
+            std::thread::spawn(move || {
+                check.run(&mut FakeEnv::new(&[MicPermission::Granted]), false)
+            })
         };
         assert!(leader.join().is_err(), "the leader panics");
         assert_eq!(waiter.join().unwrap(), failed_status());
@@ -609,7 +627,9 @@ mod tests {
         let src = include_str!("setup.rs");
         // Built from two parts so that this test does not find itself.
         let signature = format!("{}{}", "pub async fn check_", "setup(\n");
-        let start = src.find(&signature).expect("the default-build command exists");
+        let start = src
+            .find(&signature)
+            .expect("the default-build command exists");
         let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
         assert!(body.contains("meeting.is_running()"), "{body}");
         assert!(body.contains("run_system(running)"), "{body}");
