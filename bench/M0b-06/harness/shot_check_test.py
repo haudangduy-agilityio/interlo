@@ -66,14 +66,12 @@ def write(png):
 RECT = (40, 60, 100, 20)  # left, top, width, height in a 200 by 120 image
 
 
-def screen(panel_visible=True, page_visible=True, band_colour=None):
+def screen(panel_visible=True, page_visible=True):
     left, top, w, h = RECT
 
     def pixel(x, y):
         if left <= x < left + w and top <= y < top + h:
             return PANEL if panel_visible else (PAGE if page_visible else OTHER)
-        if band_colour is not None and left - 10 <= x < left + w + 10 and top - 10 <= y < top + h + 10:
-            return band_colour
         return PAGE if page_visible else OTHER
 
     return pixel
@@ -147,10 +145,6 @@ class Checks(unittest.TestCase):
 
     def test_absent_mode_says_no_when_the_bar_is_there(self):
         self.assertEqual(self.verdict("absent", screen())[0], "NO")
-
-    def test_desktop_mode_wants_the_bar_and_a_band_that_is_neither_bar_nor_page(self):
-        self.assertEqual(self.verdict("desktop", screen(page_visible=False, band_colour=OTHER))[0], "PASS")
-        self.assertEqual(self.verdict("desktop", screen())[0], "NO")
 
     def test_unknown_mode_is_an_error(self):
         img = sc.read_png(write(make_png(20, 20, screen())))

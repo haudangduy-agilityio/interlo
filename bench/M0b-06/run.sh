@@ -3,9 +3,8 @@
 #
 # Usage: bench/M0b-06/run.sh <run-name> [spike options...]
 #
-# The spike starts through `open` as its own application, not as a child of the terminal, and
-# takes the focus once at launch. M0B06_OPEN_FLAGS=-g starts it in the background instead: its
-# first window then takes the focus (a control of the AC-23 check). The script records the pid,
+# The spike starts through `open` as its own application, not as a child of the terminal. The
+# script records the pid,
 # then samples `lsof -nP -a -p <pid> -i` every second into the run's own lsof.log and appends the
 # samples to $TMPDIR/m0b-06/lsof.log (the file of AC-31; the caller truncates it before a set of
 # runs), until the spike exits. It returns at once; the sampler keeps running in the background. Files of the run, in $TMPDIR/m0b-06/runs/<run-name>/:
@@ -39,7 +38,7 @@ touch "$BASE/lsof.log"
 # sees end-of-file on its input before it exits.
 (
   exec 3<>"$RUN/stdin.fifo"
-  open ${M0B06_OPEN_FLAGS:-} -n --stdin "$RUN/stdin.fifo" --stdout "$RUN/spike.log" --stderr "$RUN/spike.err" \
+  open -n --stdin "$RUN/stdin.fifo" --stdout "$RUN/spike.log" --stderr "$RUN/spike.err" \
     -a "$APP" --args --pidfile "$RUN/pid" --exitfile "$RUN/exit" "$@"
   tries=0
   until [ -s "$RUN/pid" ] || [ "$tries" -ge 100 ]; do tries=$((tries + 1)); sleep 0.1; done

@@ -1,8 +1,7 @@
 //! Mechanism 2 of O-7: a native non-activating panel. It is a borderless `NSPanel` with the
 //! non-activating style, a collection behaviour that lets it join every Space and a full-screen
 //! one, and a solid colour. Its window level reads layer 3 (floating) in the window list: see
-//! `create`. A click or key that reaches it is
-//! logged as `PANEL_CLICK` or `PANEL_KEY`.
+//! `STATUS_LEVEL`. A click that reaches it is logged as `PANEL_CLICK`.
 
 use crate::log::emit;
 use objc2::rc::Retained;
@@ -13,9 +12,9 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use std::cell::RefCell;
 
-/// `kCGStatusWindowLevel`. `setFloatingPanel(true)` below runs after `setLevel` and sets the level
-/// back to floating (3); the sitting read layer 3 for this panel, and the panel showed over the
-/// full-screen window with it, so the collection behaviour is what made it visible there.
+/// `kCGStatusWindowLevel`, passed to `setLevel`. The sitting read layer 3 (floating) for this panel,
+/// and the panel showed over the full-screen window at that layer. Most likely `setFloatingPanel(true)`,
+/// which runs after `setLevel`, resets the level; the spike did not swap the calls to prove it.
 const STATUS_LEVEL: isize = 25;
 
 define_class!(
@@ -109,9 +108,9 @@ pub fn set_click_through(on: bool) {
     with_panel(|p| p.setIgnoresMouseEvents(on));
 }
 
-/// Orders the panel front once, fully transparent. A freshly launched application takes the
-/// focus when its first window is ordered front; doing it here, before the test window exists,
-/// uses that up (the `--prime` option; the sitting records the run without it too).
+/// Orders the panel front once, fully transparent, before the test window exists. Hypothesis, not
+/// isolated: a freshly launched application takes the focus when its first window is ordered
+/// front, and doing it here uses that up. The `--prime` option; sitting 1 ran without it.
 pub fn prime_show() {
     with_panel(|p| {
         p.setAlphaValue(0.0);

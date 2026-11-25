@@ -115,7 +115,7 @@ trap cleanup EXIT
 # The bundle id of any other frontmost application (the test browser, or another app) is replaced: a product
 # name does not go into the repository. The bundle id of the spike itself is kept.
 sanitize() {
-  sed -e "s#$HOME#~#g" -e "s#${TMPDIR%/}#\$TMPDIR#g" \
+  sed -e "s#$HOME#~#g" -e "s#${TMPDIR:-/tmp}#\$TMPDIR#g" \
     -e 's#front_bundle=app\.interlo\.bench\.m0b06#SELFBUNDLE#g' \
     -e 's#front_bundle=[^ ]*#front_bundle=other.app#g' \
     -e 's#SELFBUNDLE#front_bundle=app.interlo.bench.m0b06#g'
@@ -143,9 +143,11 @@ do_controls() {
   : > "$EVID/results.txt"; : > "$EVID/harness.log"
   hlog "CONTROLS start; macOS $(sw_vers -productVersion); displays=$(system_profiler SPDisplaysDataType | grep -c Resolution)"
   # AC-23 control: the check must be able to say NO. A real spike log is copied and its `after`
-  # snapshot is given another frontmost pid; the check must say NO on the copy and PASS or NO on
-  # the original by what happened. This tests the check, not the snapshot: the snapshot says NO for
-  # real in sitting 1 (the native panel without the prime). Earlier versions relied on an
+  # snapshot is given another frontmost pid; the check must say NO on the copy. This shows only that
+  # the check can say NO; that it says PASS when it should is covered by the unit tests and the PASS
+  # lines of the sittings (a PASS on the original log here would depend on which application is in
+  # front). It tests the check, not the snapshot: the snapshot says NO for real in sitting 1 (the
+  # native panel without the prime). Earlier versions relied on an
   # application taking the focus on its own (a background-started spike, `open -a`); that did not
   # repeat, so it was no control.
   : > "$BASE/lsof.log"
@@ -215,7 +217,7 @@ phase() { # mechanism run-name first-target-index
   sendcmd "$run" "windows"
   sleep_until $((shown + 950))
   read -r s1 e1 file1 < <(shot 1s "$mech")
-  state key "Step 3 ($mech). Press ONE key now, within 15 seconds. Then keep your hands off the keyboard and the mouse until the next step."
+  state key "Step 3 ($mech). Press ONE key now, within 50 seconds. Then keep your hands off the keyboard and the mouse until the next step."
   local key_seen=no
   if wait_for 50 awk -v t="$shown" '$2=="KEY" && $1>t{f=1} END{exit !f}' "$PAGELOG"; then key_seen=yes; hlog "KEY seen"; else hlog "KEY not seen in 50 s"; fi
   sleep_until $((shown + 59000))

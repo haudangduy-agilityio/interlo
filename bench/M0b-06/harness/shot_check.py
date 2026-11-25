@@ -4,7 +4,6 @@
 Usage:
   shot_check.py panel   <png> <left> <top> <width> <height> <panel-hex> <page-hex>
   shot_check.py absent  <png> <left> <top> <width> <height> <panel-hex> <page-hex>
-  shot_check.py desktop <png> <left> <top> <width> <height> <panel-hex> <page-hex>
 Prints one line `<VERDICT> <reason>` and exits 0 for PASS, 1 for NO, 3 for BLOCKED.
 """
 import struct
@@ -16,8 +15,6 @@ INSET = 2
 PANEL_MIN = 0.95
 ABSENT_MAX = 0.05
 PAGE_MIN = 0.60
-BAND = 10
-BAND_MIN = 0.90
 
 
 def read_png(path):
@@ -125,34 +122,12 @@ def fraction_outside_near(img, rect, colour, tol=TOL, step=7):
     return hits / seen if seen else 0.0
 
 
-def band_fraction_neither(img, rect, colours, band=BAND, tol=TOL):
-    """Fraction of the pixels in the ring of `band` pixels around `rect` that match none of `colours`."""
-    width, height, get = img
-    left, top, w, h = rect
-    seen = hits = 0
-    for y in range(max(top - band, 0), min(top + h + band, height)):
-        for x in range(max(left - band, 0), min(left + w + band, width)):
-            if left <= x < left + w and top <= y < top + h:
-                continue
-            seen += 1
-            if not any(_near(get(x, y), c, tol) for c in colours):
-                hits += 1
-    return hits / seen if seen else 0.0
-
-
 def check(mode, img, rect, panel, page):
     """Returns (verdict, reason) with the verdict PASS, NO or BLOCKED."""
-    if mode not in ("panel", "absent", "desktop"):
-        raise ValueError("mode must be panel, absent or desktop")
+    if mode not in ("panel", "absent"):
+        raise ValueError("mode must be panel or absent")
     panel_f = fraction_near(img, rect, panel, inset=INSET)
     page_f = fraction_outside_near(img, rect, page)
-    if mode == "desktop":
-        band_f = band_fraction_neither(img, rect, [panel, page])
-        if panel_f < PANEL_MIN:
-            return "NO", "panel colour covers %.2f of the rectangle, need %.2f" % (panel_f, PANEL_MIN)
-        if band_f < BAND_MIN:
-            return "NO", "only %.2f of the band around the rectangle is neither bar nor page colour, need %.2f" % (band_f, BAND_MIN)
-        return "PASS", "panel colour covers %.2f of the rectangle; %.2f of the band is desktop picture" % (panel_f, band_f)
     if page_f < PAGE_MIN:
         return "BLOCKED", "the test page colour covers only %.2f of the shot (need %.2f): blank shot, missing Screen Recording permission or the wrong Space" % (page_f, PAGE_MIN)
     if mode == "panel":

@@ -1,2 +1,2 @@
-CONTROL AC-23 PASS (the check says NO when the after snapshot has another frontmost pid): AC-23 NO focus changed: before front_pid=15567 window=Some((137, 15567)), after front_pid=999999 window=Some((137, 15567))
+CONTROL AC-23 PASS (the check says NO when the after snapshot has another frontmost pid): AC-23 NO focus changed: before front_pid=76617 window=None, after front_pid=999999 window=None
 CONTROL AC-31 PASS (synthetic wildcard listener): AC-31 NO wildcard listener: m0b06 1 u 9u IPv4 0x1 0t0 TCP *:8080 (LISTEN)

@@ -379,6 +379,9 @@ mod tests {
         assert!(!ac25("150 SHOWN\n", &page, 1, false).pass);
         let page = format!("{PAGE_TARGET}200 CLICK x=960 y=939\n");
         assert!(ac25("150 SHOWN\n", &page, 1, false).pass);
+        // exactly size / 2 from the centre is still inside
+        let page = format!("{PAGE_TARGET}200 CLICK x=1000 y=900\n");
+        assert!(ac25("150 SHOWN\n", &page, 1, false).pass);
     }
 
     #[test]
