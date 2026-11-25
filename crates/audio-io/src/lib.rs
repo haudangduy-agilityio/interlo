@@ -11,6 +11,7 @@ pub mod error;
 pub mod mic;
 pub mod mic_callback;
 pub mod output;
+pub mod probe;
 pub mod realtime;
 pub mod resample;
 pub mod ring;
@@ -25,6 +26,12 @@ pub use mic_callback::{
     InputLevel, MicCallback, MicCounters, MicSetupError, MicStats, MAX_CHUNK_FRAMES,
 };
 pub use output::{check_listening_device, AudioOutput, OutputError};
+pub use probe::{
+    collect_facts, plan_mic_open, probe_microphone, probe_microphone_limited, probe_setup,
+    read_system_macos_version, tap_available, NoTapBackend, ProbeClock, ProbeCtx, ProbeEnv,
+    ProbeGate, ProbeOutcome, ProbeStats, SystemClock, SystemEnv, TapProbe, FIRST_BLOCK_LIMIT_MS,
+    PROBE_CALL_LIMIT_MS, SILENCE_WINDOW_MS,
+};
 pub use resample::{RateConverter, Resampler, UnsupportedRate, TARGET_SAMPLE_RATE};
 pub use ring::{ring_buffer, RingConsumer, RingProducer};
 pub use setup_report::{

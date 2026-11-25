@@ -7,6 +7,7 @@ crates/
   audio-io/                devices, device list, setup report, capture plan, microphone capture, callback guards, output, ring buffer, resampler
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
     src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
+    src/probe.rs             readiness probe: microphone permission by a short open, version check, tap fact, fact assembly
     src/mic.rs               microphone source (`MicCapture`), backend trait, device choice by name, error mapping
     src/mic_callback.rs      the callback core: mono mix-down, level, conversion to 16 kHz, ring push (callback safe)
     src/realtime.rs          callback guards: section flag, allocation guard, `RtMutex` lock check (debug builds)
@@ -44,6 +45,8 @@ apps/
     tests/                 IPC contract, security config, demo-data gate, native confirm gate,
                            network boundary
     build.rs               registers the command list for the capability check
+    Info.plist             merged into the macOS bundle: the microphone usage text
+    tests/info_plist.rs    the plist holds the microphone usage text and no other key
     tauri.conf.json        window, CSP and bundle settings
     src/ipc.rs             command DTOs and IpcError
     src/events.rs          event names and payloads

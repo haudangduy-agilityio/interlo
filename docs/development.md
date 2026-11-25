@@ -34,6 +34,20 @@ Tauri CLI, which is not installed by default; install it only with the owner's
 approval. An unbundled run attaches microphone permission prompts to the
 terminal, so use a signed local bundle for the permission spikes (M0b-05).
 
+## Checking the microphone permission in the app
+
+The permission belongs to the bundle only when it starts through `open`; a binary started
+from a shell is judged as the terminal app (M0b-05 finding 1).
+
+1. Build and sign the bundle: `scripts/app-check.sh bundle`.
+2. Reset the permission: `tccutil reset Microphone app.interlo.desktop`.
+3. Start it: `open target/release/bundle/macos/Interlo.app`. Answer the system dialog
+   (Allow, or Don't Allow).
+4. Leave the Setup screen and open it again: this runs a new `check_setup`. The call made
+   at start, while the dialog is open, can read `error`.
+5. Repeat from step 2 for the other answer. The `mic` row reads `ok`, or `missing` with a
+   refused permission; the app keeps running either way.
+
 ## Workflow for a task
 
 1. Find the task in the Task Breakdown (IDs such as M1-08) and read its done check.

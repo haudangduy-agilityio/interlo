@@ -167,7 +167,6 @@ mod default_build {
     use interlo_desktop::commands::models::current_models;
     use interlo_desktop::commands::notes::{current_notes, save_note};
     use interlo_desktop::commands::settings::{apply_setting, current_settings};
-    use interlo_desktop::commands::setup::current_setup_status;
     use interlo_desktop::events::{RunState, StatusSink};
     use interlo_desktop::ipc::{Direction, ErrorCode, SetMuteArgs, StartChecks, StartMeetingArgs};
     use serde_json::json;
@@ -183,10 +182,7 @@ mod default_build {
 
     #[test]
     fn reads_that_stood_on_sample_data_are_not_implemented() {
-        assert_eq!(
-            current_setup_status().unwrap_err().code,
-            ErrorCode::NotImplemented
-        );
+        // `check_setup` is not in this list: since M1-41 it reads the real system.
         assert_eq!(
             current_models().unwrap_err().code,
             ErrorCode::NotImplemented

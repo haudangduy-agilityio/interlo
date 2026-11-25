@@ -1768,6 +1768,7 @@ dependencies = [
 name = "interlo-desktop"
 version = "0.1.0"
 dependencies = [
+ "audio-io",
  "meeting-core",
  "model-store",
  "playback",

@@ -43,7 +43,7 @@ in the fixed order `"headphones"`, `"meetingMic"`, `"meetingApp"`, `"routing"`
 
 | Command | Arguments | Returns | Errors |
 |---|---|---|---|
-| check_setup | none | `SetupStatus` | NOT_IMPLEMENTED (default build; the demo-data feature returns sample facts) |
+| check_setup | none | `SetupStatus` | none |
 | list_models | none | `ModelInfo[]` | NOT_IMPLEMENTED (default build; the demo-data feature returns sample models) |
 | download_model | `{ id, licenceAccepted: boolean }` | nothing | INVALID_INPUT (unknown id, or licence not accepted), NOT_IMPLEMENTED (known id with licence accepted, skeleton) |
 | cancel_model_download | `{ id }` | nothing | INVALID_INPUT (unknown id), NOT_IMPLEMENTED (known id, skeleton) |
@@ -58,6 +58,19 @@ in the fixed order `"headphones"`, `"meetingMic"`, `"meetingApp"`, `"routing"`
 
 Behaviour rules:
 
+- `check_setup`: a default build returns the real status of this Mac, never an error
+  (M1-41). The shell runs the readiness probe of `audio-io` on a blocking thread and
+  maps its eight rows one to one; the typed `fix` and the Bluetooth `warning` of the
+  report are not part of the payload yet (M1-13, M1-48). The microphone row comes from
+  opening the microphone for a moment: the first call after the app starts may show
+  the system permission dialog; while it is open the row can read `error`, and the
+  next call shows the answer. A permission seen as granted is kept for the app
+  session; any other result is probed again at the next call. The capture row is the
+  2-channel virtual device until the process tap exists (#73). The four model rows
+  are `missing` until the model manager reports (M1-04), so `canStart` is false. If
+  the devices cannot be read, `mic`, `capture`, `vmic` and `phones` are `error` rows
+  with the detail `Devices cannot be read`. The `demo-data` feature returns a fixed
+  sample instead.
 - `download_model`: `id` is a `ModelInfo.id`, which equals the `SetupItemId` of
   the model: `"sr"`, `"tr"`, `"enV"` or `"viV"`, spelled exactly. Both fields are
   required and no other key is accepted. Refusals run in this order: an unknown id
