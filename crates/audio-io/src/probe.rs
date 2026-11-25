@@ -1056,6 +1056,17 @@ mod tests {
     }
 
     #[test]
+    fn the_version_is_not_read_when_the_tap_is_not_available() {
+        let reads = std::cell::Cell::new(0);
+        let read = || {
+            reads.set(reads.get() + 1);
+            Some((15, 0))
+        };
+        assert!(!tap_available(read, &FixedTap(false)));
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
     fn real_tap_probe_says_not_built() {
         assert!(!NoTapBackend.available());
         assert!(!tap_available(|| Some((26, 4)), &NoTapBackend));

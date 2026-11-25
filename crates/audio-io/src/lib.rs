@@ -1,6 +1,5 @@
 //! audio-io owns audio devices, the device list and setup report, the
-//! readiness probe, capture,
-//! playback output, resampling and ring buffers.
+//! readiness probe, capture, playback output, resampling and ring buffers.
 //!
 //! Must never allocate, lock or log in the real-time callback, and must
 //! never block capture when a consumer is slow.
