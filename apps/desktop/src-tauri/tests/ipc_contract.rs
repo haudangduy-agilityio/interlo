@@ -111,7 +111,7 @@ fn model_info_list_round_trips() {
     assert!(tr.non_commercial);
     assert_eq!(
         tr.licence,
-        "Apache-2.0. Training data is CC BY-NC-SA: personal use only"
+        "Apache-2.0. Training data is CC BY-NC-SA: non-commercial use only"
     );
     assert!(models.iter().filter(|m| m.non_commercial).count() == 1);
     assert!(models.iter().all(|m| !m.licence.trim().is_empty()));

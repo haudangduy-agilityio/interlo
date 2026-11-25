@@ -274,7 +274,7 @@ mod tests {
         let json = serde_json::to_value(&sample_models()[1]).unwrap();
         assert_eq!(
             json["licence"],
-            "Apache-2.0. Training data is CC BY-NC-SA: personal use only"
+            "Apache-2.0. Training data is CC BY-NC-SA: non-commercial use only"
         );
         assert_eq!(json["nonCommercial"], true);
     }

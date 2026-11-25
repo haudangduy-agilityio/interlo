@@ -218,7 +218,7 @@ pub(crate) static ENTRIES: &[ModelEntry] = &[
     ModelEntry {
         id: "tr",
         name: "Translation",
-        licence: "Apache-2.0. Training data is CC BY-NC-SA: personal use only",
+        licence: "Apache-2.0. Training data is CC BY-NC-SA: non-commercial use only",
         non_commercial: true,
         pack: "translation",
     },
