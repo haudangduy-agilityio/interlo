@@ -10,7 +10,7 @@ crates/
     examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same
-  engine-host/             engine traits, registry, segmenter, language gate
+  engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
   playback/                playback queue, speed-up, mixer
   store/                   SQLite projections, schema, full-text index
   summary-jobs/            job queue, citation check, question answerer
