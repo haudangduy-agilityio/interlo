@@ -113,9 +113,6 @@ jobs:
       # Runs on every pull request and every push to main (what it runs: scripts/check.sh,
       # mode supply). The weekly workflow file repeats it, so a new advisory shows up
       # without a change.
-      - name: Dependency audit
-        run: scripts/check.sh supply
-
       # The gate is `scripts/check.sh full`. End-to-end tests are out of the
       # gate for now; `scripts/check.sh e2e` runs them separately.
       - name: Run the gate
