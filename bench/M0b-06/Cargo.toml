@@ -1,0 +1,41 @@
+# Spike M0b-06: a non-activating, always-on-top, click-through panel over a full-screen window.
+# Its own workspace: it is never a member of the root workspace and no product crate depends
+# on it (D-190).
+[workspace]
+
+[package]
+name = "m0b06"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "m0b06"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = "=2.7.5"
+
+[dependencies]
+# Mechanism 1 of O-7: Tauri window flags. `custom-protocol` makes the panel page load from the
+# embedded assets (no dev server, no network). No `macos-private-api`.
+tauri = { version = "=2.12.6", default-features = false, features = ["wry", "compression", "custom-protocol"] }
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSGeometry"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication", "NSScreen", "NSWorkspace", "NSWindow", "NSPanel", "NSColor", "NSEvent", "NSGraphics", "NSView", "libc"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["std", "CGWindow"] }
+
+[profile.dev]
+debug = 0
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
