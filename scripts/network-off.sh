@@ -2,11 +2,12 @@
 # Run a command with the network denied by the operating system (macOS sandbox).
 #   scripts/network-off.sh cargo test -p meeting-core --offline --features test-support egress
 # Before the command runs, a canary proves that the sandbox really blocks the
-# network. A canary that reaches the network, or a sandbox that cannot run a
-# command at all, is NOT RUN (exit 2), never a pass.
+# network: it must fail inside the sandbox and succeed outside it. A canary that
+# reaches the network inside, one that fails outside too (offline), or a sandbox
+# that cannot run a command at all, is NOT RUN (exit 2), never a pass.
 # Exit codes: the exit code of the command; 2 not run; 64 bad usage.
 # Test hooks (environment): NETWORK_OFF_SANDBOX_EXEC replaces the sandbox tool;
-# NETWORK_OFF_CANARY replaces the canary command (run inside the sandbox).
+# NETWORK_OFF_CANARY replaces the canary command (run inside, then outside).
 set -u
 # The canary is split into words on purpose, but never expanded as a pattern.
 set -f
@@ -39,6 +40,13 @@ CANARY="${NETWORK_OFF_CANARY:-$DEFAULT_CANARY}"
 # shellcheck disable=SC2086
 if "$SANDBOX_EXEC" -p "$PROFILE" $CANARY >/dev/null 2>&1; then
   not_run "the canary reached the network"
+fi
+# Positive control: the same canary must succeed outside the sandbox. A canary
+# that fails there too (an offline Mac, a dead host) says nothing about the
+# sandbox, so a failure inside it proves nothing.
+# shellcheck disable=SC2086
+if ! $CANARY >/dev/null 2>&1; then
+  not_run "the canary cannot reach the network even without the sandbox"
 fi
 echo "network-off: canary ok, network is denied"
 

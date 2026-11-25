@@ -47,7 +47,7 @@ The guard tests use a fake transport (`NetworkOff` counts attempts; feature `tes
 scripts/network-off.sh cargo test -p meeting-core --offline --features test-support egress
 ```
 
-The script runs a canary first. A canary that reaches the network, or a sandbox that cannot run a command, is NOT RUN (exit 2), never a pass. M1-08 and M4-03 reuse it. It needs a Mac with `sandbox-exec` and is not part of `scripts/check.sh`.
+The script runs a canary first: it must fail inside the sandbox and succeed outside it. A canary that reaches the network inside the sandbox, one that fails outside it too (an offline Mac), or a sandbox that cannot run a command, is NOT RUN (exit 2), never a pass. M1-08 and M4-03 reuse it. It needs a Mac with `sandbox-exec` and is not part of `scripts/check.sh`.
 
 ## Updater and driver installer tests
 

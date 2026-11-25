@@ -36,8 +36,8 @@ allows the Accessibility API that quick actions need (E2).
 - Status (M1-12): `GuardedClient` in `crates/meeting-core/src/egress.rs` is the
   policy-owned client. It wraps a `Transport` trait whose `get` needs a `Permit`
   that only the guard can build, and it refuses and logs a request before the
-  transport is reached (https url, no active meeting session, then the policy
-  rule of the purpose). A transport never follows a redirect: the caller sends
+  transport is reached (https url, no active meeting session, a remote provider
+  for provider data, then the policy rule of the purpose). A transport never follows a redirect: the caller sends
   each hop through the guard again (ADR 0021). No real transport exists yet:
   M1-04.4 and M4-19 write one and move their callers onto the guard. The CI check
   for a crate that opens a socket by another route is still not written (X-16

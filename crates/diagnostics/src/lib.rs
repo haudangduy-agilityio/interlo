@@ -36,6 +36,8 @@ pub mod code {
     pub const EGRESS_BAD_URL: &str = "E_EGRESS_BAD_URL";
     /// A meeting session is active, so no network call is allowed.
     pub const EGRESS_MEETING_RUNNING: &str = "E_EGRESS_MEETING_RUNNING";
+    /// A provider that calls itself local asked the guard for the network.
+    pub const EGRESS_LOCAL_PROVIDER: &str = "E_EGRESS_LOCAL_PROVIDER";
     pub const MODEL_CHECKSUM: &str = "E_MODEL_CHECKSUM";
     pub const MODEL_SIZE_CAP: &str = "E_MODEL_SIZE_CAP";
     pub const JOB_OUT_OF_ATTEMPTS: &str = "E_JOB_OUT_OF_ATTEMPTS";
@@ -185,6 +187,7 @@ mod tests {
             code::EGRESS_HOST_NOT_ALLOWED,
             code::EGRESS_BAD_URL,
             code::EGRESS_MEETING_RUNNING,
+            code::EGRESS_LOCAL_PROVIDER,
         ];
         for c in codes {
             assert!(c.starts_with("E_EGRESS_"), "{c}");

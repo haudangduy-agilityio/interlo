@@ -131,6 +131,8 @@ pub enum GuardError {
     Denied(EgressDenied),
     #[error("the url is not https with a host")]
     BadUrl,
+    #[error("a local provider has no network path")]
+    LocalProvider,
     #[error("the transport failed: {0}")]
     Transport(TransportError),
 }
@@ -183,6 +185,7 @@ fn https_authority(url: &str) -> Option<&str> {
 /// Why `admit` refused a request, before any transport was reached.
 enum Refusal {
     BadUrl,
+    LocalProvider,
     Denied(EgressDenied),
 }
 
@@ -191,6 +194,7 @@ impl Refusal {
     fn code(&self) -> &'static str {
         match self {
             Self::BadUrl => code::EGRESS_BAD_URL,
+            Self::LocalProvider => code::EGRESS_LOCAL_PROVIDER,
             Self::Denied(EgressDenied::LocalOnly(_)) => code::EGRESS_LOCAL_ONLY,
             Self::Denied(EgressDenied::NoConsent(..)) => code::EGRESS_NO_CONSENT,
             Self::Denied(EgressDenied::MeetingRunning) => code::EGRESS_MEETING_RUNNING,
@@ -205,6 +209,7 @@ impl From<Refusal> for GuardError {
     fn from(refusal: Refusal) -> Self {
         match refusal {
             Refusal::BadUrl => Self::BadUrl,
+            Refusal::LocalProvider => Self::LocalProvider,
             Refusal::Denied(denied) => Self::Denied(denied),
         }
     }
@@ -215,6 +220,12 @@ fn admit(policy: &PrivacyPolicy, request: &Request) -> Result<(), Refusal> {
     let authority = https_authority(&request.url).ok_or(Refusal::BadUrl)?;
     if policy.is_session_active() {
         return Err(Refusal::Denied(EgressDenied::MeetingRunning));
+    }
+    // A local provider never needs the network, and the policy allows it
+    // everywhere. The guard has no path for it, so a caller can not skip the
+    // guard by declaring its provider local.
+    if matches!(&request.purpose, Purpose::ProviderData { provider, .. } if !provider.is_remote()) {
+        return Err(Refusal::LocalProvider);
     }
     match &request.purpose {
         Purpose::ProviderData { provider, kind } => policy.check(provider, *kind),
@@ -447,6 +458,45 @@ mod tests {
         assert_eq!(result.map(|r| r.status), Ok(200));
         assert_eq!(transport.calls(), vec![MODEL_URL.to_string()]);
         assert!(log.events().is_empty());
+    }
+
+    #[test]
+    fn a_local_provider_is_refused_before_the_policy_rule() {
+        let local_text = || Purpose::ProviderData {
+            provider: Provider::local("l"),
+            kind: DataKind::Text,
+        };
+        // The default policy allows a local provider, so only the guard stops it.
+        let (client, transport, log) = rig();
+        let result = client.get(
+            &PrivacyPolicy::default(),
+            &Request::new(local_text(), MODEL_URL),
+        );
+        assert_eq!(result, Err(GuardError::LocalProvider));
+        assert!(transport.calls().is_empty());
+        assert_one_block(&log, code::EGRESS_LOCAL_PROVIDER);
+
+        // The session check comes first.
+        let (client, transport, log) = rig();
+        let mut policy = PrivacyPolicy::default();
+        policy.set_session_status(SessionStatus::Running);
+        let result = client.get(&policy, &Request::new(local_text(), MODEL_URL));
+        assert_eq!(
+            result,
+            Err(GuardError::Denied(EgressDenied::MeetingRunning))
+        );
+        assert!(transport.calls().is_empty());
+        assert_one_block(&log, code::EGRESS_MEETING_RUNNING);
+
+        // The url check comes first.
+        let (client, transport, log) = rig();
+        let result = client.get(
+            &PrivacyPolicy::default(),
+            &Request::new(local_text(), "http://models.example.com/a.bin"),
+        );
+        assert_eq!(result, Err(GuardError::BadUrl));
+        assert!(transport.calls().is_empty());
+        assert_one_block(&log, code::EGRESS_BAD_URL);
     }
 
     #[test]
