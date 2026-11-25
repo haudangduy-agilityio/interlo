@@ -10,12 +10,12 @@
 
 use crate::device_list::{
     read_devices, DeviceListError, DeviceSnapshot, ProcessRunner, ToolRunner,
-    SYSTEM_PROFILER_TIMEOUT_MS,
 };
 use crate::devices::DeviceInfo;
 use crate::mic::{
     select_input, BlockHandler, ErrorHandler, InputBlock, MicBackend, MicConfig, SystemBackend,
 };
+use crate::realtime;
 use crate::setup_report::{
     build_report, mic_permission_from_error, microphone, MicPermission, ModelState, SetupFacts,
     SetupFix, SetupItem, SetupItemId, SetupReport, SetupState,
@@ -30,25 +30,29 @@ const SW_VERS_PATH: &str = "/usr/bin/sw_vers";
 
 /// Longest wait for the first block after the stream opened (starting value, to
 /// confirm on a slow Mac).
-pub const FIRST_BLOCK_LIMIT_MS: u64 = 4000;
+pub(crate) const FIRST_BLOCK_LIMIT_MS: u64 = 4000;
 /// How long the stream must carry digital silence only before it counts as
 /// `NoSignal` (starting value, to confirm on a slow Mac).
-pub const SILENCE_WINDOW_MS: u64 = 2000;
+pub(crate) const SILENCE_WINDOW_MS: u64 = 2000;
 /// Longest a caller waits for the whole microphone probe (starting value, to
 /// confirm on a slow Mac).
-pub const PROBE_CALL_LIMIT_MS: u64 = 8000;
+pub(crate) const PROBE_CALL_LIMIT_MS: u64 = 8000;
 /// How often the probe looks at what the stream delivered.
 const POLL_MS: u64 = 20;
 
+/// Longest wait for `sw_vers`. Starting value.
+const SW_VERS_TIMEOUT_MS: u64 = 5000;
+
 /// Time, so a test never sleeps.
-pub trait ProbeClock: Send + Sync {
+pub(crate) trait ProbeClock: Send + Sync {
+    /// Called on the audio thread by the block handler: no allocation, no lock.
     fn now(&self) -> Duration;
     fn pause(&self, duration: Duration);
 }
 
 /// The real clock.
 #[derive(Debug)]
-pub struct SystemClock {
+pub(crate) struct SystemClock {
     start: std::time::Instant,
 }
 
@@ -76,16 +80,18 @@ impl ProbeClock for SystemClock {
 }
 
 /// What the probe read, for tests of the abandon rule.
+#[cfg(test)]
 #[derive(Debug, Default)]
-pub struct ProbeStats {
+pub(crate) struct ProbeStats {
     pub blocks_read: AtomicU64,
 }
 
 /// Shared by the probe and the block handler.
 #[derive(Clone)]
-pub struct ProbeCtx {
+pub(crate) struct ProbeCtx {
     pub clock: Arc<dyn ProbeClock>,
     pub abandon: Arc<AtomicBool>,
+    #[cfg(test)]
     pub stats: Arc<ProbeStats>,
 }
 
@@ -94,6 +100,7 @@ impl ProbeCtx {
         Self {
             clock,
             abandon: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
             stats: Arc::new(ProbeStats::default()),
         }
     }
@@ -121,6 +128,7 @@ pub(crate) fn judge(
     (now_ms >= first.saturating_add(SILENCE_WINDOW_MS)).then_some(MicPermission::NoSignal)
 }
 
+/// Marks "no block seen yet" in a `Watch` timestamp.
 const NONE_MS: u64 = u64::MAX;
 
 fn ms(duration: Duration) -> u64 {
@@ -169,42 +177,45 @@ fn block_has_signal(block: &InputBlock<'_>) -> bool {
 
 /// Opens the microphone and decides the permission fact from what arrives.
 /// Always drops the stream before it returns.
-pub fn probe_microphone(
+pub(crate) fn probe_microphone(
     backend: &mut dyn MicBackend,
     config: &MicConfig,
     ctx: &ProbeCtx,
 ) -> MicPermission {
-    let open_error = |e| mic_permission_from_error(e);
     let devices = match backend.input_devices() {
         Ok(devices) => devices,
-        Err(e) => return open_error(e),
+        Err(e) => return mic_permission_from_error(e),
     };
     let index = match select_input(&devices, config.device_name.as_deref()) {
         Ok(index) => index,
-        Err(e) => return open_error(e),
+        Err(e) => return mic_permission_from_error(e),
     };
     let format = match backend.format_of(index) {
         Ok(format) => format,
-        Err(e) => return open_error(e),
+        Err(e) => return mic_permission_from_error(e),
     };
     let watch = Arc::new(Watch::new());
     let on_block: BlockHandler = {
         let watch = Arc::clone(&watch);
         let clock = Arc::clone(&ctx.clock);
         let abandon = Arc::clone(&ctx.abandon);
+        #[cfg(test)]
         let stats = Arc::clone(&ctx.stats);
         Box::new(move |block| {
-            if abandon.load(Ordering::SeqCst) {
-                return;
-            }
-            stats.blocks_read.fetch_add(1, Ordering::SeqCst);
-            watch.record(ms(clock.now()), block_has_signal(&block));
+            realtime::section(|| {
+                if abandon.load(Ordering::SeqCst) {
+                    return;
+                }
+                #[cfg(test)]
+                stats.blocks_read.fetch_add(1, Ordering::SeqCst);
+                watch.record(ms(clock.now()), block_has_signal(&block));
+            });
         })
     };
     let on_error: ErrorHandler = Box::new(|| {});
     let stream = match backend.open(index, format, on_block, on_error) {
         Ok(stream) => stream,
-        Err(e) => return open_error(e),
+        Err(e) => return mic_permission_from_error(e),
     };
     let opened_ms = ms(ctx.clock.now());
     let verdict = loop {
@@ -232,7 +243,8 @@ impl ProbeGate {
         Self::default()
     }
 
-    pub fn is_busy(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_busy(&self) -> bool {
         self.busy.load(Ordering::SeqCst)
     }
 
@@ -257,7 +269,7 @@ impl Drop for GateGuard {
 /// While an earlier worker is alive the answer is `Unknown` and nothing is
 /// opened. When the limit ends first, the call is abandoned: the worker drops
 /// its stream as soon as it notices and reads no further block.
-pub fn probe_microphone_limited(
+pub(crate) fn probe_microphone_limited(
     gate: &ProbeGate,
     mut backend: Box<dyn MicBackend>,
     config: MicConfig,
@@ -291,7 +303,7 @@ pub fn probe_microphone_limited(
 /// Which microphone the probe opens, or `None` when there is no input device.
 /// The default input is opened without a name; any other is opened by its
 /// exact name.
-pub fn plan_mic_open(devices: &[DeviceInfo]) -> Option<MicConfig> {
+pub(crate) fn plan_mic_open(devices: &[DeviceInfo]) -> Option<MicConfig> {
     let device = microphone(devices)?;
     Some(MicConfig {
         device_name: (!device.is_default_input).then(|| device.name.clone()),
@@ -326,7 +338,7 @@ pub(crate) fn read_macos_version(runner: &dyn ToolRunner) -> Option<(u32, u32)> 
         .run(
             SW_VERS_PATH,
             &["-productVersion"],
-            Duration::from_millis(SYSTEM_PROFILER_TIMEOUT_MS),
+            Duration::from_millis(SW_VERS_TIMEOUT_MS),
         )
         .ok()?;
     parse_macos_version(&String::from_utf8(bytes).ok()?)
@@ -334,13 +346,13 @@ pub(crate) fn read_macos_version(runner: &dyn ToolRunner) -> Option<(u32, u32)> 
 
 /// Answers whether the process tap works. The real answer comes with the tap
 /// capture (#73).
-pub trait TapProbe {
+pub(crate) trait TapProbe {
     fn available(&self) -> bool;
 }
 
 /// The process tap is not built yet, so it is never available.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NoTapBackend;
+pub(crate) struct NoTapBackend;
 
 impl TapProbe for NoTapBackend {
     fn available(&self) -> bool {
@@ -349,8 +361,11 @@ impl TapProbe for NoTapBackend {
 }
 
 /// The tap needs macOS 14.4 or later and a working tap.
-pub fn tap_available(version: Option<(u32, u32)>, tap: &dyn TapProbe) -> bool {
-    version.is_some_and(macos_supports_tap) && tap.available()
+pub(crate) fn tap_available(
+    read_version: impl FnOnce() -> Option<(u32, u32)>,
+    tap: &dyn TapProbe,
+) -> bool {
+    tap.available() && read_version().is_some_and(macos_supports_tap)
 }
 
 /// Everything the probe reads from the system.
@@ -392,7 +407,7 @@ impl ProbeEnv for SystemEnv {
     }
 
     fn tap_available(&mut self) -> bool {
-        tap_available(read_system_macos_version(), self.tap.as_ref())
+        tap_available(read_system_macos_version, self.tap.as_ref())
     }
 }
 
@@ -408,7 +423,7 @@ pub struct ProbeOutcome {
 /// Reads the facts: devices first, then the microphone (only when a microphone
 /// device exists and the permission is not already known to be granted), then
 /// the tap. Models are given.
-pub fn collect_facts(
+pub(crate) fn collect_facts(
     env: &mut dyn ProbeEnv,
     models: [ModelState; 4],
     mic_known_granted: bool,
@@ -779,6 +794,8 @@ mod tests {
         )
     }
 
+    /// These tests use the real clock and real threads on purpose: the abandon
+    /// and `recv_timeout` rules only show with a worker thread that really waits.
     fn system_ctx() -> ProbeCtx {
         ProbeCtx::new(Arc::new(SystemClock::new()))
     }
@@ -862,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_first_block_after_the_limit_gives_unknown_and_drops_the_stream() {
+    fn an_abandoned_call_with_no_block_drops_its_stream() {
         let opens = Arc::new(AtomicUsize::new(0));
         let (backend, slow) = blocking(false, &opens);
         slow.release.send(()).unwrap();
@@ -1018,7 +1035,7 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "/usr/bin/sw_vers");
         assert_eq!(calls[0].1, ["-productVersion"]);
-        assert_eq!(calls[0].2, Duration::from_millis(5000));
+        assert_eq!(calls[0].2, Duration::from_millis(SW_VERS_TIMEOUT_MS));
     }
 
     struct FixedTap(bool);
@@ -1032,16 +1049,16 @@ mod tests {
     fn tap_needs_version_and_probe() {
         let new = Some((15, 0));
         let old = Some((14, 3));
-        assert!(tap_available(new, &FixedTap(true)));
-        assert!(!tap_available(new, &FixedTap(false)));
-        assert!(!tap_available(old, &FixedTap(true)));
-        assert!(!tap_available(None, &FixedTap(true)));
+        assert!(tap_available(|| new, &FixedTap(true)));
+        assert!(!tap_available(|| new, &FixedTap(false)));
+        assert!(!tap_available(|| old, &FixedTap(true)));
+        assert!(!tap_available(|| None, &FixedTap(true)));
     }
 
     #[test]
     fn real_tap_probe_says_not_built() {
         assert!(!NoTapBackend.available());
-        assert!(!tap_available(Some((26, 4)), &NoTapBackend));
+        assert!(!tap_available(|| Some((26, 4)), &NoTapBackend));
     }
 
     // ---- AC-07 (capture row), AC-08 ----

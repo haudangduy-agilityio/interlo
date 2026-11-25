@@ -4,14 +4,14 @@
 Cargo.toml                 Rust workspace; every crate below is a member
 crates/
   meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
-  audio-io/                devices, device list, setup report, capture plan, microphone capture, callback guards, output, ring buffer, resampler
+  audio-io/                devices, device list, setup report, readiness probe, capture plan, microphone capture, callback guards, output, ring buffer, resampler
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
     src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
     src/probe.rs             readiness probe: microphone permission by a short open, version check, tap fact, fact assembly
     src/mic.rs               microphone source (`MicCapture`), backend trait, device choice by name, error mapping
     src/mic_callback.rs      the callback core: mono mix-down, level, conversion to 16 kHz, ring push (callback safe)
     src/realtime.rs          callback guards: section flag, allocation guard, `RtMutex` lock check (debug builds)
-    examples/list_devices.rs manual run: prints the real devices of this Mac (`cargo run -p audio-io --example list_devices`)
+    examples/list_devices.rs manual run: prints the devices and the probed setup rows of this Mac, opens the microphone for a moment (`cargo run -p audio-io --example list_devices`)
     examples/mic_level.rs    manual run: level meter of the microphone, text output (`cargo run -p audio-io --example mic_level`)
     tests/slow_consumer.rs   a stalled consumer never blocks capture and drops are counted
     tests/adapter_boundary.rs  fake sources and sinks swap behind the two traits; the chain output stays the same

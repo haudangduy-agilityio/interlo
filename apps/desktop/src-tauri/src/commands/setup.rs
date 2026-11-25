@@ -9,10 +9,10 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use audio_io::{
-    probe_setup, ModelState, ProbeEnv, ProbeGate, SetupItem as ReportItem, SetupItemId as ReportId,
-    SetupReport, SetupState as ReportState, SystemEnv,
+    probe_setup, DeviceListError, DeviceSnapshot, MicConfig, MicPermission, ModelState, ProbeEnv,
+    ProbeGate, SetupItem as ReportItem, SetupItemId as ReportId, SetupReport,
+    SetupState as ReportState, SystemEnv,
 };
-use audio_io::{DeviceListError, DeviceSnapshot, MicConfig, MicPermission};
 
 use crate::ipc::{IpcResult, SetupGroup, SetupItem, SetupItemId, SetupState, SetupStatus};
 
@@ -412,6 +412,39 @@ mod tests {
         assert_eq!(
             status.items[4].detail,
             "Speech recognition model not downloaded"
+        );
+    }
+
+    #[test]
+    fn every_report_state_maps_to_its_status_state() {
+        let item = |id, state| ReportItem {
+            id,
+            state,
+            detail: String::new(),
+            fix: None,
+            warning: None,
+        };
+        let report = SetupReport {
+            items: vec![
+                item(ReportId::Mic, ReportState::Ok),
+                item(ReportId::Capture, ReportState::Missing),
+                item(ReportId::Vmic, ReportState::Installing),
+                item(ReportId::Phones, ReportState::Error),
+            ],
+        };
+        let states: Vec<SetupState> = status_from_report(&report)
+            .items
+            .iter()
+            .map(|i| i.state)
+            .collect();
+        assert_eq!(
+            states,
+            [
+                SetupState::Ok,
+                SetupState::Missing,
+                SetupState::Installing,
+                SetupState::Error
+            ]
         );
     }
 

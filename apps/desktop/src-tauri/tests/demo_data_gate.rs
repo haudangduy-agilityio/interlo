@@ -182,7 +182,6 @@ mod default_build {
 
     #[test]
     fn reads_that_stood_on_sample_data_are_not_implemented() {
-        // `check_setup` is not in this list: since M1-41 it reads the real system.
         assert_eq!(
             current_models().unwrap_err().code,
             ErrorCode::NotImplemented
