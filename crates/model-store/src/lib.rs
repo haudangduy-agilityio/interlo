@@ -15,9 +15,11 @@
 //! and never opens the path again, so a swap after the check cannot reach it.
 //! Limit: the developer build of the desktop program checks a local model folder
 //! with `check_pack`, and its engines then open the files by path, so a change
-//! between the check and the load is not detected there. A default build has no
-//! model folder and loads nothing. M1-42 must close this limit before a default
-//! build loads a model.
+//! between the check and the load is not detected there. The walk of
+//! `check_pack` is not atomic either: a folder below the model folder that is
+//! replaced with a link while the check runs can pass. A default build has no
+//! model folder and loads nothing. M1-42 must close both limits before a
+//! default build loads a model.
 //! The file length comes from the same open file that is hashed, never from the
 //! caller. The registry lock is held only to read or change the map, never while
 //! a dialog is open or a file is transferred, so a cancel always gets in. A

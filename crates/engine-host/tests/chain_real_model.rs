@@ -6,8 +6,8 @@
 //! line and passes. When it is set and a file is missing, the test fails and
 //! names the file.
 
-// The sink of this file and one test use `unwrap`.
-#![allow(clippy::unwrap_used)]
+// Test code: the sink of this file and one test use `unwrap`.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use engine_host::live_chain::{
     Caption, ChainEnd, ChainSink, Engines, FrameSource, Latency, LiveChain, MonotonicClock,

@@ -7,8 +7,8 @@
 //!
 //! Every call of the sink happens under one gate lock, and `stop` closes the
 //! gate under that lock: nothing is sent after `stop` returns, and `stop` does
-//! not wait for a running engine call. A sink must not block and must not call
-//! `stop` from inside one of its calls.
+//! not wait for a running engine call. `ChainSink` states what a sink must
+//! not do.
 //!
 //! The chain opens no connection, writes no file and logs no text.
 
@@ -88,12 +88,14 @@ pub struct Latency {
 pub enum ChainEnd {
     /// The source reported a failure.
     SourceLost,
-    /// The voice activity detector failed, or a worker thread panicked. The
-    /// engines may be in a broken state: the caller drops them.
+    /// The voice activity detector failed, a worker thread panicked, or an
+    /// engine is broken by an earlier panic. The caller drops the engines.
     Failed,
 }
 
-/// Receives what one session produces.
+/// Receives what one session produces. The calls run one at a time under the
+/// gate of the session: a sink must not block, must not panic and must not call
+/// `stop` from inside one of them.
 pub trait ChainSink: Send {
     fn caption(&mut self, caption: Caption);
     fn latency(&mut self, latency: Latency);
@@ -148,14 +150,16 @@ impl std::fmt::Debug for Engines {
 }
 
 /// The gate and the queue of a session stay usable after a panic: it ends that
-/// session. The engine locks are different, see `engine`.
+/// session. The engine locks are different, see `lock_registry`.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The lock of one engine. A poisoned lock means that a call of this engine
 /// panicked: no session uses it again.
-fn engine(registry: &Mutex<EngineRegistry>) -> Result<MutexGuard<'_, EngineRegistry>, ChainEnd> {
+fn lock_registry(
+    registry: &Mutex<EngineRegistry>,
+) -> Result<MutexGuard<'_, EngineRegistry>, ChainEnd> {
     registry.lock().map_err(|_| ChainEnd::Failed)
 }
 
@@ -261,7 +265,7 @@ fn read_stream(
     started_ms: u64,
 ) -> Result<(), ChainEnd> {
     {
-        let mut registry = engine(&engines.detector)?;
+        let mut registry = lock_registry(&engines.detector)?;
         if shared.is_closed() {
             return Ok(());
         }
@@ -294,7 +298,7 @@ fn read_stream(
         let framed = frames.len() * FRAME_SAMPLES;
         for frame in frames {
             let event = {
-                let mut registry = engine(&engines.detector)?;
+                let mut registry = lock_registry(&engines.detector)?;
                 // A closed session leaves the detector to the next session.
                 if shared.is_closed() {
                     return Ok(());
@@ -328,13 +332,13 @@ fn recognize(
 ) -> Result<Option<String>, ChainEnd> {
     for _ in 0..RECOGNITION_ATTEMPTS {
         // A session that starts after a stop waits here for the old call.
-        let mut registry = engine(&engines.recognizer)?;
+        let mut registry = lock_registry(&engines.recognizer)?;
         if shared.is_closed() {
             return Ok(None);
         }
         // The policy lock is free again before the engine runs.
         let recognizer = registry.get_recognizer(&read(&engines.policy));
-        if let Ok(recognition) = recognizer.and_then(|found| found.recognize(samples)) {
+        if let Ok(recognition) = recognizer.and_then(|engine| engine.recognize(samples)) {
             return Ok(Some(recognition.text));
         }
     }
@@ -1145,6 +1149,10 @@ mod tests {
         assert!(!rig.engines.is_broken());
         rig.answer(Reply::Panic);
         until("the engines are broken", || rig.engines.is_broken());
+        // Both threads have passed their chance to send.
+        until("the old threads are done", || {
+            Arc::strong_count(&chain.shared) == 1
+        });
         assert_eq!(sink.all(), [], "nothing follows a stop");
 
         // The next session on these engines ends at its first span.

@@ -16,11 +16,17 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 
-/// Flags of the open of a model file: do not follow a link at the last part
-/// (`O_NOFOLLOW`) and do not wait for the other end of a pipe (`O_NONBLOCK`).
-/// The values of macOS, written here so that no dependency is added.
+// The macOS values of two open flags, written here so that no dependency is
+// added.
+/// Do not follow a link at the last part of the path.
 #[cfg(target_os = "macos")]
-const OPEN_FLAGS: i32 = 0x0100 | 0x0004;
+const O_NOFOLLOW: i32 = 0x0100;
+/// Do not wait for the other end of a pipe.
+#[cfg(target_os = "macos")]
+const O_NONBLOCK: i32 = 0x0004;
+/// Flags of the open of a model file.
+#[cfg(target_os = "macos")]
+const OPEN_FLAGS: i32 = O_NOFOLLOW | O_NONBLOCK;
 /// Not set on other systems: the app runs on macOS only.
 #[cfg(not(target_os = "macos"))]
 const OPEN_FLAGS: i32 = 0;
@@ -424,6 +430,7 @@ mod tests {
 
     /// `open_same` on its own thread: an open that waits fails the test and does
     /// not stop the run.
+    #[cfg(target_os = "macos")]
     fn open_in_time(path: PathBuf, before: Metadata) -> io::Result<File> {
         let (done, opened) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -434,6 +441,7 @@ mod tests {
             .expect("the open waits")
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_pipe_put_at_the_path_is_refused_without_waiting() {
         let folder = Folder::new();
@@ -452,6 +460,7 @@ mod tests {
         assert!(open_in_time(path, pipe).is_err());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_link_to_the_same_file_put_after_the_look_is_refused() {
         let folder = Folder::new();
