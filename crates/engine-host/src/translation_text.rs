@@ -260,6 +260,8 @@ mod tests {
             ]
             .map(str::to_string),
         );
+        // An object that does not close is refused without the word too.
+        refused.push(r#"{"version":"1.0","normalizer":{"type":"NFC""#.to_string());
         for text in refused {
             let error = error_text(repair_tokenizer_text(&text));
             assert!(error.contains("tokenizer.json"), "{error} for {text}");
@@ -278,8 +280,9 @@ mod tests {
         .collect();
         // No normalizer key; the vocabulary entry of that name stays.
         texts.push(format!("{HEAD}\n{MODEL}}}"));
-        // A list that does not close and holds no compiled normalizer.
+        // A list and a string that do not close and hold no compiled normalizer.
         texts.push(r#"{"version":"1.0","normalizer":[{"type":"NFC"}"#.to_string());
+        texts.push(r#"{"version":"1.0","normalizer":"NFC"#.to_string());
         for text in texts {
             assert_eq!(repair_tokenizer_text(&text), Ok(text.clone()));
         }
