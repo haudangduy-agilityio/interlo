@@ -605,6 +605,22 @@ mod tests {
         assert_eq!(drain_ids(&mut q), vec!["a", "b", "c"]);
     }
 
+    #[test]
+    fn a_sentence_marked_played_during_a_hold_is_not_offered_again() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 1_000)).unwrap();
+        q.enqueue(seg("b", 2_000)).unwrap();
+        // The player had taken all of "a" when the output went away.
+        assert_eq!(q.peek_next(), Some(&seg("a", 1_000)));
+        q.hold(5_000);
+        assert_eq!(q.mark_played("a"), Ok(()));
+
+        assert_eq!(q.resume(5_001), 0);
+
+        assert_eq!(q.state("a"), Some(SegmentState::Played));
+        assert_eq!(drain_ids(&mut q), vec!["b"]);
+    }
+
     /// Two segments, the first one offered, held since 1 000 ms.
     fn offered_and_held() -> PlaybackQueue {
         let mut q = PlaybackQueue::new();
