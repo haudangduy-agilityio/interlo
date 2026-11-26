@@ -11,14 +11,17 @@ pub mod error;
 pub mod language_gate;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
+pub mod onnx_asr;
 pub mod onnx_vad;
 pub mod registry;
 pub mod segmenter;
 pub mod speech_events;
+pub mod speech_features;
 pub mod traits;
 
 pub use error::{DenyCause, EngineError};
 pub use language_gate::owner_should_translate;
+pub use onnx_asr::OnnxRecognizer;
 pub use onnx_vad::OnnxVad;
 pub use registry::{EngineRegistry, EngineRole};
 pub use segmenter::{segment, Piece, Segmenter};

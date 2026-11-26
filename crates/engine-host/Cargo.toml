@@ -13,6 +13,7 @@ mock = []
 meeting-core = { workspace = true }
 thiserror = { workspace = true }
 ort = "=2.0.0-rc.15"
+tokenizers = { version = "=0.23.2", default-features = false, features = ["onig"] }
 
 [lints]
 workspace = true
