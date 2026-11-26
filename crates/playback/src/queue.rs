@@ -2,7 +2,10 @@
 //!
 //! Segments play strictly in enqueue order and each id plays once. Speed-up
 //! is the only tool for catching up; nothing is cut, skipped or reordered
-//! while playback runs. When the output device is unplugged the queue is
+//! while playback runs. Catching up starts when more than
+//! `SPEEDUP_START_BACKLOG_MS` of audio waits behind the front segment and
+//! lasts until nothing waits behind it; the speed is `MAX_SPEED_FACTOR` while
+//! it lasts and 1.0 otherwise. When the output device is unplugged the queue is
 //! held; if the hold lasts `HOLD_TIMEOUT_MS`, the remaining segments are
 //! marked `NotPlayed`. The clock is always a parameter (milliseconds).
 //!
@@ -20,16 +23,15 @@ use crate::error::PlaybackError;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-/// Highest pitch-preserving speed-up.
+/// Highest pitch-preserving speed-up, and the speed while catching up.
 pub const MAX_SPEED_FACTOR: f32 = 1.15;
-/// Backlog below this plays at normal speed. Starting value.
+/// Catching up starts when more than this much audio waits behind the front
+/// segment. Starting value.
 pub const SPEEDUP_START_BACKLOG_MS: u32 = 2_000;
-/// Backlog at which the speed-up reaches its cap. Starting value.
-pub const SPEEDUP_FULL_BACKLOG_MS: u32 = 6_000;
 /// Most segments the queue holds at once. `enqueue` refuses the next one with
 /// `PlaybackError::QueueFull`. Starting value: far above a normal backlog
-/// (the speed-up already reaches its cap at 6 s), so a refusal means the
-/// player has stalled and the caller must react.
+/// (the speed-up already starts at 2 s of waiting audio), so a refusal means
+/// the player has stalled and the caller must react.
 pub const MAX_QUEUED_SEGMENTS: usize = 4_096;
 /// Hold duration after which remaining segments are marked `NotPlayed`.
 pub const HOLD_TIMEOUT_MS: u64 = 30_000;
@@ -79,18 +81,6 @@ impl SegmentPlayer for NullPlayer {
     }
 }
 
-/// Speed-up for a given backlog: 1.0 up to the start threshold, then linear
-/// up to `MAX_SPEED_FACTOR` at the full threshold, never above the cap.
-pub fn speed_factor(backlog_ms: u32) -> f32 {
-    if backlog_ms <= SPEEDUP_START_BACKLOG_MS {
-        return 1.0;
-    }
-    let span = (SPEEDUP_FULL_BACKLOG_MS - SPEEDUP_START_BACKLOG_MS) as f32;
-    let over = (backlog_ms - SPEEDUP_START_BACKLOG_MS) as f32;
-    let t = (over / span).min(1.0);
-    (1.0 + (MAX_SPEED_FACTOR - 1.0) * t).min(MAX_SPEED_FACTOR)
-}
-
 /// A queued segment with its shared id key, allocated once at enqueue.
 #[derive(Debug)]
 struct Queued {
@@ -107,6 +97,8 @@ pub struct PlaybackQueue {
     finished: VecDeque<Arc<str>>,
     /// Sum of `samples_len_ms` of the queued segments. Wide so it cannot wrap.
     backlog_ms: u64,
+    /// Whether the speed-up is on. Set by `update_catch_up`.
+    catching_up: bool,
     held_since_ms: Option<u64>,
 }
 
@@ -135,6 +127,7 @@ impl PlaybackQueue {
             .backlog_ms
             .saturating_add(u64::from(segment.samples_len_ms));
         self.queue.push_back(Queued { segment, key });
+        self.update_catch_up();
         Ok(true)
     }
 
@@ -163,6 +156,7 @@ impl PlaybackQueue {
             .backlog_ms
             .saturating_sub(u64::from(segment.samples_len_ms));
         self.finish(key, SegmentState::Played);
+        self.update_catch_up();
         Ok(())
     }
 
@@ -181,6 +175,23 @@ impl PlaybackQueue {
         player.play(&segment, speed)?;
         self.mark_played(&segment.segment_id)?;
         Ok(Some(segment))
+    }
+
+    /// Applies the speed rule. Every change of the queue calls it: more than
+    /// `SPEEDUP_START_BACKLOG_MS` of audio behind the front segment turns the
+    /// speed-up on, no audio behind it turns it off, and anything between
+    /// keeps it as it is.
+    fn update_catch_up(&mut self) {
+        let front_ms = self
+            .queue
+            .front()
+            .map_or(0, |q| u64::from(q.segment.samples_len_ms));
+        let waiting_ms = self.backlog_ms.saturating_sub(front_ms);
+        if waiting_ms == 0 {
+            self.catching_up = false;
+        } else if waiting_ms > u64::from(SPEEDUP_START_BACKLOG_MS) {
+            self.catching_up = true;
+        }
     }
 
     /// Records the final state of a segment and forgets the oldest finished
@@ -213,9 +224,14 @@ impl PlaybackQueue {
         u32::try_from(self.backlog_ms).unwrap_or(u32::MAX)
     }
 
-    /// Speed factor for the current backlog.
+    /// Speed for a segment that starts now: `MAX_SPEED_FACTOR` while catching
+    /// up, 1.0 otherwise.
     pub fn current_speed(&self) -> f32 {
-        speed_factor(self.backlog_ms())
+        if self.catching_up {
+            MAX_SPEED_FACTOR
+        } else {
+            1.0
+        }
     }
 
     pub fn state(&self, segment_id: &str) -> Option<SegmentState> {
@@ -247,6 +263,7 @@ impl PlaybackQueue {
             self.finish(key, SegmentState::NotPlayed);
         }
         self.backlog_ms = 0;
+        self.update_catch_up();
         // The drained hold is over; a segment enqueued from now on starts a
         // new hold from this moment, so a late resume does not drop it.
         self.held_since_ms = Some(now_ms);
@@ -310,33 +327,74 @@ mod tests {
     }
 
     #[test]
-    fn speed_is_normal_for_small_backlog() {
-        assert_eq!(speed_factor(0), 1.0);
-        assert_eq!(speed_factor(SPEEDUP_START_BACKLOG_MS), 1.0);
-    }
-
-    #[test]
-    fn speed_grows_with_backlog() {
-        let a = speed_factor(3_000);
-        let b = speed_factor(5_000);
-        assert!(a > 1.0);
-        assert!(b > a);
-    }
-
-    #[test]
-    fn speed_is_capped_at_1_15() {
-        assert_eq!(speed_factor(SPEEDUP_FULL_BACKLOG_MS), 1.15);
-        assert_eq!(speed_factor(60_000), 1.15);
-        assert_eq!(speed_factor(u32::MAX), 1.15);
-    }
-
-    #[test]
     fn queue_speed_follows_backlog() {
         let mut q = PlaybackQueue::new();
         q.enqueue(seg("a", 4_000)).unwrap();
         q.enqueue(seg("b", 4_000)).unwrap();
         assert_eq!(q.backlog_ms(), 8_000);
         assert_eq!(q.current_speed(), 1.15);
+    }
+
+    #[test]
+    fn a_lone_long_sentence_plays_at_speed_one() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 10_000)).unwrap();
+        assert_eq!(q.current_speed(), 1.0);
+
+        // A queue that a hold expiry emptied is not catching up either.
+        q.enqueue(seg("b", 3_000)).unwrap();
+        assert_eq!(q.current_speed(), MAX_SPEED_FACTOR);
+        q.hold(0);
+        assert_eq!(q.expire_hold(HOLD_TIMEOUT_MS), 2);
+        assert_eq!(q.current_speed(), 1.0);
+    }
+
+    #[test]
+    fn catching_up_starts_only_above_the_waiting_threshold() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("front", 500)).unwrap();
+        q.enqueue(seg("b", 2_000)).unwrap();
+        assert_eq!(q.current_speed(), 1.0, "2 000 ms wait");
+
+        q.enqueue(seg("c", 1)).unwrap();
+        assert_eq!(q.current_speed(), 1.15, "2 001 ms wait");
+    }
+
+    #[test]
+    fn catching_up_lasts_while_any_audio_waits() {
+        let mut q = PlaybackQueue::new();
+        for (id, ms) in [
+            ("a", 1_000),
+            ("b", 1_000),
+            ("c", 1_000),
+            ("d", 1_000),
+            ("e", 1),
+        ] {
+            q.enqueue(seg(id, ms)).unwrap();
+        }
+        assert_eq!(q.current_speed(), 1.15);
+
+        for id in ["a", "b", "c"] {
+            q.mark_played(id).unwrap();
+        }
+
+        // "d" is the front sentence and the 1 ms of "e" waits behind it.
+        assert_eq!(q.backlog_ms(), 1_001);
+        assert_eq!(q.current_speed(), 1.15);
+    }
+
+    #[test]
+    fn catching_up_ends_when_a_sentence_starts_with_nothing_waiting() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 1_000)).unwrap();
+        q.enqueue(seg("b", 2_001)).unwrap();
+        assert_eq!(q.current_speed(), 1.15);
+
+        q.mark_played("a").unwrap();
+        assert_eq!(q.current_speed(), 1.0, "nothing waits behind \"b\"");
+
+        q.enqueue(seg("c", 2_000)).unwrap();
+        assert_eq!(q.current_speed(), 1.0, "2 000 ms do not start it again");
     }
 
     #[test]
@@ -422,20 +480,6 @@ mod tests {
         assert_eq!(q.expire_hold(31_000 + HOLD_TIMEOUT_MS - 1), 0);
         assert_eq!(q.expire_hold(31_000 + HOLD_TIMEOUT_MS), 1);
         assert_eq!(q.state("b"), Some(SegmentState::NotPlayed));
-    }
-
-    #[test]
-    fn speed_just_over_start_threshold_is_barely_above_one() {
-        let s = speed_factor(SPEEDUP_START_BACKLOG_MS + 1);
-        assert!(s > 1.0);
-        assert!(s < 1.001);
-    }
-
-    #[test]
-    fn speed_just_under_full_threshold_stays_below_cap() {
-        let s = speed_factor(SPEEDUP_FULL_BACKLOG_MS - 1);
-        assert!(s > 1.149);
-        assert!(s < MAX_SPEED_FACTOR);
     }
 
     #[test]

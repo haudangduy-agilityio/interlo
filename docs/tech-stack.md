@@ -33,6 +33,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | cpal `=0.18.2`         | audio-io                                                                                   | Microphone capture through Core Audio, with the default input configuration of the chosen device; exact pin (Apache-2.0) |
 | rubato `=5.1.0`        | audio-io                                                                                   | Conversion of the microphone input to 16 kHz in `RateConverter`, without allocation in the audio callback; exact pin (MIT OR Apache-2.0) |
 | sha2 0.10              | model-store                                                                                | SHA-256 of the model files in `check_pack`. Added in SL-01 with the owner's approval (2026-11-26); version 0.10.9 was already in the lock file, so no new crate enters it (MIT OR Apache-2.0) |
+| wsola `=0.3.0`         | playback                                                                                   | Time stretch that keeps the pitch, behind `speed_up` (M1-28). Plain Rust with no build script and no `unsafe` code; its one dependency, thiserror 2, was already in the lock file; exact pin (MIT) |
 
 ## Rust crates added later (Later)
 

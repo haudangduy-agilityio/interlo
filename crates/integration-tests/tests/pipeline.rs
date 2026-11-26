@@ -174,6 +174,60 @@ fn a_huge_backlog_runs_at_the_cap_and_a_small_one_at_normal_speed() {
     assert_eq!(small.current_speed(), 1.0);
 }
 
+/// The simulated time at which a sentence after the first one starts with
+/// nothing waiting behind it. All sentences are `len_ms` long. 4 000 ms of
+/// audio wait behind the first one, a new sentence arrives every `len_ms`, and
+/// a play takes the length divided by the speed read when the sentence starts.
+/// The simulation stops after 60 000 ms.
+fn caught_up_at_ms(len_ms: u32) -> f64 {
+    let sentence = |index: u32| Segment {
+        segment_id: format!("seg_{index}"),
+        direction: Direction::Incoming,
+        samples_len_ms: len_ms,
+    };
+    let arrival_ms = |index: u32| f64::from(index * len_ms);
+    let mut queue = PlaybackQueue::new();
+    let at_start = 1 + 4_000 / len_ms;
+    fill(&mut queue, (0..at_start).map(sentence).collect());
+    let mut next_id = at_start;
+    let mut next_arrival = 1;
+    let mut start_ms = 0.0;
+
+    while start_ms <= 60_000.0 {
+        if start_ms > 0.0 && queue.len() == 1 {
+            break;
+        }
+        let end_ms = start_ms + f64::from(len_ms) / f64::from(queue.current_speed());
+        // An arrival at or before the end is queued before the front is played.
+        while arrival_ms(next_arrival) <= end_ms {
+            assert!(queue.enqueue(sentence(next_id)).unwrap());
+            next_id += 1;
+            next_arrival += 1;
+        }
+        assert!(take_next(&mut queue).is_some());
+        start_ms = end_ms;
+        if queue.is_empty() {
+            // The next sentence starts when it arrives.
+            start_ms = arrival_ms(next_arrival);
+            assert!(queue.enqueue(sentence(next_id)).unwrap());
+            next_id += 1;
+            next_arrival += 1;
+        }
+    }
+    start_ms
+}
+
+#[test]
+fn a_forced_lag_of_four_seconds_is_caught_up_within_thirty_seconds() {
+    for len_ms in [1_000, 500] {
+        let at = caught_up_at_ms(len_ms);
+        assert!(
+            at <= 30_000.0,
+            "sentences of {len_ms} ms: caught up at {at} ms"
+        );
+    }
+}
+
 #[test]
 fn unplug_hold_marks_the_rest_not_played_after_30_seconds() {
     let mut queue = PlaybackQueue::new();
