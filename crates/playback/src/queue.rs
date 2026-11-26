@@ -61,10 +61,10 @@ pub enum SegmentState {
 
 /// Plays one segment at a speed factor. A real backend comes later.
 ///
-/// Contract: `play` returns `Ok` only after the player took the whole sentence,
-/// because the queue then marks it played and never offers it again. After an
-/// error, or a hold shorter than `HOLD_TIMEOUT_MS`, the queue offers the same
-/// sentence again, to be played from its start.
+/// Contract: `play` returns `Ok` only after the player took the whole sentence
+/// (all of `segment`), because the queue then marks it played and never offers
+/// it again. A sentence that is not marked played, after an error or a hold
+/// shorter than `HOLD_TIMEOUT_MS`, is offered again, to be played from its start.
 pub trait SegmentPlayer {
     fn play(&mut self, segment: &Segment, speed: f32) -> Result<(), PlaybackError>;
 }
@@ -594,6 +594,7 @@ mod tests {
         // "a" is offered and playing when the output goes away.
         assert_eq!(q.peek_next(), Some(&seg("a", 1_000)));
         q.hold(5_000);
+        assert_eq!(q.peek_next(), None, "a held queue offers nothing");
 
         assert_eq!(q.resume(5_000 + HOLD_TIMEOUT_MS - 1), 0);
 
