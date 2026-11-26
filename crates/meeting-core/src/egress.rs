@@ -109,15 +109,58 @@ pub enum TransportError {
     Failed,
 }
 
-/// The only thing that touches a network. A real client implements it in the
-/// task that owns the download (M1-04.4, M4-19); tests use `FakeTransport` or
-/// `NetworkOff`. Starting shape: one GET (A-5 of the M1-12 SPEC).
+/// What `GuardedClient` calls to touch a network for a request of any purpose;
+/// tests use `FakeTransport` or `NetworkOff`. Starting shape: one GET (A-5 of
+/// the M1-12 SPEC). The model downloader (M1-04) reads a large body in chunks
+/// and so uses `HttpFetch` below; M1-04.4 decides whether the two seams merge.
 ///
 /// One call is one request to one url. An implementation must not follow a
 /// redirect: it returns the answer, and the caller sends the next hop through
 /// the guard again (ADR 0021), so every hop is checked.
 pub trait Transport {
     fn get(&self, permit: &Permit, url: &str) -> Result<TransportResponse, TransportError>;
+}
+
+/// One request of the model downloader (M1-04). The downloader fills it from the
+/// compiled-in table only: the webview never supplies a url. It carries no
+/// cookie, no credential and no body, so there is no field for them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchRequest {
+    pub url: String,
+    /// Seconds from the start of the request until the secure connection is open.
+    pub connect_timeout_secs: u64,
+    /// Seconds allowed between two received chunks.
+    pub read_timeout_secs: u64,
+}
+
+/// The answer to one request. The caller reads `body` in chunks it chooses and
+/// follows a redirect itself, after it checked `location` with the policy.
+pub struct FetchResponse {
+    pub status: u16,
+    /// The `Location` header of a redirect answer.
+    pub location: Option<String>,
+    pub body: Box<dyn std::io::Read + Send>,
+}
+
+/// Why a fetch gave no answer. A status code is an answer, not an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum FetchError {
+    #[error("the connection failed")]
+    Connection,
+    #[error("the connection timed out")]
+    Timeout,
+}
+
+/// The fetch the model downloader uses: a streaming GET with timeouts, next to
+/// the whole-body `Transport` that `GuardedClient` calls. The real client
+/// (M1-04.4) is built from a `&PrivacyPolicy` and lives in this crate; tests use
+/// a scripted fake. One call is one request to one url, and an implementation
+/// must not follow a redirect (same rule as `Transport`). A caller reaches it
+/// only through the egress checks (https, no meeting session, the policy): M1-04.4
+/// must not hand a real client to code that can skip them. This is the starting
+/// shape; M1-04.4 may extend it.
+pub trait HttpFetch {
+    fn get(&self, request: &FetchRequest) -> Result<FetchResponse, FetchError>;
 }
 
 /// Receives the log event of each refusal.

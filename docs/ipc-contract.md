@@ -44,9 +44,9 @@ in the fixed order `"headphones"`, `"meetingMic"`, `"meetingApp"`, `"routing"`
 | Command | Arguments | Returns | Errors |
 |---|---|---|---|
 | check_setup | none | `SetupStatus` | none |
-| list_models | none | `ModelInfo[]` | NOT_IMPLEMENTED (default build; the demo-data feature returns sample models) |
-| download_model | `{ id, licenceAccepted: boolean }` | nothing | INVALID_INPUT (unknown id, or licence not accepted), NOT_IMPLEMENTED (known id with licence accepted, skeleton) |
-| cancel_model_download | `{ id }` | nothing | INVALID_INPUT (unknown id), NOT_IMPLEMENTED (known id, skeleton) |
+| list_models | none | `ModelInfo[]` | NOT_IMPLEMENTED (default build; the demo-data feature returns sample models). A pack with a running download shows `downloading` |
+| download_model | `{ id, licenceAccepted: boolean }` | nothing | INVALID_INPUT (unknown id; licence not accepted; `Already downloading.`), NOT_IMPLEMENTED (the owner confirmed in the native dialog; the file transfer is not built until M1-04.4) |
+| cancel_model_download | `{ id }` | nothing | INVALID_INPUT (unknown id) |
 | start_meeting | `{ mode: "off" \| "listen" \| "speak" \| "both", meetingAppId: string, checks: { headphonesConfirmed: boolean, meetingMicConfirmed: boolean } }` | `{ meetingId }` | INVALID_INPUT (unknown mode), MEETING_RUNNING, SETUP_INCOMPLETE, START_CHECK_FAILED (a meeting app id that is empty, longer than 64 characters or holds a control character fails the "meeting app chosen" check), NOT_IMPLEMENTED (default build: nothing starts) |
 | stop_meeting | none | `{ meetingId }` | NO_MEETING |
 | set_mute | `{ direction: "out" \| "in", muted }` | nothing | NO_MEETING (no meeting runs), NOT_IMPLEMENTED (a meeting runs; there is no audio path to mute yet, so it never answers Ok) |
@@ -80,14 +80,23 @@ Behaviour rules:
   required and no other key is accepted. Refusals run in this order: an unknown id
   (also `"mic"`, `"SR"`, `""`, or a URL) returns INVALID_INPUT with `Unknown model: <id>.`;
   `licenceAccepted: false` returns INVALID_INPUT with the message
-  `Accept the licence first.`; a known id with the licence accepted returns
-  NOT_IMPLEMENTED until downloads exist. The shell resolves the id against its
+  `Accept the licence first.`; a download of the same pack that is still running
+  returns INVALID_INPUT with `Already downloading.` (`enV` and `viV` share one
+  pack). The licence flag is read on every call and never stored. Only then does
+  the shell show a native dialog that names the model, its source host and its
+  size. A declined or closed dialog returns Ok and changes nothing; the webview
+  flag alone never starts a download. A confirmed download returns
+  NOT_IMPLEMENTED until the file transfer exists (M1-04.4). The call returns when
+  the download has ended or was cancelled, and while it runs `list_models` shows
+  the models of the pack as `downloading`. The shell resolves the id against its
   compiled-in model table and never accepts a URL from the webview (D-52). The UI
   sends `licenceAccepted: true` only after the owner ticked the licence box for
-  that model.
+  that model. The main window holds no `dialog:` permission: only Rust shows the
+  dialog.
 - `cancel_model_download`: `id` rules as for `download_model`. An unknown id returns
-  INVALID_INPUT with `Unknown model: <id>.`; a known id returns NOT_IMPLEMENTED
-  (`Cancelling a model download is not available yet.`) until downloads exist.
+  INVALID_INPUT with `Unknown model: <id>.`. A known id returns Ok: if a download
+  of its pack runs, the transfer stops, the partial file is removed and the waiting
+  `download_model` returns Ok; if none runs, nothing changes.
 - `start_meeting`: `mode` is sent as a string. The shell parses it, so an
   unknown value (also `"Both"`, `""`) returns INVALID_INPUT with a message, never a
   transport error. Refusals run in this order: INVALID_INPUT (mode),

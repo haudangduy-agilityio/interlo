@@ -9,7 +9,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use interlo_desktop::commands::meeting::{apply_mute, begin_meeting, end_meeting, MeetingState};
-use interlo_desktop::commands::models::{request_cancel_download, request_download};
+use interlo_desktop::commands::models::{
+    check_download_request, request_cancel_download, request_download_with,
+};
 use interlo_desktop::commands::settings::validate_setting;
 use interlo_desktop::commands::start_checks::{
     failed_checks, AudioFacts, OutputDevice, StartCheck,
@@ -23,6 +25,7 @@ use interlo_desktop::ipc::{
     MeetingHandle, MeetingMode, MeetingSummary, ModelInfo, Note, SetMuteArgs, SetSettingArgs,
     SetupGroup, SetupStatus, StartMeetingArgs,
 };
+use model_store::DownloadRegistry;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
@@ -288,16 +291,36 @@ fn error_fixtures_equal_the_errors_the_commands_return() {
         fixture("ipc_error_start_check_failed.json")
     );
 
-    let download = request_download("enV", true).unwrap_err();
+    // A confirmed download stops at the downloader stub until M1-04.4 fills it. This line pins
+    // the fixture's shape only; the unit test `a_confirmed_download_still_stops_at_the_missing_downloader`
+    // compares the error of the real flow to the same fixture.
+    let download = IpcError::not_implemented("Model download");
     assert_eq!(
         serialized(&download),
         fixture("ipc_error_not_implemented.json")
     );
 
-    let licence = request_download("enV", false).unwrap_err();
+    let licence = check_download_request("enV", false).unwrap_err();
     assert_eq!(
         serialized(&licence),
         fixture("ipc_error_licence_not_accepted.json")
+    );
+
+    // A pack that is downloading refuses a second download before any dialog.
+    let registry = DownloadRegistry::default();
+    let _running = registry.begin("voice").unwrap();
+    let again = request_download_with(
+        "enV",
+        true,
+        &registry,
+        std::path::Path::new("unused"),
+        |_| panic!("no dialog for a pack that is downloading"),
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert_eq!(
+        serialized(&again),
+        fixture("ipc_error_already_downloading.json")
     );
 
     let invalid = validate_setting("autoDeleteDays", &serde_json::json!(0)).unwrap_err();
@@ -358,22 +381,20 @@ fn download_model_args_fixture_fits_the_rust_arguments() {
     let args: DownloadModelArgs = round_trip("args/download_model.json");
     assert!(args.licence_accepted);
     assert_eq!(
-        request_download(&args.id, args.licence_accepted)
-            .unwrap_err()
-            .code,
-        ErrorCode::NotImplemented
+        check_download_request(&args.id, args.licence_accepted)
+            .unwrap()
+            .id,
+        args.id
     );
 }
 
 #[test]
 fn cancel_model_download_args_fixture_fits_the_rust_arguments() {
     let args: CancelModelDownloadArgs = round_trip("args/cancel_model_download.json");
+    let registry = DownloadRegistry::default();
+    assert_eq!(request_cancel_download(&args.id, &registry), Ok(()));
     assert_eq!(
-        request_cancel_download(&args.id).unwrap_err().code,
-        ErrorCode::NotImplemented
-    );
-    assert_eq!(
-        request_cancel_download("nope").unwrap_err().code,
+        request_cancel_download("nope", &registry).unwrap_err().code,
         ErrorCode::InvalidInput
     );
 }

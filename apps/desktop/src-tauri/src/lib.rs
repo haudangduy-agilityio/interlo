@@ -22,12 +22,17 @@ use commands::meeting::MeetingState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(navigation::guard())
+        // Registered only for the native confirmation (`native_confirm.rs`): the
+        // main window is granted no `dialog:` permission, so the webview cannot
+        // call it.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             first_paint::show_after_delay(app.handle());
             Ok(())
         })
         .manage(MeetingState::default())
         .manage(commands::setup::SetupCheck::default())
+        .manage(model_store::DownloadRegistry::default())
         .invoke_handler(tauri::generate_handler![
             commands::setup::check_setup,
             commands::models::list_models,
