@@ -98,6 +98,7 @@ describe("LiveView states", () => {
         isFinal: true,
         source: "We can ship this on Friday.",
         target: "Chúng ta có thể phát hành vào thứ Sáu.",
+        delayMs: 450,
       },
       nowMs: 9200,
     });

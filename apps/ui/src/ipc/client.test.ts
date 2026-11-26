@@ -180,6 +180,7 @@ describe("events", () => {
       isFinal: true,
       source: "Hello",
       target: "Xin chào",
+      delayMs: 450,
     };
     transport.emit("meeting://caption", event);
     off();

@@ -16,6 +16,8 @@ tauri-build = "2"
 # Sample data for tests, screenshots and demos. Off by default: a default build
 # answers NOT_IMPLEMENTED where a sample would stand in for real data.
 demo-data = []
+# The developer build: it reads a model folder from the environment. Off by default.
+dev-models = []
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -24,10 +26,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 audio-io = { path = "../../../crates/audio-io" }
+engine-host = { path = "../../../crates/engine-host" }
 meeting-core = { path = "../../../crates/meeting-core" }
 model-store = { path = "../../../crates/model-store" }
 playback = { path = "../../../crates/playback" }
 workspace-notes = { path = "../../../crates/workspace-notes" }
+rustix = { version = "1.1", features = ["process"] }
+
+[dev-dependencies]
+engine-host = { path = "../../../crates/engine-host", features = ["mock"] }
+meeting-core = { path = "../../../crates/meeting-core", features = ["test-support"] }
 
 [lints]
 workspace = true

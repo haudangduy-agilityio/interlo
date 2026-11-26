@@ -52,6 +52,7 @@ describe("SessionProvider caption events", () => {
           isFinal: true,
           source: `Line ${n}`,
           target: "",
+          delayMs: 450,
         }),
       );
     return { transport, caption, renders: () => renders };

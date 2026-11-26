@@ -160,25 +160,13 @@ fn the_scan_flags_an_ungated_use_and_accepts_a_gated_one() {
 /// that build is meant to answer with samples (see the second module).
 #[cfg(not(feature = "demo-data"))]
 mod default_build {
-    use std::cell::RefCell;
-
     use interlo_desktop::commands::history::current_meetings;
-    use interlo_desktop::commands::meeting::{apply_mute, start_on_detected_facts, MeetingState};
+    use interlo_desktop::commands::meeting::{apply_mute, MeetingState};
     use interlo_desktop::commands::models::current_models;
     use interlo_desktop::commands::notes::{current_notes, save_note};
     use interlo_desktop::commands::settings::{apply_setting, current_settings};
-    use interlo_desktop::events::{RunState, StatusSink};
-    use interlo_desktop::ipc::{Direction, ErrorCode, SetMuteArgs, StartChecks, StartMeetingArgs};
+    use interlo_desktop::ipc::{Direction, ErrorCode, SetMuteArgs};
     use serde_json::json;
-
-    #[derive(Default)]
-    struct Recorder(RefCell<Vec<RunState>>);
-
-    impl StatusSink for Recorder {
-        fn emit_status(&self, state: RunState) {
-            self.0.borrow_mut().push(state);
-        }
-    }
 
     #[test]
     fn reads_that_stood_on_sample_data_are_not_implemented() {
@@ -218,27 +206,6 @@ mod default_build {
     }
 
     #[test]
-    fn start_meeting_is_not_implemented_and_changes_nothing() {
-        let state = MeetingState::default();
-        let sink = Recorder::default();
-        let args = StartMeetingArgs {
-            mode: "both".to_string(),
-            meeting_app_id: "meeting-app".to_string(),
-            checks: StartChecks {
-                headphones_confirmed: true,
-                meeting_mic_confirmed: true,
-            },
-        };
-        let err = start_on_detected_facts(&state, &args, "m1".to_string(), &sink).unwrap_err();
-        assert_eq!(err.code, ErrorCode::NotImplemented);
-        assert!(!state.is_running());
-        assert!(
-            sink.0.borrow().is_empty(),
-            "no status event for a refused start"
-        );
-    }
-
-    #[test]
     fn mute_without_a_meeting_stays_no_meeting() {
         let args = SetMuteArgs {
             direction: Direction::Out,
@@ -250,6 +217,148 @@ mod default_build {
                 .code,
             ErrorCode::NoMeeting
         );
+    }
+}
+
+/// A default build reads no model folder, so a Start on a computer with every
+/// device names the models.
+#[cfg(not(any(feature = "demo-data", feature = "dev-models")))]
+mod default_start {
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
+    use audio_io::{
+        DeviceInfo, DeviceKind, DeviceListError, DeviceSnapshot, MicConfig, MicPermission,
+        ProbeEnv, Transport,
+    };
+    use engine_host::EngineError;
+    use interlo_desktop::commands::setup::{SetupAnswer, SetupCheck};
+    use interlo_desktop::events::{
+        BannerEvent, CaptionEvent, LatencyEvent, RunState, SessionSink, StatusSink,
+    };
+    use interlo_desktop::ipc::{ErrorCode, StartChecks, StartMeetingArgs};
+    use interlo_desktop::models_dir;
+    use interlo_desktop::session::capture::{Microphone, OpenFailed};
+    use interlo_desktop::session::machine::{LoadedEngines, Machine};
+    use interlo_desktop::session::model_check::ModelCheck;
+    use interlo_desktop::session::policy::shared_policy;
+    use interlo_desktop::session::Session;
+
+    /// Every device a session needs, and a granted microphone.
+    struct Devices;
+
+    impl ProbeEnv for Devices {
+        fn read_devices(&mut self) -> Result<DeviceSnapshot, DeviceListError> {
+            let device = |name: &str, kind, input, output, how| {
+                DeviceInfo::new(name, name, kind)
+                    .with_channels(input, output)
+                    .with_transport(how)
+            };
+            Ok(DeviceSnapshot {
+                devices: vec![
+                    device("Mic", DeviceKind::Microphone, 1, 0, Transport::BuiltIn)
+                        .with_defaults(true, false),
+                    device("V2", DeviceKind::VirtualInput2ch, 2, 2, Transport::Virtual),
+                    device(
+                        "V16",
+                        DeviceKind::VirtualOutput16ch,
+                        16,
+                        16,
+                        Transport::Virtual,
+                    ),
+                    device("Phones", DeviceKind::Headphones, 0, 2, Transport::BuiltIn)
+                        .with_defaults(false, true),
+                ],
+                skipped: 0,
+            })
+        }
+
+        fn probe_microphone(&mut self, _config: &MicConfig) -> MicPermission {
+            MicPermission::Granted
+        }
+
+        fn tap_available(&mut self) -> bool {
+            false
+        }
+    }
+
+    struct Computer(SetupCheck);
+
+    impl Machine for Computer {
+        fn setup(&self, meeting_running: &dyn Fn() -> bool) -> SetupAnswer {
+            self.0.answer(&mut Devices, meeting_running)
+        }
+
+        fn engines(&self, _folder: &Path) -> Result<LoadedEngines, EngineError> {
+            panic!("a default build loads nothing")
+        }
+
+        fn open_microphone(&self, _config: MicConfig) -> Result<Microphone, OpenFailed> {
+            panic!("a default build opens no capture")
+        }
+    }
+
+    /// Counts every event.
+    #[derive(Default)]
+    struct Count(Mutex<u32>);
+
+    impl Count {
+        fn add(&self) {
+            *self.0.lock().unwrap() += 1;
+        }
+    }
+
+    impl StatusSink for Count {
+        fn emit_status(&self, _state: RunState) {
+            self.add();
+        }
+    }
+
+    impl SessionSink for Count {
+        fn emit_caption(&self, _event: CaptionEvent) {
+            self.add();
+        }
+
+        fn emit_latency(&self, _event: LatencyEvent) {
+            self.add();
+        }
+
+        fn emit_banner(&self, _event: BannerEvent) {
+            self.add();
+        }
+    }
+
+    #[test]
+    fn default_build_start_names_the_missing_models() {
+        let models = ModelCheck::launch(
+            models_dir::from_environment(),
+            model_store::packs(),
+            rustix::process::getuid().as_raw(),
+            Box::new(model_store::Sha256Hasher),
+        );
+        let session = Session::new(
+            Box::new(Computer(SetupCheck::default())),
+            models,
+            shared_policy(),
+        );
+        let args = StartMeetingArgs {
+            mode: "speak".to_string(),
+            meeting_app_id: "meeting-app".to_string(),
+            checks: StartChecks {
+                headphones_confirmed: true,
+                meeting_mic_confirmed: true,
+            },
+        };
+        let events = Arc::new(Count::default());
+        let sink: Arc<dyn SessionSink> = events.clone();
+        let error = session.start(&args, "m1".to_string(), sink).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SetupIncomplete);
+        assert_eq!(
+            error.message,
+            "Finish setup first. Not turned on yet: Models."
+        );
+        assert_eq!(*events.0.lock().unwrap(), 0);
+        assert!(!session.is_active());
     }
 }
 

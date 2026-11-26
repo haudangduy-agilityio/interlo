@@ -15,6 +15,8 @@ pub enum ErrorCode {
     MeetingRunning,
     NoMeeting,
     InvalidInput,
+    /// An accepted start could not load the speech engines or open the microphone.
+    StartFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

@@ -13,9 +13,12 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 #[cfg(not(feature = "demo-data"))]
 use tauri::Manager;
 
+#[cfg(not(feature = "demo-data"))]
+use crate::session::Session;
+
 use audio_io::{
-    probe_setup, DeviceListError, DeviceSnapshot, MicConfig, MicPermission, ModelState, ProbeEnv,
-    ProbeGate, SetupItem as ReportItem, SetupItemId as ReportId, SetupReport,
+    probe_setup, DeviceInfo, DeviceListError, DeviceSnapshot, MicConfig, MicPermission, ModelState,
+    ProbeEnv, ProbeGate, SetupItem as ReportItem, SetupItemId as ReportId, SetupReport,
     SetupState as ReportState, SystemEnv,
 };
 
@@ -73,9 +76,19 @@ pub fn status_from_report(report: &SetupReport) -> SetupStatus {
 /// The `mic` detail while a meeting runs and the permission is not known yet.
 const MIC_WAITS_FOR_MEETING: &str = "Microphone check waits until the meeting ends";
 
+/// What one run of the check found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupAnswer {
+    pub status: SetupStatus,
+    /// The microphone was not opened because a meeting ran.
+    pub waited: bool,
+    /// The devices that the run read; empty when they could not be read.
+    pub devices: Vec<DeviceInfo>,
+}
+
 /// One run of the check and the callers that wait for its answer.
 struct Flight {
-    answer: Mutex<Option<SetupStatus>>,
+    answer: Mutex<Option<SetupAnswer>>,
     ready: Condvar,
 }
 
@@ -87,11 +100,11 @@ impl Flight {
         }
     }
 
-    fn wait(&self) -> SetupStatus {
+    fn wait(&self) -> SetupAnswer {
         let mut answer = self.answer.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if let Some(status) = answer.as_ref() {
-                return status.clone();
+            if let Some(found) = answer.as_ref() {
+                return found.clone();
             }
             answer = self
                 .ready
@@ -109,7 +122,7 @@ struct Leader<'a> {
 }
 
 impl Leader<'_> {
-    fn finish(&self, status: SetupStatus) {
+    fn finish(&self, found: SetupAnswer) {
         self.slot
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -118,7 +131,7 @@ impl Leader<'_> {
             .flight
             .answer
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(status);
+            .unwrap_or_else(PoisonError::into_inner) = Some(found);
         self.flight.ready.notify_all();
     }
 }
@@ -132,7 +145,7 @@ impl Drop for Leader<'_> {
             .unwrap_or_else(PoisonError::into_inner)
             .is_some();
         if !finished {
-            self.finish(failed_status());
+            self.finish(failed_answer());
         }
     }
 }
@@ -144,11 +157,16 @@ struct MeetingGuard<'a> {
     inner: &'a mut dyn ProbeEnv,
     meeting_running: &'a dyn Fn() -> bool,
     waited: bool,
+    devices: Vec<DeviceInfo>,
 }
 
 impl ProbeEnv for MeetingGuard<'_> {
     fn read_devices(&mut self) -> Result<DeviceSnapshot, DeviceListError> {
-        self.inner.read_devices()
+        let read = self.inner.read_devices();
+        if let Ok(snapshot) = &read {
+            self.devices.clone_from(&snapshot.devices);
+        }
+        read
     }
     fn probe_microphone(&mut self, config: &MicConfig) -> MicPermission {
         if (self.meeting_running)() {
@@ -178,6 +196,15 @@ impl SetupCheck {
     /// opened: while a meeting runs it is not opened. A call that joins a run in
     /// flight gets that run's answer, whatever its own flag says.
     pub fn run(&self, env: &mut dyn ProbeEnv, meeting_running: &dyn Fn() -> bool) -> SetupStatus {
+        self.answer(env, meeting_running).status
+    }
+
+    /// Like `run`, with what else the run found.
+    pub fn answer(
+        &self,
+        env: &mut dyn ProbeEnv,
+        meeting_running: &dyn Fn() -> bool,
+    ) -> SetupAnswer {
         let (flight, leads) = {
             let mut slot = self.flight.lock().unwrap_or_else(PoisonError::into_inner);
             match slot.as_ref() {
@@ -196,17 +223,18 @@ impl SetupCheck {
             slot: &self.flight,
             flight,
         };
-        let status = self.run_once(env, meeting_running);
-        leader.finish(status.clone());
-        status
+        let found = self.run_once(env, meeting_running);
+        leader.finish(found.clone());
+        found
     }
 
-    fn run_once(&self, env: &mut dyn ProbeEnv, meeting_running: &dyn Fn() -> bool) -> SetupStatus {
+    fn run_once(&self, env: &mut dyn ProbeEnv, meeting_running: &dyn Fn() -> bool) -> SetupAnswer {
         let known = self.granted.load(Ordering::SeqCst);
         let mut guarded = MeetingGuard {
             inner: env,
             meeting_running,
             waited: false,
+            devices: Vec::new(),
         };
         let outcome = probe_setup(&mut guarded, MODELS_NOT_DOWNLOADED, known);
         if outcome.mic_permission == MicPermission::Granted {
@@ -218,7 +246,11 @@ impl SetupCheck {
                 mic.detail = MIC_WAITS_FOR_MEETING.to_string();
             }
         }
-        status
+        SetupAnswer {
+            status,
+            waited: guarded.waited,
+            devices: guarded.devices,
+        }
     }
 
     /// The check on a given system, with the flag of a given meeting state.
@@ -227,8 +259,8 @@ impl SetupCheck {
     }
 
     /// The check on this Mac. Blocks for up to the sum of the probe limits.
-    pub fn run_system(&self, meeting: &MeetingState) -> SetupStatus {
-        self.run_with(&mut SystemEnv::new(self.gate.clone()), meeting)
+    pub fn answer_system(&self, meeting_running: &dyn Fn() -> bool) -> SetupAnswer {
+        self.answer(&mut SystemEnv::new(self.gate.clone()), meeting_running)
     }
 }
 
@@ -247,6 +279,15 @@ pub fn failed_status() -> SetupStatus {
         }
     }
     status_from_report(&probe_setup(&mut Failed, MODELS_NOT_DOWNLOADED, false).report)
+}
+
+/// `failed_status` as the answer of a run.
+pub fn failed_answer() -> SetupAnswer {
+    SetupAnswer {
+        status: failed_status(),
+        waited: false,
+        devices: Vec::new(),
+    }
 }
 
 #[cfg(any(test, feature = "demo-data"))]
@@ -280,17 +321,11 @@ pub fn sample_setup_status() -> SetupStatus {
 
 #[cfg(not(feature = "demo-data"))]
 #[tauri::command]
-pub async fn check_setup(
-    app: tauri::AppHandle,
-    check: tauri::State<'_, SetupCheck>,
-) -> IpcResult<SetupStatus> {
-    let check = check.inner().clone();
+pub async fn check_setup(app: tauri::AppHandle) -> IpcResult<SetupStatus> {
     Ok(
-        tauri::async_runtime::spawn_blocking(move || {
-            check.run_system(&app.state::<MeetingState>())
-        })
-        .await
-        .unwrap_or_else(|_| failed_status()),
+        tauri::async_runtime::spawn_blocking(move || app.state::<Session>().check_setup())
+            .await
+            .unwrap_or_else(|_| failed_status()),
     )
 }
 

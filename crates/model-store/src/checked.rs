@@ -31,6 +31,9 @@ const OPEN_FLAGS: i32 = O_NOFOLLOW | O_NONBLOCK;
 #[cfg(not(target_os = "macos"))]
 const OPEN_FLAGS: i32 = 0;
 
+/// How many bytes one read of the hasher takes.
+const READ_BYTES: usize = 64 * 1024;
+
 /// What a check found about the files of one pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackCheck {
@@ -55,7 +58,19 @@ impl Hasher for Sha256Hasher {
         }
         file.seek(SeekFrom::Start(0))?;
         let mut sha = Sha256::new();
-        let hashed = io::copy(&mut file.take(cap_bytes), &mut sha)?;
+        let mut limited = file.take(cap_bytes);
+        let mut block = [0; READ_BYTES];
+        let mut hashed = 0u64;
+        loop {
+            let count = match limited.read(&mut block) {
+                Ok(0) => break,
+                Ok(count) => count,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            sha.update(&block[..count]);
+            hashed += count as u64;
+        }
         let sha256_hex = sha.finalize().iter().map(|b| format!("{b:02x}")).collect();
         Ok(FileDigest::Hashed {
             len: hashed,
@@ -243,6 +258,19 @@ mod tests {
             FileDigest::Hashed {
                 len: 3,
                 sha256_hex: ABC_SHA256.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn the_hasher_hashes_every_block_of_a_long_file() {
+        // SHA-256 of 150 000 times the byte `a` (computed with `shasum -a 256`).
+        let expected = "1ef149b3d0000b5a74c1d390452b9b5e00bae34d4bef1b52f6b4f65997f0da62";
+        assert_eq!(
+            digest_of(&[b'a'; 150_000], 150_000),
+            FileDigest::Hashed {
+                len: 150_000,
+                sha256_hex: expected.to_string()
             }
         );
     }

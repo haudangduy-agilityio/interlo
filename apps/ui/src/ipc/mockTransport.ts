@@ -261,8 +261,9 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
         isFinal: false,
         source: source.slice(0, 12),
         target: "",
+        delayMs: 320,
       },
-      { lineId: `line_${direction}_1`, direction, isFinal: true, source, target },
+      { lineId: `line_${direction}_1`, direction, isFinal: true, source, target, delayMs: 480 },
     ];
   }
 

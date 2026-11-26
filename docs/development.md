@@ -48,6 +48,36 @@ from a shell is judged as the terminal app (M0b-05 finding 1).
 5. Repeat from step 2 for the other answer. The `mic` row reads `ok`, or `missing` with a
    refused permission; the app keeps running either way.
 
+## Developer build with local models
+
+The feature `dev-models` makes the app read a model folder from the environment, so
+that Start on the Live screen shows captions from the microphone before the model
+download exists. A default build reads no folder. The folder holds `<pack>/<file>`
+as the model table names them.
+
+1. Build the bundle. `--config` turns the bundle on for this one build.
+
+   ```bash
+   cargo tauri build --bundles app --features dev-models --config '{"bundle":{"active":true}}'
+   ```
+
+2. Sign it, with `IDENTITY` set to the local signing identity.
+
+   ```bash
+   codesign --force --deep --sign "$IDENTITY" target/release/bundle/macos/Interlo.app
+   ```
+
+3. Start it through `open`, so that the microphone permission belongs to the app.
+   `MODEL_DIR` is the absolute path of the model folder, `LOG_FILE` receives the
+   error output.
+
+   ```bash
+   open -n target/release/bundle/macos/Interlo.app --env INTERLO_DEV_MODELS_DIR="$MODEL_DIR" --stderr "$LOG_FILE"
+   ```
+
+The gate builds both debug programs and checks that only the developer one holds the
+variable name (`scripts/check-dev-models.sh`).
+
 ## Workflow for a task
 
 1. Find the task in the Task Breakdown (IDs such as M1-08) and read its done check.

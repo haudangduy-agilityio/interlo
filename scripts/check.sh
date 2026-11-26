@@ -179,6 +179,7 @@ run_quick() {
   run_step "gitlab templates" node node scripts/check-templates.mjs
   run_step "gitlab templates self-test" node node --test scripts/check-templates.test.mjs
   run_step "app-check self-test" "" bash scripts/app-check.test.sh
+  run_step "dev-models check self-test" "" bash scripts/check-dev-models.test.sh
 }
 
 # The hook tests guard the agent safety net. A failing suite prints its output.
@@ -197,6 +198,9 @@ run_hook_tests() {
 run_full_extra() {
   run_step "ui build" "npm:build" npm --prefix "$UI_DIR" run build
   run_step "cargo build -p interlo-desktop" cargo cargo build -p interlo-desktop
+  run_step "cargo clippy (dev-models)" cargo-clippy bash scripts/check-dev-models.sh clippy
+  run_step "cargo test (dev-models)" cargo bash scripts/check-dev-models.sh test
+  run_step "model folder variable check" cargo bash scripts/check-dev-models.sh variable
   run_step "hook tests" jq run_hook_tests
 }
 

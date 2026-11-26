@@ -25,7 +25,12 @@ meeting-core --(events)--> apps/desktop (Tauri bridge) --(channels)--> apps/ui
 wire type `ipc::Direction` converts to and from it (ADR 0020). It depends on
 `audio-io` for the readiness probe behind `check_setup` (M1-41): the shell maps the
 report to the IPC status and runs the probe on a blocking thread. Overlapping calls
-share one run, and no microphone is opened while a meeting runs (`MeetingState`).
+share one run, and no microphone is opened while a session runs. It depends on
+`engine-host` for the speech chain, and on `model-store` for the pack check: the
+one session of the app (`src/session/`) refuses or accepts a start, checks and loads
+the speech recognition files, opens the microphone through `audio-io`, hands the
+samples to the chain and records its status in the privacy policy. The sample flow
+of the `demo-data` feature uses `MeetingState` in place of the session.
 
 ## Crates
 
@@ -45,7 +50,7 @@ share one run, and no microphone is opened while a meeting runs (`MeetingState`)
 | updater (planned, M4-15; the code location is decided in that task) | Update check, background download, signature check with the updater's own key, the "Restart to update" state (D-61, ADR 0015) | Background task | Check or download while a meeting runs; restart the app during a meeting; send more than the request for the manifest file; install an update with a wrong signature; open a connection outside the policy-owned client |
 | driver installer (planned, M1; the code location is decided in that task) | One-press install of the virtual audio driver: native confirmation, pinned download, SHA-256 check, administrator prompt, device wait, loopback test (D-69, ADR 0016) | Background task; the shell shows the dialogs | Bundle or redistribute the installer; take a URL from the webview; run an installer that failed its hash; see the administrator password |
 | integration-tests | Cross-crate tests only: capture, journal replay, pipeline, records, settings, delete through both stores | Test threads | Ship code, or hold logic that belongs to a crate |
-| interlo-desktop (apps/desktop/src-tauri) | Tauri bridge: commands for control, channels for streams | Async handlers | Send settings or keys to the webview; allow broad capabilities |
+| interlo-desktop (apps/desktop/src-tauri) | Tauri bridge: commands for control, channels for streams; the one session (start, stop, load, capture, policy status) and the check of the model files at launch | Async handlers; slow session work on blocking threads | Send settings or keys to the webview; allow broad capabilities; load a model file that failed its check; allow a download during a session |
 
 ## Audio adapter boundary
 

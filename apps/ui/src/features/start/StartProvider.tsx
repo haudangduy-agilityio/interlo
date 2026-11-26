@@ -32,7 +32,7 @@ const StartContext = createContext<StartApi | null>(null);
 export function StartProvider({ children }: { children: ReactNode }) {
   const { dispatch } = useAppState();
   const { state: setup, refresh } = useSetupStatus();
-  const { session, start, clearStartFailure } = useSession();
+  const { session, start, stop, clearStartFailure } = useSession();
   const t = useT();
   const startForm = useStartForm();
   const { begin } = startForm;
@@ -69,12 +69,21 @@ export function StartProvider({ children }: { children: ReactNode }) {
     [setup, refresh, toast, t, dispatch, clearStartFailure, begin],
   );
 
-  // A failed start belongs to the dialog that showed it. Closing it forgets the failure.
+  // A failed start belongs to the dialog that showed it. Closing it forgets the failure, and
+  // cancels a start that is still waiting.
   const { close } = startForm;
+  const pending = session.status === "starting";
   const closeDialog = useCallback(() => {
+    if (pending) {
+      stop().catch((e: unknown) => {
+        const error = toUiError(e);
+        // The start ended by itself: there is nothing left to cancel.
+        if (error.code !== "NO_MEETING") toast(error.message, "error");
+      });
+    }
     clearStartFailure();
     close();
-  }, [clearStartFailure, close]);
+  }, [pending, stop, toast, clearStartFailure, close]);
   useEffect(() => clearStartFailure, [clearStartFailure]);
 
   const confirm = async () => {

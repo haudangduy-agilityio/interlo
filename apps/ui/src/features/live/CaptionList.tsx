@@ -1,6 +1,9 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
-import { INCOMING_SOURCE_ID, OUTGOING_SOURCE_ID } from "../../ipc/meetingSession";
-import type { Caption } from "../../protocol";
+import {
+  INCOMING_SOURCE_ID,
+  OUTGOING_SOURCE_ID,
+  type SessionCaption,
+} from "../../ipc/meetingSession";
 import { useT, type MessageKey } from "../../shared/i18n";
 import { Button } from "../../shared/ui";
 
@@ -22,14 +25,20 @@ const SPEAKER_KEY: Record<string, MessageKey> = {
 // still counts as being at the end.
 const AT_BOTTOM_TOLERANCE_PX = 24;
 
-const CaptionRow = memo(function CaptionRow({ caption: c }: { caption: Caption }) {
+/** Shown in the translation column of a final session line that has no translation. */
+const NO_TRANSLATION = "\u2014";
+
+const CaptionRow = memo(function CaptionRow({ caption: c }: { caption: SessionCaption }) {
   const t = useT();
   const speakerKey = SPEAKER_KEY[c.sourceId];
+  const untranslated = c.delayMs !== undefined && c.sourceStatus === "final";
+  const waiting = c.translationStatus ? t(STATUS_KEY[c.translationStatus]) : "…";
   return (
     <li className={`caption caption--${c.sourceStatus}`}>
       <div className="caption__src">
         <span className="caption__meta">
           {formatMs(c.startMs)} · {speakerKey ? t(speakerKey) : c.sourceId}
+          {c.delayMs === undefined ? null : ` · ${t("caption.delay", { ms: c.delayMs })}`}
         </span>
         <span>{c.sourceText}</span>
         {c.sourceStatus !== "final" && (
@@ -40,9 +49,7 @@ const CaptionRow = memo(function CaptionRow({ caption: c }: { caption: Caption }
         {c.targetText !== null ? (
           <span>{c.targetText}</span>
         ) : (
-          <span className="muted">
-            {c.translationStatus ? t(STATUS_KEY[c.translationStatus]) : "…"}
-          </span>
+          <span className="muted">{untranslated ? NO_TRANSLATION : waiting}</span>
         )}
       </div>
     </li>
@@ -59,7 +66,7 @@ const CaptionRow = memo(function CaptionRow({ caption: c }: { caption: Caption }
  * update; the reader moves through it). While the reader is at the end, new lines scroll into
  * view. After the reader scrolls up, the list stays where it is and a "Latest" button appears.
  */
-export function CaptionList({ captions }: { captions: readonly Caption[] }) {
+export function CaptionList({ captions }: { captions: readonly SessionCaption[] }) {
   const t = useT();
   const logRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);

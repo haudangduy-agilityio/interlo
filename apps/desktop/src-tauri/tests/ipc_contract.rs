@@ -174,6 +174,13 @@ fn caption_event_round_trips() {
 }
 
 #[test]
+fn a_caption_without_its_delay_does_not_fit_the_event() {
+    let mut value = fixture("events/caption.json");
+    value.as_object_mut().unwrap().remove("delayMs");
+    assert!(serde_json::from_value::<CaptionEvent>(value).is_err());
+}
+
+#[test]
 fn latency_event_round_trips() {
     let event: LatencyEvent = round_trip("events/latency.json");
     assert_eq!((event.p50_ms, event.p95_ms), (820, 1450));
@@ -230,6 +237,7 @@ fn every_error_code_has_a_fixture() {
         ("ipc_error_meeting_running.json", ErrorCode::MeetingRunning),
         ("ipc_error_no_meeting.json", ErrorCode::NoMeeting),
         ("ipc_error_invalid_input.json", ErrorCode::InvalidInput),
+        ("ipc_error_start_failed.json", ErrorCode::StartFailed),
         (
             "ipc_error_start_check_failed.json",
             ErrorCode::StartCheckFailed,
@@ -314,6 +322,7 @@ fn error_fixtures_equal_the_errors_the_commands_return() {
         true,
         &registry,
         std::path::Path::new("unused"),
+        &|| false,
         |_| panic!("no dialog for a pack that is downloading"),
         |_| Ok(()),
     )

@@ -23,6 +23,7 @@ const partial: CaptionEvent = {
   isFinal: false,
   source: "We can",
   target: "",
+  delayMs: 300,
 };
 
 describe("sessionReducer", () => {
@@ -38,6 +39,7 @@ describe("sessionReducer", () => {
         targetText: null,
         targetLanguage: null,
         translationStatus: "pending",
+        delayMs: 300,
       },
     ]);
     const second = sessionReducer(first, {
@@ -90,6 +92,7 @@ describe("sessionReducer caption cap", () => {
     isFinal: true,
     source: `Line ${n}`,
     target: "",
+    delayMs: 300,
   });
 
   it("keeps the latest 60 lines after 100 events", () => {
@@ -133,6 +136,7 @@ describe("sessionReducer late update for an evicted line", () => {
     isFinal: false,
     source,
     target: "",
+    delayMs: 300,
   });
   const feed = (state: SessionState, from: number, to: number): SessionState => {
     let next = state;
@@ -198,6 +202,7 @@ describe("latestIncomingCaption", () => {
       isFinal: true,
       source: id,
       target: "",
+      delayMs: 300,
     });
     let state = running;
     expect(latestIncomingCaption(state.captions)).toBeNull();

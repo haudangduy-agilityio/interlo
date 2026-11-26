@@ -56,6 +56,8 @@ export function SessionProvider({
   // once per animation frame, so the screen renders once per frame, not once per event.
   const buffered = useRef<{ event: CaptionEvent; nowMs: number }[]>([]);
   const frame = useRef<number | null>(null);
+  // Counts the starts and the stops, so the answer of an overtaken start is known.
+  const attempt = useRef(0);
 
   const flush = useCallback(() => {
     frame.current = null;
@@ -95,7 +97,11 @@ export function SessionProvider({
       // A new meeting starts with no lines, so captions still waiting from the last one are dropped.
       buffered.current = [];
       dispatch({ type: "startRequested" });
+      const mine = (attempt.current += 1);
       const outcome = await requestStart(client, args);
+      // A stop or a newer start came first. This answer stays open for good, so no screen
+      // acts on it.
+      if (mine !== attempt.current) return new Promise<StartOutcome>(() => {});
       if (outcome.kind === "started")
         dispatch({ type: "started", meetingId: outcome.meetingId, nowMs: clock.now() });
       else dispatch({ type: "startFailed", failure: outcome });
@@ -105,6 +111,7 @@ export function SessionProvider({
   );
 
   const stop = useCallback(async () => {
+    attempt.current += 1;
     flush();
     dispatch({ type: "status", state: "stopping" });
     try {
