@@ -20,8 +20,8 @@ const MAX_TEXT_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(crate) const CONFIG_FILE: &str = "config.json";
 pub(crate) const TOKENIZER_FILE: &str = "tokenizer.json";
-pub(crate) const ENCODER_FILE: &str = "encoder.onnx";
-pub(crate) const DECODER_FILE: &str = "decoder.onnx";
+const ENCODER_FILE: &str = "encoder.onnx";
+const DECODER_FILE: &str = "decoder.onnx";
 /// Threads of each session: a starting value (measured in the spike); M1-26 may
 /// tune it.
 const INTRA_OP_THREADS: usize = 4;
@@ -245,8 +245,9 @@ pub(crate) fn take(
     outputs.remove(name).ok_or_else(|| run_failed(label, what))
 }
 
-/// What one decoder step feeds and stores.
-#[derive(Debug, PartialEq, Eq)]
+/// What one decoder step feeds and stores. Only tests compare and print it: the
+/// ids decode to text.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 enum Pass<'p> {
     /// The whole prefix with empty past tensors; nothing is stored.
     Whole(&'p [i64]),

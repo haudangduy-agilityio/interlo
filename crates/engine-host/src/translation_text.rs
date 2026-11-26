@@ -4,8 +4,8 @@
 use crate::error::EngineError;
 use crate::onnx_seq2seq::{compose, TOKENIZER_FILE};
 
-/// The start of the error texts about the model; a file error starts with the
-/// file name.
+/// The start of the error texts about the model; a text file error names the
+/// file instead.
 pub(crate) const LABEL: &str = "translation model";
 /// The marks that end a sentence when white space follows them.
 const SENTENCE_MARKS: [char; 4] = ['.', '?', '!', '\u{2026}'];
@@ -58,7 +58,8 @@ fn capitalise_sentence_starts(text: &str) -> String {
 /// holds the word `Precompiled`, and an object there that does not close, are
 /// errors. Every other text is returned unchanged. This is no guard against a
 /// hostile file (a second key or an escaped spelling gets past it, and the
-/// library may then panic): the model manager checks the file before it loads.
+/// library may then panic): the caller must pass files that the model manager
+/// has verified.
 pub(crate) fn repair_tokenizer_text(text: &str) -> Result<String, EngineError> {
     let unsupported =
         || EngineError::Backend(format!("{TOKENIZER_FILE} has an unsupported normalizer"));
@@ -68,7 +69,8 @@ pub(crate) fn repair_tokenizer_text(text: &str) -> Result<String, EngineError> {
     let rest = &text[start..];
     let length = match rest.bytes().next() {
         Some(b'{') => container_length(rest).ok_or_else(unsupported)?,
-        // A list or a string that does not close is left to the library.
+        // A list or a string that does not close runs to the end of the text,
+        // so the word check below reads all of it.
         Some(b'[') => container_length(rest).unwrap_or(rest.len()),
         Some(b'"') => string_end(rest.as_bytes(), 0).unwrap_or(rest.len()),
         _ => return Ok(text.to_string()),
@@ -248,10 +250,15 @@ mod tests {
         .iter()
         .map(|normalizer| normalizer_first(normalizer))
         .collect();
-        // A compiled normalizer that does not close.
-        refused.push(
-            r#"{"version":"1.0","normalizer":{"type":"Precompiled","precompiled_charsmap":null"#
-                .to_string(),
+        // A compiled normalizer in a value that does not close: an object, a
+        // list and a string.
+        refused.extend(
+            [
+                r#"{"version":"1.0","normalizer":{"type":"Precompiled","precompiled_charsmap":null"#,
+                r#"{"version":"1.0","normalizer":[{"type":"Precompiled","precompiled_charsmap":null}"#,
+                r#"{"version":"1.0","normalizer":"Precompiled"#,
+            ]
+            .map(str::to_string),
         );
         for text in refused {
             let error = error_text(repair_tokenizer_text(&text));
@@ -271,6 +278,8 @@ mod tests {
         .collect();
         // No normalizer key; the vocabulary entry of that name stays.
         texts.push(format!("{HEAD}\n{MODEL}}}"));
+        // A list that does not close and holds no compiled normalizer.
+        texts.push(r#"{"version":"1.0","normalizer":[{"type":"NFC"}"#.to_string());
         for text in texts {
             assert_eq!(repair_tokenizer_text(&text), Ok(text.clone()));
         }

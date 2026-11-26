@@ -67,6 +67,12 @@ unsafe impl GlobalAlloc for ThreadBytes {
         unsafe { System.alloc(layout) }
     }
 
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        count(layout.size() as isize);
+        // The caller gives the same guarantees as for the system allocator.
+        unsafe { System.alloc_zeroed(layout) }
+    }
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         count(-(layout.size() as isize));
         // The pointer and layout come from `System` through this allocator.

@@ -33,8 +33,8 @@ use ort::value::{DynValue, Tensor};
 use std::path::Path;
 use tokenizers::Tokenizer;
 
-/// The start of the error texts about the model; a file error starts with the
-/// file name.
+/// The start of the error texts about the model; a text file error names the
+/// file instead.
 const LABEL: &str = "recognition model";
 /// Names of the prompt tokens after the start token, in order: language, task,
 /// no time stamps.
@@ -120,7 +120,8 @@ impl OnnxRecognizer {
             .encoder
             .run(vec![("input_features", input)])
             .map_err(|_| run_failed("encoder run"))?;
-        // The error text names the decoder for this output; it stays as it was.
+        // The recognition error texts are fixed, so this encoder output is
+        // reported as a decoder output.
         take(LABEL, "decoder output", &mut outputs, "last_hidden_state")
     }
 

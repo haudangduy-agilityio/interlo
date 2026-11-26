@@ -171,13 +171,16 @@ impl OnnxTranslator {
     /// on a worker thread, never in an audio callback.
     pub fn open(dir: &Path) -> Result<Self, EngineError> {
         let sizes = translation_sizes(&read_text_file(&dir.join(CONFIG_FILE))?)?;
-        let text = repair_tokenizer_text(&read_text_file(&dir.join(TOKENIZER_FILE))?)?;
-        let tokenizer = parse_tokenizer(&text)?;
+        // Built before the sessions load: the copy that `without_word_cache`
+        // makes and the file text are gone before the large allocations.
+        let tokenizer = without_word_cache(parse_tokenizer(&repair_tokenizer_text(
+            &read_text_file(&dir.join(TOKENIZER_FILE))?,
+        )?)?);
         let (encoder, decoder) = load_sessions(LABEL, dir)?;
         Ok(Self {
             encoder,
             decoder,
-            tokenizer: without_word_cache(tokenizer),
+            tokenizer,
             slots: cache_slots(sizes.shape.layers),
             sizes,
             use_cache: true,
