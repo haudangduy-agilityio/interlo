@@ -5,7 +5,8 @@
 
 use engine_host::{segment, Piece, Segmenter};
 use playback::{
-    Direction, PlaybackQueue, Segment, SegmentState, HOLD_TIMEOUT_MS, MAX_SPEED_FACTOR,
+    Direction, PlaybackError, PlaybackQueue, Segment, SegmentPlayer, SegmentState, HOLD_TIMEOUT_MS,
+    MAX_SPEED_FACTOR,
 };
 
 /// Turn each segmenter output into a queue segment. The id is its position, so
@@ -57,6 +58,59 @@ fn segment_order_is_kept_from_segmenter_to_playback() {
         .map(|s| s.segment_id)
         .collect();
     assert_eq!(played, ["seg_0", "seg_1", "seg_2", "seg_3", "seg_4"]);
+}
+
+/// Records the ids it played and fails the one call named by `failing_call`.
+struct RecordingPlayer {
+    failing_call: usize,
+    calls: usize,
+    played: Vec<String>,
+}
+
+impl SegmentPlayer for RecordingPlayer {
+    fn play(&mut self, segment: &Segment, _speed: f32) -> Result<(), PlaybackError> {
+        self.calls += 1;
+        if self.calls == self.failing_call {
+            return Err(PlaybackError::NotImplemented);
+        }
+        self.played.push(segment.segment_id.clone());
+        Ok(())
+    }
+}
+
+#[test]
+fn ten_back_to_back_sentences_play_in_order_with_none_missing() {
+    let segments = to_segments(&sentence_pieces(10, 1_000));
+    assert_eq!(segments.len(), 10);
+    let mut queue = PlaybackQueue::new();
+    let mut player = RecordingPlayer {
+        failing_call: 4,
+        calls: 0,
+        played: Vec::new(),
+    };
+    let mut failures = 0;
+
+    // Sentences arrive twice as often as the player takes one.
+    for (index, segment) in segments.into_iter().enumerate() {
+        assert!(queue.enqueue(segment).unwrap());
+        if index % 2 == 1 {
+            failures += usize::from(queue.play_next(&mut player).is_err());
+        }
+    }
+    // Bounded, so a queue that never empties fails the test instead of hanging.
+    for _ in 0..20 {
+        failures += usize::from(queue.play_next(&mut player).is_err());
+    }
+
+    let expected: Vec<String> = (0..10).map(|i| format!("seg_{i}")).collect();
+    assert_eq!(player.played, expected);
+    assert_eq!(failures, 1);
+    assert_eq!(player.calls, 11);
+    for id in &expected {
+        assert_eq!(queue.state(id), Some(SegmentState::Played), "{id}");
+    }
+    assert!(queue.is_empty());
+    assert_eq!(queue.backlog_ms(), 0);
 }
 
 #[test]

@@ -82,8 +82,10 @@ CaptureSource (process tap, 2ch virtual device, later others)
   variant and one line in `capture_plan`. The engine and the playback queue do
   not change.
 - **Playback side.** `SegmentPlayer` stays in `playback`; it carries no samples
-  and `playback` has no audio backend. A player that writes to an `AudioOutput`
-  is the next step (M1-08, M1-12).
+  and `playback` has no audio backend. A player returns `Ok` only after it took
+  the whole sentence; after an error or a hold under 30 s the queue offers the
+  same sentence again, to be played from its start. A player that writes to an
+  `AudioOutput` is the next step (M1-08, M1-12).
 - `crates/audio-io/tests/adapter_boundary.rs` swaps fake sources and sinks
   behind the two traits and checks the chain output on a fixture.
 
