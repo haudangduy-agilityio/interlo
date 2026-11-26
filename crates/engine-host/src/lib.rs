@@ -9,6 +9,7 @@
 
 pub mod error;
 pub mod language_gate;
+pub mod live_chain;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 pub mod onnx_asr;
@@ -18,6 +19,7 @@ pub mod segmenter;
 pub mod speech_events;
 pub mod speech_features;
 pub mod traits;
+pub mod utterance;
 
 pub use error::{DenyCause, EngineError};
 pub use language_gate::owner_should_translate;

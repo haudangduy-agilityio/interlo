@@ -1,8 +1,11 @@
 //! The compiled-in model table (ADR 0006, ADR 0012, D-52, D-60).
 //!
 //! This is the only place that names where a model comes from. The webview, the
-//! settings and the environment never supply a url, a host, a path or a checksum:
-//! the shell resolves a model id against `ENTRIES` and nothing else.
+//! settings and the environment never supply a url, a host or a checksum: the
+//! shell resolves a model id against `ENTRIES` and nothing else. They supply no
+//! path to a default build either. The developer build of the desktop program is
+//! the one exception: it reads one model folder from the environment and looks
+//! there for the files of this table, with the names, sizes and checksums below.
 //!
 //! The url strings and the pinned host list below contain the names of the model
 //! sources. Guardrail 3 allows that in this file only, and only in those two

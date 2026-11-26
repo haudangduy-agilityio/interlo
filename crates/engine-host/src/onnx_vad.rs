@@ -217,6 +217,11 @@ impl Vad for OnnxVad {
         let probability = self.probability(frame)?;
         Ok(is_speech_probability(probability, self.threshold))
     }
+
+    fn reset(&mut self) {
+        // The inherent method of the adapter, which this path names first.
+        OnnxVad::reset(self);
+    }
 }
 
 #[cfg(test)]
