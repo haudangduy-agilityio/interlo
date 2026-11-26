@@ -70,7 +70,7 @@ impl Clock for MonotonicClock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Caption {
     /// A number that no other caption of this program run has.
-    pub line: u64,
+    pub line_id: u64,
     pub text: String,
     /// From the end of speech (or the cut) to the text.
     pub delay_ms: u64,
@@ -132,6 +132,13 @@ impl Engines {
             policy,
         })
     }
+
+    /// True once a call of the detector or the recognizer panicked. The caller
+    /// then drops these engines and loads new ones. A panic in a call that
+    /// outlives its session sends no `ended`, so ask before a new session.
+    pub fn is_broken(&self) -> bool {
+        self.detector.is_poisoned() || self.recognizer.is_poisoned()
+    }
 }
 
 impl std::fmt::Debug for Engines {
@@ -140,10 +147,16 @@ impl std::fmt::Debug for Engines {
     }
 }
 
-/// A poisoned lock still holds usable data here: a panic ends the session, and
-/// the caller drops the engines of that session.
+/// The gate and the queue of a session stay usable after a panic: it ends that
+/// session. The engine locks are different, see `engine`.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The lock of one engine. A poisoned lock means that a call of this engine
+/// panicked: no session uses it again.
+fn engine(registry: &Mutex<EngineRegistry>) -> Result<MutexGuard<'_, EngineRegistry>, ChainEnd> {
+    registry.lock().map_err(|_| ChainEnd::Failed)
 }
 
 fn read(policy: &RwLock<PrivacyPolicy>) -> RwLockReadGuard<'_, PrivacyPolicy> {
@@ -248,15 +261,13 @@ fn read_stream(
     started_ms: u64,
 ) -> Result<(), ChainEnd> {
     {
-        let mut registry = lock(&engines.detector);
+        let mut registry = engine(&engines.detector)?;
         if shared.is_closed() {
             return Ok(());
         }
-        let rules = read(&engines.policy);
-        registry
-            .get_vad(&rules)
-            .map_err(|_| ChainEnd::Failed)?
-            .reset();
+        // The policy lock is free again before the engine runs.
+        let vad = registry.get_vad(&read(&engines.policy));
+        vad.map_err(|_| ChainEnd::Failed)?.reset();
     }
     let mut detector = SpeechDetector::new(SpeechConfig::default());
     let mut spans = SpanBuilder::new();
@@ -283,7 +294,7 @@ fn read_stream(
         let framed = frames.len() * FRAME_SAMPLES;
         for frame in frames {
             let event = {
-                let mut registry = lock(&engines.detector);
+                let mut registry = engine(&engines.detector)?;
                 // A closed session leaves the detector to the next session.
                 if shared.is_closed() {
                     return Ok(());
@@ -308,31 +319,45 @@ fn read_stream(
     Ok(())
 }
 
-/// The text of one span, with the retry of FR-66. `None`: both calls failed, or
-/// the session closed.
-fn recognize(shared: &Shared, engines: &Engines, samples: &[f32]) -> Option<String> {
+/// The text of one span, with the retry of FR-66. `Ok(None)`: both calls
+/// failed, or the session closed.
+fn recognize(
+    shared: &Shared,
+    engines: &Engines,
+    samples: &[f32],
+) -> Result<Option<String>, ChainEnd> {
     for _ in 0..RECOGNITION_ATTEMPTS {
         // A session that starts after a stop waits here for the old call.
-        let mut registry = lock(&engines.recognizer);
+        let mut registry = engine(&engines.recognizer)?;
         if shared.is_closed() {
-            return None;
+            return Ok(None);
         }
         // The policy lock is free again before the engine runs.
         let recognizer = registry.get_recognizer(&read(&engines.policy));
-        if let Ok(recognition) = recognizer.and_then(|engine| engine.recognize(samples)) {
-            return Some(recognition.text);
+        if let Ok(recognition) = recognizer.and_then(|found| found.recognize(samples)) {
+            return Ok(Some(recognition.text));
         }
     }
-    None
+    Ok(None)
+}
+
+/// Counts one span as done when it drops, also when its call panics.
+struct Done<'a>(&'a AtomicUsize);
+
+impl Drop for Done<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// The recognition thread: spans to captions, in order.
-fn recognize_spans(shared: &Shared, engines: &Engines, clock: &dyn Clock) {
+fn recognize_spans(shared: &Shared, engines: &Engines, clock: &dyn Clock) -> Result<(), ChainEnd> {
     /// Line numbers of the whole program run.
     static NEXT_LINE: AtomicU64 = AtomicU64::new(1);
     let mut delays: Vec<u64> = Vec::new();
     while let Some(Waiting { span, ended_ms }) = shared.next() {
-        let text = recognize(shared, engines, &span.samples);
+        let _done = Done(&shared.pending);
+        let text = recognize(shared, engines, &span.samples)?;
         let delay_ms = clock.now_ms().saturating_sub(ended_ms);
         // The audio of the span is not needed after its call.
         drop(span);
@@ -348,7 +373,7 @@ fn recognize_spans(shared: &Shared, engines: &Engines, clock: &dyn Clock) {
                 };
                 shared.send(|sink| {
                     sink.caption(Caption {
-                        line: NEXT_LINE.fetch_add(1, Ordering::Relaxed),
+                        line_id: NEXT_LINE.fetch_add(1, Ordering::Relaxed),
                         text,
                         delay_ms,
                     });
@@ -356,8 +381,8 @@ fn recognize_spans(shared: &Shared, engines: &Engines, clock: &dyn Clock) {
                 });
             }
         }
-        shared.pending.fetch_sub(1, Ordering::SeqCst);
     }
+    Ok(())
 }
 
 /// Run one worker; a panic ends the session instead of the program.
@@ -404,8 +429,7 @@ impl LiveChain {
         let recognizer_clock = Arc::clone(&clock);
         spawn("live-recognizer", move || {
             guarded(&shared, || {
-                recognize_spans(&shared, &recognizer_engines, recognizer_clock.as_ref());
-                Ok(())
+                recognize_spans(&shared, &recognizer_engines, recognizer_clock.as_ref())
             });
         })?;
         let shared = Arc::clone(&chain.shared);
@@ -431,6 +455,8 @@ impl LiveChain {
 }
 
 impl Drop for LiveChain {
+    /// Does not wait for a sink call that runs now: call `stop` first when
+    /// nothing may follow.
     fn drop(&mut self) {
         // No gate lock here: a drop inside a sink call must not block.
         self.shared.closed.store(true, Ordering::SeqCst);
@@ -540,10 +566,14 @@ mod tests {
 
     struct FeedSource(Feed);
 
+    /// The most samples that one read of the test source gives. Not a multiple
+    /// of a frame, so most reads end in the middle of one.
+    const FEED_READ: usize = 700;
+
     impl FrameSource for FeedSource {
         fn read(&mut self, out: &mut [f32]) -> usize {
             let mut state = self.0 .0.lock().unwrap();
-            let count = out.len().min(state.waiting.len());
+            let count = out.len().min(state.waiting.len()).min(FEED_READ);
             for slot in &mut out[..count] {
                 *slot = state.waiting.pop_front().unwrap_or_default();
             }
@@ -830,7 +860,7 @@ mod tests {
         let mut lines: Vec<u64> = captions
             .iter()
             .chain(later.captions().iter())
-            .map(|c| c.line)
+            .map(|c| c.line_id)
             .collect();
         assert_eq!(lines.len(), 3);
         lines.sort_unstable();
@@ -846,16 +876,22 @@ mod tests {
             feed.push(&utterance(level, 10));
         }
         // The first call is held: the reader still reads every sample.
-        let held = rig.next_call();
-        assert_eq!(held.level, 1.0);
+        // Lead-in and 10 frames of speech: no sample is lost between reads.
+        let whole = |level| Call {
+            level,
+            samples: 8_192,
+        };
+        assert_eq!(rig.next_call(), whole(1.0));
         feed.settle(2);
         until("three spans wait", || chain.pending_spans() == 3);
         assert_eq!(rig.recognizer_calls.load(Ordering::SeqCst), 1);
         assert_eq!(sink.all(), []);
 
         rig.answer(Reply::Text("một"));
-        rig.answer_next(2.0, Reply::Text("hai"));
-        rig.answer_next(3.0, Reply::Text("ba"));
+        for (level, text) in [(2.0, "hai"), (3.0, "ba")] {
+            assert_eq!(rig.next_call(), whole(level));
+            rig.answer(Reply::Text(text));
+        }
         sink.wait_for(6);
         chain.stop();
         assert_eq!(
@@ -885,11 +921,14 @@ mod tests {
         rig.answer(Reply::Text("hai"));
         sink.wait_for(4);
 
-        // A forced cut: the time counts from the cut, while speech goes on.
+        // A forced cut: the time counts from the cut, not from the start of the
+        // span, while speech goes on.
+        let mut speech = vec![0.0; 10 * FRAME_SAMPLES];
+        speech.extend(vec![3.0; 100 * FRAME_SAMPLES]);
+        feed.push(&speech);
+        feed.settle(2);
         rig.clock.set(5_000);
-        let mut long = vec![0.0; 10 * FRAME_SAMPLES];
-        long.extend(vec![3.0; 480 * FRAME_SAMPLES]);
-        feed.push(&long);
+        feed.push(&vec![3.0; 380 * FRAME_SAMPLES]);
         let cut = rig.next_call();
         assert_eq!((cut.level, cut.samples), (3.0, 240_000));
         rig.clock.set(5_600);
@@ -909,7 +948,8 @@ mod tests {
     fn latency_uses_nearest_rank_over_the_session() {
         let rig = Rig::new();
         let (chain, feed, sink) = rig.session();
-        for (index, delay) in [100_u64, 200, 300, 400].into_iter().enumerate() {
+        // Not in rising order: the percentiles are taken over sorted delays.
+        for (index, delay) in [400_u64, 100, 300, 200].into_iter().enumerate() {
             let base = 1_000 * (index as u64 + 1);
             rig.clock.set(base);
             feed.push(&utterance(1.0, 10));
@@ -921,7 +961,7 @@ mod tests {
         chain.stop();
         assert_eq!(
             sink.latencies(),
-            [(100, 100), (100, 200), (200, 300), (200, 400)]
+            [(400, 400), (100, 400), (300, 400), (200, 400)]
         );
 
         let (chain, feed, later) = rig.session();
@@ -1051,6 +1091,8 @@ mod tests {
         rig.answer_next(3.0, Reply::Text("mới"));
         next_sink.wait_for(2);
         next.stop();
+        // The old thread has passed its chance to send.
+        until("the old call is done", || chain.pending_spans() == 0);
         assert_eq!(sink.all(), [], "nothing follows a stop");
         assert_eq!(next_sink.captions()[0].text, "mới");
     }
@@ -1058,13 +1100,18 @@ mod tests {
     #[test]
     fn lost_source_ends_the_chain_at_the_next_check() {
         let rig = Rig::new();
+        // The checks count from the start of the session: 1300, 1500, ...
+        rig.clock.set(1_100);
         let (_chain, feed, sink) = rig.session();
         feed.settle(2);
+        // A check that finds no failure.
+        rig.clock.set(1_100 + CAPTURE_CHECK_MS);
+        feed.settle(3);
         feed.fail();
-        rig.clock.set(CAPTURE_CHECK_MS - 1);
+        rig.clock.set(1_099 + 2 * CAPTURE_CHECK_MS);
         feed.settle(3);
         assert_eq!(sink.all(), [], "the check is not due yet");
-        rig.clock.set(CAPTURE_CHECK_MS);
+        rig.clock.set(1_100 + 2 * CAPTURE_CHECK_MS);
         assert_eq!(sink.wait_for(1), [Sent::Ended(ChainEnd::SourceLost)]);
         until("the source is released", || feed.released());
         assert_eq!(CAPTURE_CHECK_MS, 200);
@@ -1088,14 +1135,52 @@ mod tests {
     }
 
     #[test]
+    fn a_panic_after_stop_marks_the_engines_broken() {
+        // The recognizer panics in a call that outlives its session.
+        let rig = Rig::new();
+        let (chain, feed, sink) = rig.session();
+        feed.push(&utterance(1.0, 10));
+        assert_eq!(rig.next_call().level, 1.0);
+        chain.stop();
+        assert!(!rig.engines.is_broken());
+        rig.answer(Reply::Panic);
+        until("the engines are broken", || rig.engines.is_broken());
+        assert_eq!(sink.all(), [], "nothing follows a stop");
+
+        // The next session on these engines ends at its first span.
+        let (_next, feed, later) = rig.session();
+        feed.push(&utterance(2.0, 10));
+        assert_eq!(later.wait_for(1), [Sent::Ended(ChainEnd::Failed)]);
+        assert_eq!(rig.recognizer_calls.load(Ordering::SeqCst), 1);
+
+        // After a detector panic, a session ends before its first frame.
+        let rig = Rig::new();
+        let (_chain, feed, sink) = rig.session();
+        *rig.detector.lock().unwrap() = Detector::Panic;
+        feed.push(&vec![0.0; FRAME_SAMPLES]);
+        assert_eq!(sink.wait_for(1), [Sent::Ended(ChainEnd::Failed)]);
+        assert!(rig.engines.is_broken());
+        *rig.detector.lock().unwrap() = Detector::Work;
+        let seen = rig.detector_calls.lock().unwrap().len();
+        let (_next, _feed, later) = rig.session();
+        assert_eq!(later.wait_for(1), [Sent::Ended(ChainEnd::Failed)]);
+        assert_eq!(
+            rig.detector_calls.lock().unwrap().len(),
+            seen,
+            "a broken detector is not called"
+        );
+    }
+
+    #[test]
     fn a_panic_in_a_worker_ends_the_chain_not_the_process() {
         // The recognizer panics.
         let rig = Rig::new();
-        let (_chain, feed, sink) = rig.session();
+        let (chain, feed, sink) = rig.session();
         feed.push(&utterance(1.0, 10));
         rig.answer_next(1.0, Reply::Panic);
         assert_eq!(sink.wait_for(1), [Sent::Ended(ChainEnd::Failed)]);
         until("the source is released", || feed.released());
+        until("no span waits", || chain.pending_spans() == 0);
 
         // The detector panics.
         let rig = Rig::new();

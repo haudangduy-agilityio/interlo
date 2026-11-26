@@ -4,28 +4,28 @@
 //! the start of the stream, as the speech events do.
 
 use crate::speech_events::{SpeechEvent, FRAME_SAMPLES};
+use crate::speech_features::MIN_SPAN_SAMPLES;
 
 /// Samples before the start of speech that a span also holds: 192 ms at 16 kHz.
 /// Starting value: M1-26 may tune it.
 pub const LEAD_IN_SAMPLES: usize = 3_072;
-/// A span that reaches this length is cut: 15 s at 16 kHz. Starting value.
-pub const MAX_SPAN_SAMPLES: usize = 240_000;
-/// A shorter span is dropped: the recognizer takes 0.1 s at least.
-pub const MIN_SPAN_SAMPLES: usize = 1_600;
+/// A span that reaches this length is cut: 15 s at 16 kHz, under the most that
+/// the recognizer takes. Starting value.
+pub const CUT_SPAN_SAMPLES: usize = 240_000;
 
 /// The samples of one piece of speech.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
-    /// Position of the first sample.
-    pub start_sample: u64,
     pub samples: Vec<f32>,
     /// True when the length limit cut the span, not an end of speech.
     pub forced: bool,
 }
 
-/// Samples kept while no span is open: the lead-in, and the frames that the
-/// detector reads before it confirms a start (32 frames, about 1 s).
-const HISTORY_SAMPLES: usize = LEAD_IN_SAMPLES + 32 * FRAME_SAMPLES;
+/// The most frames that the detector may read after a start before it reports
+/// it: about 1 s.
+const START_MARGIN_FRAMES: usize = 32;
+/// Samples kept while no span is open: the lead-in and the start margin.
+const HISTORY_SAMPLES: usize = LEAD_IN_SAMPLES + START_MARGIN_FRAMES * FRAME_SAMPLES;
 
 /// Builds spans from the frames of one stream and the events of its detector.
 #[derive(Debug, Default)]
@@ -79,8 +79,8 @@ impl SpanBuilder {
     /// Cut every full length between `from` and `to`. Returns where the rest
     /// begins.
     fn cut_full_spans(&mut self, mut from: u64, to: u64, spans: &mut Vec<Span>) -> u64 {
-        while to.saturating_sub(from) >= MAX_SPAN_SAMPLES as u64 {
-            let end = from + MAX_SPAN_SAMPLES as u64;
+        while to.saturating_sub(from) >= CUT_SPAN_SAMPLES as u64 {
+            let end = from + CUT_SPAN_SAMPLES as u64;
             self.close(from, end, true, spans);
             from = end;
         }
@@ -94,7 +94,6 @@ impl SpanBuilder {
         let length = (end - from) as usize;
         if length >= MIN_SPAN_SAMPLES {
             spans.push(Span {
-                start_sample: from,
                 samples: self.held[first..first + length].to_vec(),
                 forced,
             });
@@ -168,7 +167,6 @@ mod tests {
         let spans = stream.end(48_000, 52_096);
         assert_eq!(spans.len(), 1);
         assert_eq!(range(&spans[0]), (12_928.0, 47_999.0, 35_072));
-        assert_eq!(spans[0].start_sample, 12_928);
         assert!(!spans[0].forced);
 
         // A start near the start of the stream: the span begins at sample 0.
@@ -197,6 +195,13 @@ mod tests {
         stream.start(320_000, 321_536);
         let spans = stream.end(340_000, 344_064);
         assert_eq!(range(&spans[0]), (316_928.0, 339_999.0, 23_072));
+
+        // A start that is reported about 1 s after it happened.
+        let mut stream = Stream::default();
+        stream.until(320_000, None);
+        stream.start(320_000, 336_384);
+        let spans = stream.end(360_000, 364_000);
+        assert_eq!(range(&spans[0]), (316_928.0, 359_999.0, 43_072));
     }
 
     #[test]

@@ -113,7 +113,7 @@ pub fn map_open_error(kind: cpal::ErrorKind) -> InputOpenError {
 /// Whether an error report of the audio I/O library means that the stream ended.
 /// An overload, a changed route and a refused real-time priority leave the stream
 /// running. Every other kind ends it, a kind the library adds later included.
-pub fn ends_stream(kind: cpal::ErrorKind) -> bool {
+fn ends_stream(kind: cpal::ErrorKind) -> bool {
     !matches!(
         kind,
         cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied
@@ -123,7 +123,7 @@ pub fn ends_stream(kind: cpal::ErrorKind) -> bool {
 /// The error callback of a stream of the audio I/O library: `on_error` runs only
 /// for a report that ends the stream. The callback allocates nothing and logs
 /// nothing.
-pub fn library_error_callback(on_error: ErrorHandler) -> impl FnMut(cpal::Error) + Send + 'static {
+fn library_error_callback(on_error: ErrorHandler) -> impl FnMut(cpal::Error) + Send + 'static {
     move |error: cpal::Error| {
         if ends_stream(error.kind()) {
             on_error()

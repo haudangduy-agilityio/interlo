@@ -6,8 +6,8 @@
 //! line and passes. When it is set and a file is missing, the test fails and
 //! names the file.
 
-// The helpers below the tests use `unwrap` and `expect`.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// The sink of this file and one test use `unwrap`.
+#![allow(clippy::unwrap_used)]
 
 use engine_host::live_chain::{
     Caption, ChainEnd, ChainSink, Engines, FrameSource, Latency, LiveChain, MonotonicClock,
@@ -192,6 +192,21 @@ impl ChainSink for Sink {
     fn ended(&mut self, end: ChainEnd) {
         self.0.lock().unwrap().ends.push(end);
     }
+}
+
+#[test]
+fn real_model_tests_skip_with_a_message_when_the_folder_is_not_set() {
+    assert_eq!(resolve(None), Err(SKIP_LINE));
+    assert_eq!(resolve(Some("/models")), Ok(PathBuf::from("/models")));
+}
+
+#[test]
+fn real_model_test_fails_when_a_file_is_missing() {
+    let error = require(Path::new("/nonexistent-models-folder"), "M1-36/vi_001.wav");
+    assert_eq!(
+        error,
+        Err("missing file for the real-model test: M1-36/vi_001.wav".to_string())
+    );
 }
 
 #[test]

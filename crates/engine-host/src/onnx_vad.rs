@@ -219,7 +219,8 @@ impl Vad for OnnxVad {
     }
 
     fn reset(&mut self) {
-        // The inherent method of the adapter, which this path names first.
+        // Resolves to the inherent method, which wins over the trait method,
+        // so this does not recurse.
         OnnxVad::reset(self);
     }
 }

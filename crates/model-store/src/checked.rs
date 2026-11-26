@@ -4,14 +4,26 @@
 //! reached through a symlink; nothing below it may be one. The check reads each
 //! file through one handle, so the owner, the length and the digest belong to
 //! the same file. It does not keep the handle: a caller that opens the path
-//! again later is not protected against a change made after this check.
+//! again later is not protected against a change made after this check. The
+//! walk to a file is not atomic either: a process that replaces a folder below
+//! the model folder with a link while the check runs can pass it. M1-42 owns
+//! both limits.
 
 use crate::{FileDigest, Hasher, ModelFile, Pack};
 use sha2::{Digest, Sha256};
-use std::fs::{File, Metadata};
+use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
+
+/// Flags of the open of a model file: do not follow a link at the last part
+/// (`O_NOFOLLOW`) and do not wait for the other end of a pipe (`O_NONBLOCK`).
+/// The values of macOS, written here so that no dependency is added.
+#[cfg(target_os = "macos")]
+const OPEN_FLAGS: i32 = 0x0100 | 0x0004;
+/// Not set on other systems: the app runs on macOS only.
+#[cfg(not(target_os = "macos"))]
+const OPEN_FLAGS: i32 = 0;
 
 /// What a check found about the files of one pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,12 +58,16 @@ impl Hasher for Sha256Hasher {
     }
 }
 
-/// Open `path` and require that the handle is the file that `before` describes,
-/// so a link or another file put there after the look is refused.
+/// Open `path` and require that the handle is the regular file that `before`
+/// describes, so a link, a pipe or another file put there after the look is
+/// refused, and the open does not wait.
 fn open_same(path: &Path, before: &Metadata) -> io::Result<File> {
-    let handle = File::open(path)?;
+    let handle = OpenOptions::new()
+        .read(true)
+        .custom_flags(OPEN_FLAGS)
+        .open(path)?;
     let now = handle.metadata()?;
-    if (now.dev(), now.ino()) != (before.dev(), before.ino()) {
+    if !now.is_file() || (now.dev(), now.ino()) != (before.dev(), before.ino()) {
         return Err(io::Error::other("the file changed before it was opened"));
     }
     Ok(handle)
@@ -77,7 +93,7 @@ fn look(root: &Path, relative: &Path) -> Result<(PathBuf, Metadata), PackCheck> 
         last = Some(seen);
     }
     match last {
-        // Only a regular file is opened: opening a pipe would wait for a writer.
+        // Only a regular file goes on to the open.
         Some(seen) if seen.is_file() => Ok((path, seen)),
         _ => Err(PackCheck::Failed),
     }
@@ -134,10 +150,8 @@ pub fn check_pack(root: &Path, pack: &Pack, owner_uid: u32, hasher: &dyn Hasher)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ModelFile;
     use std::cell::Cell;
-    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
-    use std::path::PathBuf;
+    use std::os::unix::fs::{symlink, PermissionsExt};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     /// SHA-256 of the bytes `abc` (FIPS 180-2 example).
@@ -229,7 +243,6 @@ mod tests {
 
     #[test]
     fn the_hasher_reads_from_the_start_of_an_already_read_handle() {
-        use std::io::Read;
         let folder = Folder::new();
         let mut file = File::open(folder.at("demo/a.bin")).unwrap();
         file.read_exact(&mut [0u8; 2]).unwrap();
@@ -268,7 +281,11 @@ mod tests {
         for content in [&b"abcd"[..], &b"ab"[..]] {
             let folder = Folder::new();
             std::fs::write(folder.at("demo/a.bin"), content).unwrap();
-            assert_eq!(folder.check(), PackCheck::Failed, "{} bytes", content.len());
+            let hasher = Counting(Cell::new(0));
+            let result = check_pack(&folder.0, &PACK, folder.uid(), &hasher);
+            assert_eq!(result, PackCheck::Failed, "{} bytes", content.len());
+            // The length alone refuses it: nothing is read.
+            assert_eq!(hasher.0.get(), 0, "{} bytes", content.len());
         }
     }
 
@@ -403,6 +420,47 @@ mod tests {
             check_pack(&folder.0, &pack, folder.uid(), &Sha256Hasher),
             PackCheck::Failed
         );
+    }
+
+    /// `open_same` on its own thread: an open that waits fails the test and does
+    /// not stop the run.
+    fn open_in_time(path: PathBuf, before: Metadata) -> io::Result<File> {
+        let (done, opened) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(open_same(&path, &before));
+        });
+        opened
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the open waits")
+    }
+
+    #[test]
+    fn a_pipe_put_at_the_path_is_refused_without_waiting() {
+        let folder = Folder::new();
+        let path = folder.at("demo/a.bin");
+        let looked_at = std::fs::symlink_metadata(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let made = std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        // Put there after the look: it is another file.
+        assert!(open_in_time(path.clone(), looked_at).is_err());
+        // The pipe as the file that was looked at: it is not a regular file.
+        let pipe = std::fs::symlink_metadata(&path).unwrap();
+        assert!(open_in_time(path, pipe).is_err());
+    }
+
+    #[test]
+    fn a_link_to_the_same_file_put_after_the_look_is_refused() {
+        let folder = Folder::new();
+        let path = folder.at("demo/a.bin");
+        let looked_at = std::fs::symlink_metadata(&path).unwrap();
+        let moved = folder.at("moved");
+        std::fs::rename(&path, &moved).unwrap();
+        symlink(&moved, &path).unwrap();
+        assert!(open_in_time(path, looked_at).is_err());
     }
 
     #[test]
