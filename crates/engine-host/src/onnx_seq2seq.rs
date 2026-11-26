@@ -1,12 +1,13 @@
 //! The parts that the two encoder and decoder adapters share: the size-checked
-//! text file reader, the flat config reader, the session loader, the decoder
-//! cache loop, the greedy decoding loop and the text composing step.
+//! text file reader, the flat config reader, the tokenizer parser, the session
+//! loader, the decoder cache loop, the token pick, the greedy decoding loop and
+//! the text composing step.
 //!
 //! An adapter passes its label, which starts the text of every error from the
 //! model. No error holds a folder path, a token id, a text or a sample.
 
 use crate::error::EngineError;
-use crate::onnx_vad::{file_name, scrub};
+use crate::onnx_vad::{file_name, scrub, shared_environment};
 use ort::environment::Environment;
 use ort::session::{Session, SessionInputValue, SessionOutputs};
 use ort::value::{DynValue, Tensor};
@@ -144,8 +145,26 @@ pub(crate) fn read_text_file(path: &Path) -> Result<String, EngineError> {
     std::fs::read_to_string(path).map_err(unreadable)
 }
 
+/// The tokenizer of a tokenizer file text; the error names the file and holds
+/// nothing of it.
+pub(crate) fn parse_tokenizer(text: &str) -> Result<Tokenizer, EngineError> {
+    text.parse::<Tokenizer>()
+        .map_err(|_| EngineError::Backend(format!("{TOKENIZER_FILE} is not a valid tokenizer")))
+}
+
+/// The encoder and decoder sessions of the model in `dir`. Both files must be
+/// present before the runtime starts.
+pub(crate) fn load_sessions(label: &str, dir: &Path) -> Result<(Session, Session), EngineError> {
+    require_model_files(label, dir)?;
+    let environment = shared_environment()
+        .map_err(|_| EngineError::Backend(format!("{label}: runtime start failed")))?;
+    let encoder = load_session(label, &environment, &dir.join(ENCODER_FILE))?;
+    let decoder = load_session(label, &environment, &dir.join(DECODER_FILE))?;
+    Ok((encoder, decoder))
+}
+
 /// Both model files must be present in `dir`; an error names the missing one.
-pub(crate) fn require_model_files(label: &str, dir: &Path) -> Result<(), EngineError> {
+fn require_model_files(label: &str, dir: &Path) -> Result<(), EngineError> {
     for name in [ENCODER_FILE, DECODER_FILE] {
         if !dir.join(name).is_file() {
             return Err(EngineError::Backend(format!(
@@ -158,7 +177,7 @@ pub(crate) fn require_model_files(label: &str, dir: &Path) -> Result<(), EngineE
 
 /// One session with `INTRA_OP_THREADS` threads. Runtime text is scrubbed of the
 /// path.
-pub(crate) fn load_session(
+fn load_session(
     label: &str,
     environment: &Environment,
     path: &Path,
@@ -227,6 +246,7 @@ pub(crate) fn take(
 }
 
 /// What one decoder step feeds and stores.
+#[derive(Debug, PartialEq, Eq)]
 enum Pass<'p> {
     /// The whole prefix with empty past tensors; nothing is stored.
     Whole(&'p [i64]),
@@ -234,6 +254,16 @@ enum Pass<'p> {
     Prime(&'p [i64]),
     /// One token with the stored cache; the decoder-side cache is replaced.
     Cached(i64),
+}
+
+/// The pass of one step. `previous` is `None` for the first step. Without the
+/// cache, `prefix` is the prompt and every token after it.
+fn pass_of(previous: Option<i64>, use_cache: bool, prefix: &[i64]) -> Pass<'_> {
+    match (previous, use_cache) {
+        (None, true) => Pass::Prime(prefix),
+        (Some(last), true) => Pass::Cached(last),
+        (_, false) => Pass::Whole(prefix),
+    }
 }
 
 /// One decoding of one input. The cache values stay in the session's memory and
@@ -285,14 +315,11 @@ impl<'a> DecoderRun<'a> {
     ) -> impl FnMut(Option<i64>) -> Result<Vec<f32>, EngineError> + 'a {
         // The whole prefix; it grows only when the cache is off.
         let mut prefix = prompt;
-        move |previous| match (previous, use_cache) {
-            (None, true) => self.step(&Pass::Prime(&prefix)),
-            (None, false) => self.step(&Pass::Whole(&prefix)),
-            (Some(last), true) => self.step(&Pass::Cached(last)),
-            (Some(last), false) => {
+        move |previous| {
+            if let (Some(last), false) = (previous, use_cache) {
                 prefix.push(last);
-                self.step(&Pass::Whole(&prefix))
             }
+            self.step(&pass_of(previous, use_cache, &prefix))
         }
     }
 
@@ -338,6 +365,29 @@ impl<'a> DecoderRun<'a> {
         }
         Ok(logits)
     }
+}
+
+/// The id with the largest score among the ids that `allowed` accepts. The
+/// lowest id wins a tie. A score that is not finite is an error, also at an id
+/// that is not allowed.
+pub(crate) fn best_score(
+    label: &str,
+    scores: &[f32],
+    allowed: impl Fn(i64) -> bool,
+) -> Result<i64, EngineError> {
+    if scores.iter().any(|score| !score.is_finite()) {
+        return Err(EngineError::Backend(format!(
+            "{label}: a score is not a finite number"
+        )));
+    }
+    let mut best: Option<(i64, f32)> = None;
+    for (id, &score) in (0_i64..).zip(scores) {
+        if allowed(id) && best.is_none_or(|(_, top)| score > top) {
+            best = Some((id, score));
+        }
+    }
+    best.map(|(id, _)| id)
+        .ok_or_else(|| EngineError::Backend(format!("{label}: no score to pick")))
 }
 
 /// Greedy decoding. `step` gets `None` for the prompt and the last token after
@@ -396,6 +446,15 @@ pub(crate) fn compose(label: &str, text: &str) -> Result<String, EngineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoder_pass_follows_the_cache_setting() {
+        let prefix = [7, 8];
+        assert_eq!(pass_of(None, true, &prefix), Pass::Prime(&prefix));
+        assert_eq!(pass_of(Some(9), true, &prefix), Pass::Cached(9));
+        assert_eq!(pass_of(None, false, &prefix), Pass::Whole(&prefix));
+        assert_eq!(pass_of(Some(9), false, &prefix), Pass::Whole(&prefix));
+    }
 
     #[test]
     fn text_file_over_the_limit_is_refused() {

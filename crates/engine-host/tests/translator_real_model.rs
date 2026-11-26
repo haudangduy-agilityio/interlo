@@ -9,6 +9,8 @@
 use engine_host::{EngineError, EngineRegistry, OnnxTranslator, Translator};
 use meeting_core::policy::PrivacyPolicy;
 use meeting_core::protocol::Language;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
@@ -34,6 +36,52 @@ const REFUSED_PAIRS: [(Language, Language); 3] = [
 ];
 /// Words that the English text of row `vi_001` holds.
 const EXPECTED_WORDS: [&str; 3] = ["payment", "button", "phone"];
+/// Distinct words of one memory check: more tokens than the model has
+/// positions.
+const MEMORY_WORDS: u32 = 600;
+/// Heap bytes that may stay after a call. Keeping the 600 words would take
+/// many times more.
+const KEPT_BYTES_LIMIT: isize = 4096;
+
+thread_local! {
+    static LIVE_BYTES: Cell<isize> = const { Cell::new(0) };
+}
+
+/// Counts the live heap bytes of each thread, so that one test can see what a
+/// call leaves behind. Other threads do not change the number of this thread.
+struct ThreadBytes;
+
+fn count(change: isize) {
+    // A thread that is shutting down has no counter left, and nothing reads it.
+    let _ = LIVE_BYTES.try_with(|live| live.set(live.get() + change));
+}
+
+// A global allocator is the only way to see what stays on the heap. Every call
+// goes to the system allocator unchanged. The test
+// `translator_keeps_no_input_word_after_the_call` covers it.
+#[allow(unsafe_code)]
+unsafe impl GlobalAlloc for ThreadBytes {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        count(layout.size() as isize);
+        // The caller gives the same guarantees as for the system allocator.
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        count(-(layout.size() as isize));
+        // The pointer and layout come from `System` through this allocator.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        count(new_size as isize - layout.size() as isize);
+        // The pointer and layout come from `System` through this allocator.
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: ThreadBytes = ThreadBytes;
 
 /// Real-model tests run one at a time: each loads a large model, and a
 /// parallel test would distort the speed report.
@@ -256,6 +304,9 @@ fn cached_translation_gives_the_same_output_as_uncached() -> TestResult {
     let _one = one_at_a_time();
     let mut cached = OnnxTranslator::open(&dir)?;
     let mut uncached = OnnxTranslator::open(&dir)?.without_decoder_cache();
+    // The two adapters must differ, else the comparison shows nothing.
+    assert!(format!("{cached:?}").contains("use_cache: true"));
+    assert!(format!("{uncached:?}").contains("use_cache: false"));
     let one = row("vi_001")?;
     let two = format!("{one} {}", row("vi_002")?);
     for input in [one, two] {
@@ -288,6 +339,35 @@ fn calls_after_refused_inputs_give_the_output_of_a_fresh_adapter() -> TestResult
     assert!(!fresh.is_empty());
     assert_eq!(first, fresh);
     assert_eq!(second, fresh);
+    Ok(())
+}
+
+/// `MEMORY_WORDS` numbers from `first`, each one a different word.
+fn distinct_words(first: u32) -> String {
+    let words: Vec<String> = (first..first + MEMORY_WORDS)
+        .map(|n| n.to_string())
+        .collect();
+    words.join(" ")
+}
+
+#[test]
+fn translator_keeps_no_input_word_after_the_call() -> TestResult {
+    let Some(dir) = model_dir()? else {
+        return Ok(());
+    };
+    let _one = one_at_a_time();
+    let mut translator = OnnxTranslator::open(&dir)?;
+    let warm_up = distinct_words(100_000);
+    let measured = distinct_words(200_000);
+    // The first call may set up state that stays; the second one is measured.
+    assert!(to_english(&mut translator, &warm_up).is_err());
+    let before = LIVE_BYTES.get();
+    // Refused for its length after the words were split into tokens.
+    let error = backend_text(to_english(&mut translator, &measured));
+    assert_eq!(error, "translation model: the input is too long");
+    drop(error);
+    let kept = LIVE_BYTES.get() - before;
+    assert!(kept < KEPT_BYTES_LIMIT, "{kept} bytes stay after the call");
     Ok(())
 }
 

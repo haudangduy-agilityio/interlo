@@ -3,14 +3,15 @@
 
 use crate::error::EngineError;
 use crate::onnx_seq2seq::{compose, TOKENIZER_FILE};
-use crate::onnx_translate::LABEL;
-use std::ops::Range;
 
+/// The start of the error texts about the model; a file error starts with the
+/// file name.
+pub(crate) const LABEL: &str = "translation model";
 /// The marks that end a sentence when white space follows them.
 const SENTENCE_MARKS: [char; 4] = ['.', '?', '!', '\u{2026}'];
 /// The two spellings, without white space, of a compiled normalizer that holds
 /// nothing. The tokenizer library panics on it.
-const EMPTY_COMPILED: [&str; 2] = [
+const EMPTY_COMPILED_NORMALIZERS: [&str; 2] = [
     r#"{"type":"Precompiled","precompiled_charsmap":null}"#,
     r#"{"precompiled_charsmap":null,"type":"Precompiled"}"#,
 ];
@@ -51,35 +52,38 @@ fn capitalise_sentence_starts(text: &str) -> String {
     result
 }
 
-/// The tokenizer file as the tokenizer library can read it. An empty compiled
-/// normalizer becomes `null`; the adapter composes the input itself. Any other
-/// compiled normalizer, and a normalizer that does not close, is an error. Every
-/// other text is returned unchanged.
+/// The tokenizer file as the tokenizer library can read it. When the value of the
+/// top level key `normalizer` is the empty compiled normalizer, it becomes
+/// `null`; the adapter composes the input itself. Another value of that key that
+/// holds the word `Precompiled`, and an object there that does not close, are
+/// errors. Every other text is returned unchanged. This is no guard against a
+/// hostile file (a second key or an escaped spelling gets past it, and the
+/// library may then panic): the model manager checks the file before it loads.
 pub(crate) fn repair_tokenizer_text(text: &str) -> Result<String, EngineError> {
     let unsupported =
         || EngineError::Backend(format!("{TOKENIZER_FILE} has an unsupported normalizer"));
     let Some(start) = normalizer_value_start(text) else {
         return Ok(text.to_string());
     };
-    if !text[start..].starts_with('{') {
-        return Ok(text.to_string());
-    }
-    let value: Range<usize> =
-        start..start + object_length(&text[start..]).ok_or_else(unsupported)?;
-    let object = &text[value.clone()];
-    if !object.contains("Precompiled") {
+    let rest = &text[start..];
+    let length = match rest.bytes().next() {
+        Some(b'{') => container_length(rest).ok_or_else(unsupported)?,
+        // A list or a string that does not close is left to the library.
+        Some(b'[') => container_length(rest).unwrap_or(rest.len()),
+        Some(b'"') => string_end(rest.as_bytes(), 0).unwrap_or(rest.len()),
+        _ => return Ok(text.to_string()),
+    };
+    let end = start + length;
+    let value = &text[start..end];
+    if !value.contains("Precompiled") {
         return Ok(text.to_string());
     }
     // Neither accepted spelling holds white space inside a string.
-    let compact: String = object.chars().filter(|c| !c.is_whitespace()).collect();
-    if !EMPTY_COMPILED.contains(&compact.as_str()) {
+    let compact: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    if !EMPTY_COMPILED_NORMALIZERS.contains(&compact.as_str()) {
         return Err(unsupported());
     }
-    Ok(format!(
-        "{}null{}",
-        &text[..value.start],
-        &text[value.end..]
-    ))
+    Ok(format!("{}null{}", &text[..start], &text[end..]))
 }
 
 /// The byte position just after the string that opens at `quote`.
@@ -121,9 +125,9 @@ fn normalizer_value_start(text: &str) -> Option<usize> {
     None
 }
 
-/// The length of the object that `text` starts with, or `None` if it does not
-/// close.
-fn object_length(text: &str) -> Option<usize> {
+/// The length of the object or list that `text` starts with, or `None` if it
+/// does not close.
+fn container_length(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let (mut at, mut depth) = (0_usize, 0_usize);
     while at < bytes.len() {
@@ -237,6 +241,9 @@ mod tests {
             r#"{"type":"Precompiled","precompiled_charsmap":"abc"}"#,
             r#"{"type":"Precompiled","precompiled_charsmap":null,"extra":1}"#,
             r#"{"type":"Sequence","normalizers":[{"type":"Precompiled","precompiled_charsmap":null}]}"#,
+            // A value that is not an object.
+            r#"[{"type":"Precompiled","precompiled_charsmap":null}]"#,
+            r#""Precompiled""#,
         ]
         .iter()
         .map(|normalizer| normalizer_first(normalizer))

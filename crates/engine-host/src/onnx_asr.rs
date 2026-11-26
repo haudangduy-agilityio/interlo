@@ -15,14 +15,15 @@
 //!
 //! The runtime writes its own log lines through `tracing`; those lines can hold
 //! the model path and are not scrubbed. A log sink must filter the `ort` target.
+//! The tokenizer library writes the characters of a text that it handles through
+//! `log` at trace level: a log sink must also cap the `tokenizers` target.
 
 use crate::error::EngineError;
 use crate::onnx_seq2seq::{
-    self as seq2seq, cache_slots, config_error, config_int, config_size, config_token,
-    decoder_sizes, layer_shape, load_session, read_text_file, require_model_files, take, CacheSlot,
-    DecoderRun, DecoderShape, CONFIG_FILE, DECODER_FILE, ENCODER_FILE, TOKENIZER_FILE,
+    self as seq2seq, best_score, cache_slots, config_error, config_int, config_size, config_token,
+    decoder_sizes, layer_shape, load_sessions, parse_tokenizer, read_text_file, take, CacheSlot,
+    DecoderRun, DecoderShape, CONFIG_FILE, TOKENIZER_FILE,
 };
-use crate::onnx_vad::shared_environment;
 use crate::speech_features::{check_span, FeatureExtractor, FRAMES, N_MELS};
 use crate::traits::{Engine, Recognition, Recognizer};
 use meeting_core::policy::Provider;
@@ -32,7 +33,8 @@ use ort::value::{DynValue, Tensor};
 use std::path::Path;
 use tokenizers::Tokenizer;
 
-/// The start of every error text of this model.
+/// The start of the error texts about the model; a file error starts with the
+/// file name.
 const LABEL: &str = "recognition model";
 /// Names of the prompt tokens after the start token, in order: language, task,
 /// no time stamps.
@@ -47,6 +49,7 @@ const TOKENS_PER_SECOND: usize = 20;
 /// Tokens added to the bound, so that a very short span still has room. Starting
 /// value: no measurement; it is about 1 s of speech at the rate above.
 const TOKEN_MARGIN: usize = 8;
+
 /// The recognition engine. Local: it never leaves this Mac.
 pub struct OnnxRecognizer {
     encoder: Session,
@@ -89,18 +92,10 @@ impl OnnxRecognizer {
         let start_token = config_token(&config, "decoder_start_token_id")?;
         let end_token = config_token(&config, "eos_token_id")?;
         let positions = config_size(&config, "max_target_positions")?;
-        let tokenizer = read_text_file(&dir.join(TOKENIZER_FILE))?
-            .parse::<Tokenizer>()
-            .map_err(|_| {
-                EngineError::Backend(format!("{TOKENIZER_FILE} is not a valid tokenizer"))
-            })?;
+        let tokenizer = parse_tokenizer(&read_text_file(&dir.join(TOKENIZER_FILE))?)?;
         let prompt = prompt_ids(&tokenizer, start_token)?;
         let token_limit = token_limit(positions, prompt.len())?;
-        require_model_files(LABEL, dir)?;
-        let environment = shared_environment()
-            .map_err(|_| EngineError::Backend("recognition model: runtime start failed".into()))?;
-        let encoder = load_session(LABEL, &environment, &dir.join(ENCODER_FILE))?;
-        let decoder = load_session(LABEL, &environment, &dir.join(DECODER_FILE))?;
+        let (encoder, decoder) = load_sessions(LABEL, dir)?;
         Ok(Self {
             encoder,
             decoder,
@@ -125,6 +120,7 @@ impl OnnxRecognizer {
             .encoder
             .run(vec![("input_features", input)])
             .map_err(|_| run_failed("encoder run"))?;
+        // The error text names the decoder for this output; it stays as it was.
         take(LABEL, "decoder output", &mut outputs, "last_hidden_state")
     }
 
@@ -209,22 +205,7 @@ fn prompt_ids(tokenizer: &Tokenizer, start_id: i64) -> Result<Vec<i64>, EngineEr
 /// (every id above the end token is a control or time stamp token). The lowest
 /// id wins a tie. A score that is not finite is an error.
 fn pick_next_token(logits: &[f32], end_token: i64) -> Result<i64, EngineError> {
-    if logits.iter().any(|score| !score.is_finite()) {
-        return Err(EngineError::Backend(
-            "recognition model: a score is not a finite number".into(),
-        ));
-    }
-    let mut best: Option<usize> = None;
-    for (id, score) in logits.iter().enumerate() {
-        if i64::try_from(id).map_or(true, |id| id > end_token) {
-            break;
-        }
-        if best.is_none_or(|b| *score > logits[b]) {
-            best = Some(id);
-        }
-    }
-    best.and_then(|id| i64::try_from(id).ok())
-        .ok_or_else(|| EngineError::Backend("recognition model: no score to pick".into()))
+    best_score(LABEL, logits, |id| id <= end_token)
 }
 
 /// The shared greedy loop with the token choice of this model.

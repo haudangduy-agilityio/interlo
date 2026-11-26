@@ -16,25 +16,23 @@
 //!
 //! The runtime writes its own log lines through `tracing`; those lines can hold
 //! the model path and are not scrubbed. A log sink must filter the `ort` target.
+//! The tokenizer library writes the characters of a text that it handles through
+//! `log` at trace level: a log sink must also cap the `tokenizers` target.
 
 use crate::error::EngineError;
 use crate::onnx_seq2seq::{
-    cache_slots, config_size, config_token, decode_ids, decoder_sizes, greedy_decode, layer_shape,
-    load_session, read_text_file, require_model_files, run_failed, take, CacheSlot, DecoderRun,
-    DecoderShape, CONFIG_FILE, DECODER_FILE, ENCODER_FILE, TOKENIZER_FILE,
+    best_score, cache_slots, config_size, config_token, decode_ids, decoder_sizes, greedy_decode,
+    layer_shape, load_sessions, parse_tokenizer, read_text_file, run_failed, take, CacheSlot,
+    DecoderRun, DecoderShape, CONFIG_FILE, TOKENIZER_FILE,
 };
-use crate::onnx_vad::shared_environment;
 use crate::traits::{Engine, Translator};
-use crate::translation_text::{build_translation, prepare_input, repair_tokenizer_text};
+use crate::translation_text::{build_translation, prepare_input, repair_tokenizer_text, LABEL};
 use meeting_core::policy::Provider;
 use meeting_core::protocol::Language;
 use ort::session::{Session, SessionInputValue};
 use ort::value::{DynValue, Tensor};
 use std::path::Path;
 use tokenizers::Tokenizer;
-
-/// The start of every error text of this model.
-pub(crate) const LABEL: &str = "translation model";
 
 /// Copies of one block in a row that stop the decoding: a starting value
 /// (measured with a probe); M0-06 may change it.
@@ -90,19 +88,7 @@ fn output_token_limit(max_positions: usize, input_tokens: usize) -> usize {
 /// The next token: the largest score, never the padding or the start id. The
 /// lowest id wins a tie. A score that is not finite is an error.
 fn pick_translation_token(scores: &[f32], padding: i64, start: i64) -> Result<i64, EngineError> {
-    if scores.iter().any(|score| !score.is_finite()) {
-        return Err(EngineError::Backend(format!(
-            "{LABEL}: a score is not a finite number"
-        )));
-    }
-    let mut best: Option<(i64, f32)> = None;
-    for (id, &score) in (0_i64..).zip(scores) {
-        if id != padding && id != start && best.is_none_or(|(_, top)| score > top) {
-            best = Some((id, score));
-        }
-    }
-    best.map(|(id, _)| id)
-        .ok_or_else(|| EngineError::Backend(format!("{LABEL}: no score to pick")))
+    best_score(LABEL, scores, |id| id != padding && id != start)
 }
 
 /// Whether the ids end in `REPEAT_COPIES` copies of one short block.
@@ -146,6 +132,16 @@ fn translation_sizes(config: &str) -> Result<TranslationSizes, EngineError> {
     })
 }
 
+/// A tokenizer model stores each word that it splits, to reuse the result. This
+/// adapter keeps nothing of a call, so that store gets no room. The memory test
+/// with the real model covers this.
+fn without_word_cache(mut tokenizer: Tokenizer) -> Tokenizer {
+    let mut model = tokenizer.get_model().clone();
+    model.resize_cache(0);
+    tokenizer.with_model(model);
+    tokenizer
+}
+
 /// The translation engine. Local: it never leaves this Mac.
 pub struct OnnxTranslator {
     encoder: Session,
@@ -161,6 +157,7 @@ impl std::fmt::Debug for OnnxTranslator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OnnxTranslator")
             .field("positions", &self.sizes.positions)
+            .field("use_cache", &self.use_cache)
             .finish_non_exhaustive()
     }
 }
@@ -174,20 +171,13 @@ impl OnnxTranslator {
     /// on a worker thread, never in an audio callback.
     pub fn open(dir: &Path) -> Result<Self, EngineError> {
         let sizes = translation_sizes(&read_text_file(&dir.join(CONFIG_FILE))?)?;
-        let tokenizer = repair_tokenizer_text(&read_text_file(&dir.join(TOKENIZER_FILE))?)?
-            .parse::<Tokenizer>()
-            .map_err(|_| {
-                EngineError::Backend(format!("{TOKENIZER_FILE} is not a valid tokenizer"))
-            })?;
-        require_model_files(LABEL, dir)?;
-        let environment = shared_environment()
-            .map_err(|_| EngineError::Backend(format!("{LABEL}: runtime start failed")))?;
-        let encoder = load_session(LABEL, &environment, &dir.join(ENCODER_FILE))?;
-        let decoder = load_session(LABEL, &environment, &dir.join(DECODER_FILE))?;
+        let text = repair_tokenizer_text(&read_text_file(&dir.join(TOKENIZER_FILE))?)?;
+        let tokenizer = parse_tokenizer(&text)?;
+        let (encoder, decoder) = load_sessions(LABEL, dir)?;
         Ok(Self {
             encoder,
             decoder,
-            tokenizer,
+            tokenizer: without_word_cache(tokenizer),
             slots: cache_slots(sizes.shape.layers),
             sizes,
             use_cache: true,
@@ -289,7 +279,6 @@ impl Translator for OnnxTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::onnx_seq2seq::greedy_decode;
 
     /// End id 0, padding id 10, start id 11, and 12 scores per step.
     const SIZES: TranslationSizes = TranslationSizes {
@@ -421,6 +410,18 @@ mod tests {
         let (result, calls) = decode(100, |call| if call < 10 { block(call) } else { 0 });
         assert_eq!(result, Ok(vec![3, 4, 3, 4, 3, 4, 3, 4, 3, 4]));
         assert_eq!(calls, 11);
+
+        // The longest block, after other tokens: 2 lead tokens and 6 copies of 4.
+        let long = |call: usize| {
+            if call < 2 {
+                call + 1
+            } else {
+                3 + (call - 2) % 4
+            }
+        };
+        let (result, calls) = decode(100, long);
+        assert_eq!(error_text(result), "translation model: the output repeats");
+        assert_eq!(calls, 26);
     }
 
     #[test]
