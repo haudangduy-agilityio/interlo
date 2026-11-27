@@ -106,6 +106,10 @@ mod tests {
         samples.iter().fold(0.0, |max, s| max.max(s.abs()))
     }
 
+    fn energy(samples: &[f32]) -> f32 {
+        samples.iter().map(|s| s * s).sum()
+    }
+
     /// One second of silence at 16 000 Hz with a 20 ms tone burst at `from`.
     fn silence_with_burst(from: usize) -> Vec<f32> {
         let mut samples = vec![0.0; 16_000];
@@ -135,6 +139,10 @@ mod tests {
             "peak {}",
             peak(last_40_ms)
         );
+        // The burst is the only sound; ideal speed-up keeps 1 / speed of its
+        // energy (0.91 at 1.10), while a cut into the burst loses more.
+        let energy_ratio = energy(&output) / energy(&input);
+        assert!(energy_ratio >= 0.8, "energy ratio {energy_ratio}");
     }
 
     #[test]
