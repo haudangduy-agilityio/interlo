@@ -14,13 +14,14 @@ pub const MIN_SPEED_UP_MS: u32 = 100;
 /// inside the silence.
 const PAD_MS: u32 = 90;
 /// The kept part begins and ends this long after the places that the first and
-/// the last input sample have after a plain division by the speed. The values
-/// come from measured offsets of the time stretch; with them the kept part holds
-/// both ends of the input. Measure them again when the pinned version of the
-/// dependency changes.
+/// the last input sample have after a plain division by the speed; the start is
+/// never later than one padding length (see `from`). The values come from
+/// measured offsets of the time stretch; with them the kept part holds both ends
+/// of the input. Measure them again when the pinned version of the dependency
+/// changes.
 const KEEP_FROM_MS: u32 = 6;
 const KEEP_TO_MS: u32 = 15;
-/// The queue plays one channel.
+/// The engines give mono samples.
 const MONO: NonZeroU16 = NonZeroU16::MIN;
 
 /// Returns `samples` (one channel) played `speed` times faster at the same
@@ -58,7 +59,7 @@ fn try_speed_up(samples: &[f32], sample_rate: u32, speed: f32) -> Option<Vec<f32
 
     let position_after_stretch = |len: usize| (len as f64 / f64::from(speed)).round() as usize;
     // Never later than one padding length into the output: at a speed near 1.0
-    // the plain place plus `KEEP_FROM_MS` lies behind the first place where the
+    // the plain place plus `KEEP_FROM_MS` comes after the first place where the
     // time stretch can put input.
     let from = (position_after_stretch(pad) + samples_in(KEEP_FROM_MS, rate)).min(pad);
     let to = position_after_stretch(pad + samples.len()) + samples_in(KEEP_TO_MS, rate);
@@ -156,6 +157,15 @@ mod tests {
         // 17 098 + 240; it must not start after sample 1 440.
         let output = speed_up(&input, 16_000, 1.02);
         assert_eq!(output.len(), 17_338 - 1_440);
+    }
+
+    #[test]
+    fn at_the_cap_the_kept_part_starts_before_one_padding_length() {
+        let input = tone(16_000, 16_000, 200.0);
+        // At 1.15 the kept part runs from 1 252 + 96 to 15 165 + 240, so the
+        // limit of one padding length does not move its start.
+        let output = speed_up(&input, 16_000, MAX_SPEED_FACTOR);
+        assert_eq!(output.len(), 15_405 - 1_348);
     }
 
     #[test]
