@@ -115,6 +115,7 @@ export const IPC_ERROR_CODES = [
   "MEETING_RUNNING",
   "NO_MEETING",
   "INVALID_INPUT",
+  "START_FAILED",
 ] as const;
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];
 
@@ -166,6 +167,11 @@ export interface CaptionEvent {
   isFinal: boolean;
   source: string;
   target: string;
+  /**
+   * Milliseconds from the end-of-speech report (about 256 ms after speech ends), or the
+   * forced cut at 15 s, until this text is ready. A whole number, 0 or more.
+   */
+  delayMs: number;
 }
 
 export interface LatencyEvent {

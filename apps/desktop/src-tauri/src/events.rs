@@ -23,6 +23,9 @@ pub struct CaptionEvent {
     pub is_final: bool,
     pub source: String,
     pub target: String,
+    /// Milliseconds from the end-of-speech report (about 256 ms after speech
+    /// ends), or the forced cut at 15 s, until the text is ready.
+    pub delay_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,10 +92,41 @@ pub trait StatusSink {
 
 impl<R: tauri::Runtime> StatusSink for tauri::AppHandle<R> {
     fn emit_status(&self, state: RunState) {
-        // Logs carry event names and error codes only (docs/guardrails.md rule 6).
-        if tauri::Emitter::emit(self, MEETING_STATUS, StatusEvent { state }).is_err() {
-            eprintln!("emit failed: {MEETING_STATUS}");
-        }
+        emit(self, MEETING_STATUS, StatusEvent { state });
+    }
+}
+
+/// Receives everything a session sends to the webview. The Tauri app handle is
+/// the real sink.
+pub trait SessionSink: StatusSink + Send + Sync {
+    fn emit_caption(&self, event: CaptionEvent);
+    fn emit_latency(&self, event: LatencyEvent);
+    fn emit_banner(&self, event: BannerEvent);
+}
+
+impl<R: tauri::Runtime> SessionSink for tauri::AppHandle<R> {
+    fn emit_caption(&self, event: CaptionEvent) {
+        emit(self, MEETING_CAPTION, event);
+    }
+
+    fn emit_latency(&self, event: LatencyEvent) {
+        emit(self, MEETING_LATENCY, event);
+    }
+
+    fn emit_banner(&self, event: BannerEvent) {
+        emit(self, MEETING_BANNER, event);
+    }
+}
+
+/// Send one event to the webview.
+fn emit<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    name: &'static str,
+    payload: impl Serialize + Clone,
+) {
+    // Logs carry event names and error codes only (docs/guardrails.md rule 6).
+    if tauri::Emitter::emit(app, name, payload).is_err() {
+        eprintln!("emit failed: {name}");
     }
 }
 
@@ -171,6 +205,7 @@ mod tests {
             is_final,
             source: text.to_string(),
             target: String::new(),
+            delay_ms: 0,
         }
     }
 

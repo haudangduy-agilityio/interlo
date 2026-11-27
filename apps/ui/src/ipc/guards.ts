@@ -35,6 +35,7 @@ const isRecord = (v: unknown): v is Rec => typeof v === "object" && v !== null &
 const isString = (v: unknown): v is string => typeof v === "string";
 const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isCount = (v: unknown): v is number => isNumber(v) && Number.isInteger(v) && v >= 0;
 const isOneOf = <T extends string>(list: readonly T[], v: unknown): v is T =>
   typeof v === "string" && (list as readonly string[]).includes(v);
 const isListOf = <T>(guard: (v: unknown) => v is T, v: unknown): v is T[] =>
@@ -48,7 +49,8 @@ export const isCaptionEvent = (v: unknown): v is CaptionEvent =>
   isOneOf(DIRECTIONS, v.direction) &&
   isBoolean(v.isFinal) &&
   isString(v.source) &&
-  isString(v.target);
+  isString(v.target) &&
+  isCount(v.delayMs);
 
 export const isLatencyEvent = (v: unknown): v is LatencyEvent =>
   isRecord(v) && isNumber(v.p50Ms) && isNumber(v.p95Ms);

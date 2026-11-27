@@ -8,7 +8,11 @@ export type StartFailure =
   | { kind: "checks-failed"; message: string; details: StartCheckId[] }
   | { kind: "error"; message: string };
 
-export type StartOutcome = { kind: "started"; meetingId: string } | StartFailure;
+export type StartOutcome =
+  | { kind: "started"; meetingId: string }
+  /** A stop overtook the start, or a session already existed. There is nothing to show. */
+  | { kind: "cancelled" }
+  | StartFailure;
 
 function knownChecks(details: readonly string[] | undefined): StartCheckId[] {
   return START_CHECK_IDS.filter((id) => details?.includes(id));

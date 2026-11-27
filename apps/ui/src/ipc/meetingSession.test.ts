@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_CAPTION_LINES,
   MAX_EVICTED_LINE_IDS,
+  captionFromEvent,
   initialSession,
   isPaused,
   latestIncomingCaption,
@@ -23,6 +24,7 @@ const partial: CaptionEvent = {
   isFinal: false,
   source: "We can",
   target: "",
+  delayMs: 300,
 };
 
 describe("sessionReducer", () => {
@@ -38,6 +40,7 @@ describe("sessionReducer", () => {
         targetText: null,
         targetLanguage: null,
         translationStatus: "pending",
+        delayMs: 300,
       },
     ]);
     const second = sessionReducer(first, {
@@ -51,6 +54,12 @@ describe("sessionReducer", () => {
       targetText: "Chúng ta có thể giao.",
       startMs: 2500,
     });
+  });
+
+  it("a final line without a translation waits for none", () => {
+    const caption = captionFromEvent({ ...partial, isFinal: true, target: "" }, 0);
+    expect(caption.targetText).toBeNull();
+    expect(caption.translationStatus).toBeNull();
   });
 
   it("is paused only when running and both directions are muted", () => {
@@ -90,6 +99,7 @@ describe("sessionReducer caption cap", () => {
     isFinal: true,
     source: `Line ${n}`,
     target: "",
+    delayMs: 300,
   });
 
   it("keeps the latest 60 lines after 100 events", () => {
@@ -133,6 +143,7 @@ describe("sessionReducer late update for an evicted line", () => {
     isFinal: false,
     source,
     target: "",
+    delayMs: 300,
   });
   const feed = (state: SessionState, from: number, to: number): SessionState => {
     let next = state;
@@ -198,6 +209,7 @@ describe("latestIncomingCaption", () => {
       isFinal: true,
       source: id,
       target: "",
+      delayMs: 300,
     });
     let state = running;
     expect(latestIncomingCaption(state.captions)).toBeNull();

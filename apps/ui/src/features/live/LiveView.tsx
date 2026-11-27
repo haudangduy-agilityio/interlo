@@ -60,7 +60,21 @@ function StartFailureNotice({
 function Controls(props: LiveViewProps) {
   const { session, mode, onModeChange, onStart, onStop, onOpenSetup } = props;
   const t = useT();
-  if (session.status === "starting") return <LoadingState label={t("live.starting")} />;
+  const stopButton = (
+    <div>
+      <Button variant="primary" onClick={onStop}>
+        {t("live.stop")}
+      </Button>
+    </div>
+  );
+  if (session.status === "starting") {
+    return (
+      <div className="stack">
+        <LoadingState label={t("live.starting")} />
+        {stopButton}
+      </div>
+    );
+  }
   if (session.status === "stopping") return <LoadingState label={t("live.stopping")} />;
   if (session.status === "running") {
     return (
@@ -71,11 +85,7 @@ function Controls(props: LiveViewProps) {
           onToggleMute={props.onToggleMute}
           onTogglePause={props.onTogglePause}
         />
-        <div>
-          <Button variant="primary" onClick={onStop}>
-            {t("live.stop")}
-          </Button>
-        </div>
+        {stopButton}
       </div>
     );
   }

@@ -6,8 +6,10 @@ use model_store::{
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+use crate::commands::meeting;
 use crate::ipc::{
-    CancelModelDownloadArgs, DownloadModelArgs, IpcError, IpcResult, ModelInfo, ModelState,
+    CancelModelDownloadArgs, DownloadModelArgs, ErrorCode, IpcError, IpcResult, ModelInfo,
+    ModelState,
 };
 use crate::native_confirm::{self, ConfirmPrompt};
 
@@ -178,11 +180,24 @@ impl HttpFetch for UnavailableFetch {
     }
 }
 
+/// `MEETING_RUNNING` while a meeting runs or starts: nothing is downloaded then.
+fn refuse_during_meeting(meeting_running: &dyn Fn() -> bool) -> IpcResult<()> {
+    if meeting_running() {
+        return Err(IpcError::new(
+            ErrorCode::MeetingRunning,
+            "A meeting is running.",
+        ));
+    }
+    Ok(())
+}
+
 /// The whole `download_model` flow. Refusals run in this order: unknown id,
-/// licence not accepted, a download of the pack already running (all
-/// `INVALID_INPUT`); only then the dialog. The pack is registered before the
-/// dialog opens, so a second request for the same pack is refused while the
-/// first dialog is up, and the registry lock is never held while it is open.
+/// licence not accepted (`INVALID_INPUT`), a meeting (`MEETING_RUNNING`), a
+/// download of the pack already running (`INVALID_INPUT`); only then the dialog.
+/// A meeting that began while the dialog was open refuses the confirmed download.
+/// The pack is registered before the dialog opens, so a second request for the
+/// same pack is refused while the first dialog is up, and the registry lock is
+/// never held while it is open.
 ///
 /// A declined dialog returns Ok and changes nothing (D-3). A cancel (during the
 /// dialog or the transfer) also returns Ok and leaves no `.part` file.
@@ -191,10 +206,12 @@ pub fn request_download_with(
     licence_accepted: bool,
     registry: &DownloadRegistry,
     models_dir: &Path,
+    meeting_running: &dyn Fn() -> bool,
     confirm: impl FnOnce(&ConfirmPrompt) -> Option<OwnerConfirmation>,
     transfer: impl FnOnce(TransferJob) -> Result<(), ModelError>,
 ) -> IpcResult<()> {
     let entry = check_download_request(id, licence_accepted)?;
+    refuse_during_meeting(meeting_running)?;
     let guard = registry
         .begin(entry.pack)
         .map_err(|_| IpcError::invalid_input("Already downloading."))?;
@@ -204,6 +221,7 @@ pub fn request_download_with(
     if guard.token().is_cancelled() {
         return Ok(());
     }
+    refuse_during_meeting(meeting_running)?;
     let pack_dir = models_dir.join(entry.pack);
     let job = TransferJob {
         entry,
@@ -237,14 +255,16 @@ pub fn request_download(
     let Some(dir) = models_dir() else {
         return Err(IpcError::not_implemented("Model download"));
     };
-    let policy = download_policy();
+    // The policy is read after the dialog, so the transfer sees the session
+    // status of that moment.
     request_download_with(
         id,
         licence_accepted,
         registry,
         &dir,
+        &|| meeting::meeting_running(app),
         |prompt| native_confirm::confirm_download(app, prompt),
-        store_transfer(&UnavailableFetch, &policy),
+        |job| store_transfer(&UnavailableFetch, &meeting::policy(app))(job),
     )
 }
 
@@ -290,7 +310,7 @@ pub async fn cancel_model_download(
 mod tests {
     use super::*;
     use crate::commands::setup::sample_setup_status;
-    use crate::ipc::{ErrorCode, SetupGroup, SetupItemId};
+    use crate::ipc::{SetupGroup, SetupItemId};
     use std::cell::{Cell, RefCell};
 
     const IDS: [&str; 4] = ["sr", "tr", "enV", "viV"];
@@ -363,6 +383,7 @@ mod tests {
                 accepted,
                 &self.registry,
                 self.dir.path(),
+                &|| false,
                 |prompt| {
                     self.asked.set(self.asked.get() + 1);
                     self.prompts.borrow_mut().push(prompt.clone());
@@ -478,6 +499,7 @@ mod tests {
                     true,
                     &registry,
                     dir.path(),
+                    &|| false,
                     |prompt| Some(native_confirm::confirmation_for_tests(&prompt.model_id)),
                     move |job: TransferJob| {
                         std::fs::create_dir_all(&job.pack_dir).unwrap();
@@ -547,6 +569,7 @@ mod tests {
             true,
             &env.registry,
             env.dir.path(),
+            &|| false,
             |prompt| {
                 // The registry is not locked while the dialog is open.
                 assert!(env.registry.is_running("voice"));
@@ -704,6 +727,7 @@ mod tests {
             true,
             &env.registry,
             env.dir.path(),
+            &|| false,
             |prompt| Some(native_confirm::confirmation_for_tests(&prompt.model_id)),
             |job: TransferJob| {
                 *seen.borrow_mut() = Some((

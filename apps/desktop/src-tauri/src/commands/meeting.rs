@@ -1,8 +1,13 @@
+#[cfg(not(feature = "demo-data"))]
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use tauri::{AppHandle, State};
+use meeting_core::policy::PrivacyPolicy;
+use tauri::{AppHandle, Manager, State};
 
 use crate::clock::{now_ms, unique_id};
+#[cfg(feature = "demo-data")]
+use crate::commands::models::download_policy;
 #[cfg(any(test, feature = "demo-data"))]
 use crate::commands::setup::sample_setup_status;
 #[cfg(any(test, feature = "demo-data"))]
@@ -13,8 +18,11 @@ use crate::ipc::{
     Direction, ErrorCode, IpcError, IpcResult, MeetingHandle, MeetingMode, SetMuteArgs,
     SetupStatus, StartChecks, StartMeetingArgs,
 };
+#[cfg(not(feature = "demo-data"))]
+use crate::session::{controller, Session};
 
-/// Managed state: the id of the running meeting, if any.
+/// The id of the running meeting of the sample flow, if any. A `demo-data`
+/// build manages it; another build uses a `Session`.
 #[derive(Debug, Default)]
 pub struct MeetingState {
     running: Mutex<Option<String>>,
@@ -63,10 +71,7 @@ pub fn begin_meeting(
 ) -> IpcResult<MeetingHandle> {
     let mut running = state.lock();
     if running.is_some() {
-        return Err(IpcError::new(
-            ErrorCode::MeetingRunning,
-            "A meeting is already running.",
-        ));
+        return Err(IpcError::meeting_running());
     }
     if !status.can_start {
         return Err(IpcError::new(
@@ -85,10 +90,7 @@ pub fn end_meeting(state: &MeetingState) -> IpcResult<MeetingHandle> {
     let mut running = state.lock();
     match running.take() {
         Some(meeting_id) => Ok(MeetingHandle { meeting_id }),
-        None => Err(IpcError::new(
-            ErrorCode::NoMeeting,
-            "No meeting is running.",
-        )),
+        None => Err(IpcError::no_meeting()),
     }
 }
 
@@ -122,18 +124,13 @@ pub fn stop(state: &MeetingState, sink: &dyn StatusSink) -> IpcResult<MeetingHan
 /// tell the owner that the microphone is muted when it is not.
 pub fn apply_mute(state: &MeetingState, _args: &SetMuteArgs) -> IpcResult<()> {
     if !state.is_running() {
-        return Err(IpcError::new(
-            ErrorCode::NoMeeting,
-            "No meeting is running.",
-        ));
+        return Err(IpcError::no_meeting());
     }
     Err(IpcError::not_implemented("Muting"))
 }
 
-/// Start a meeting on the setup status and audio facts of this machine. Device
-/// detection does not exist yet, so a default build answers `NOT_IMPLEMENTED`:
-/// nothing starts, no state changes and no event goes out. Tests and a
-/// `demo-data` build use sample facts.
+/// Start a meeting of the sample flow, on sample setup data and audio facts.
+/// Tests and a `demo-data` build only: another build starts a `Session`.
 #[cfg(any(test, feature = "demo-data"))]
 pub fn start_on_detected_facts(
     state: &MeetingState,
@@ -151,17 +148,56 @@ pub fn start_on_detected_facts(
     )
 }
 
-/// See the `demo-data` variant above.
-#[cfg(not(any(test, feature = "demo-data")))]
-pub fn start_on_detected_facts(
-    _state: &MeetingState,
-    _args: &StartMeetingArgs,
-    _meeting_id: String,
-    _sink: &dyn StatusSink,
-) -> IpcResult<MeetingHandle> {
-    Err(IpcError::not_implemented("Starting a meeting"))
+/// True while a meeting runs or starts.
+#[cfg(not(feature = "demo-data"))]
+pub(crate) fn meeting_running(app: &AppHandle) -> bool {
+    app.state::<Session>().is_active()
 }
 
+/// See the variant above: the sample flow of a `demo-data` build.
+#[cfg(feature = "demo-data")]
+pub(crate) fn meeting_running(app: &AppHandle) -> bool {
+    app.state::<MeetingState>().is_running()
+}
+
+/// The privacy policy as it is now.
+#[cfg(not(feature = "demo-data"))]
+pub(crate) fn policy(app: &AppHandle) -> PrivacyPolicy {
+    app.state::<Session>().privacy_policy()
+}
+
+/// A `demo-data` build has no session, so only the download hosts apply.
+#[cfg(feature = "demo-data")]
+pub(crate) fn policy(_app: &AppHandle) -> PrivacyPolicy {
+    download_policy()
+}
+
+/// Waits for the setup check and the load, so it runs on a blocking thread and
+/// holds nothing that `stop_meeting` needs.
+#[cfg(not(feature = "demo-data"))]
+#[tauri::command]
+pub async fn start_meeting(
+    app: AppHandle,
+    mode: String,
+    meeting_app_id: String,
+    checks: StartChecks,
+) -> IpcResult<MeetingHandle> {
+    let args = StartMeetingArgs {
+        mode,
+        meeting_app_id,
+        checks,
+    };
+    let id = unique_id("meeting", now_ms());
+    tauri::async_runtime::spawn_blocking(move || {
+        let events = Arc::new(app.clone());
+        app.state::<Session>().start(&args, id, events)
+    })
+    .await
+    // The task panicked, and its session was released on the way out.
+    .unwrap_or_else(|_| Err(controller::start_panicked()))
+}
+
+#[cfg(feature = "demo-data")]
 #[tauri::command]
 pub async fn start_meeting(
     app: AppHandle,
@@ -178,6 +214,16 @@ pub async fn start_meeting(
     start_on_detected_facts(&state, &args, unique_id("meeting", now_ms()), &app)
 }
 
+#[cfg(not(feature = "demo-data"))]
+#[tauri::command]
+pub async fn stop_meeting(app: AppHandle) -> IpcResult<MeetingHandle> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Session>().stop(&app))
+        .await
+        // A stop takes the session before anything can panic: none is left.
+        .unwrap_or_else(|_| Err(IpcError::no_meeting()))
+}
+
+#[cfg(feature = "demo-data")]
 #[tauri::command]
 pub async fn stop_meeting(
     app: AppHandle,
@@ -186,6 +232,17 @@ pub async fn stop_meeting(
     stop(&state, &app)
 }
 
+#[cfg(not(feature = "demo-data"))]
+#[tauri::command]
+pub async fn set_mute(
+    session: State<'_, Session>,
+    direction: Direction,
+    muted: bool,
+) -> IpcResult<()> {
+    session.mute(&SetMuteArgs { direction, muted })
+}
+
+#[cfg(feature = "demo-data")]
 #[tauri::command]
 pub async fn set_mute(
     state: State<'_, MeetingState>,

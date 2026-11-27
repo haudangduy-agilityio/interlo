@@ -34,7 +34,8 @@ describe("LiveView: start meeting refused by setup", () => {
   it("shows the command's message with only Models, and a button to open Setup", async () => {
     const client = createClient(createMockTransport({ autoEmit: false }));
     const outcome = await requestStart(client, startArgs());
-    if (outcome.kind === "started") throw new Error("the mock must refuse to start");
+    if (outcome.kind === "started" || outcome.kind === "cancelled")
+      throw new Error("the mock must refuse to start");
     const session = sessionReducer(initialSession, { type: "startFailed", failure: outcome });
     const html = renderToStaticMarkup(<LiveView {...props(session)} />);
     expect(html).toContain("Finish setup first. Not turned on yet: Models.");
@@ -98,6 +99,7 @@ describe("LiveView states", () => {
         isFinal: true,
         source: "We can ship this on Friday.",
         target: "Chúng ta có thể phát hành vào thứ Sáu.",
+        delayMs: 450,
       },
       nowMs: 9200,
     });

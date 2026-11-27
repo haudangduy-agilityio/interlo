@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createClient } from "./client";
+import { isCaptionEvent } from "./guards";
 import { createMockTransport, sampleModels } from "./mockTransport";
 import {
   BANNER_KINDS,
@@ -122,6 +123,7 @@ const CAPTION = {
   isFinal: true,
   source: true,
   target: true,
+  delayMs: true,
 } satisfies Record<keyof CaptionEvent, true>;
 const LATENCY = { p50Ms: true, p95Ms: true } satisfies Record<keyof LatencyEvent, true>;
 const STATUS = { state: true } satisfies Record<keyof StatusEvent, true>;
@@ -312,6 +314,21 @@ describe("IPC contract fixtures: errors", () => {
 });
 
 describe("IPC contract fixtures: rules", () => {
+  it("a caption without delayMs, or with a delay that is no whole number, fails the guard", () => {
+    const caption = asRecord(fixture("events/caption.json"));
+    expect(isCaptionEvent(caption)).toBe(true);
+    expect(isCaptionEvent({ ...caption, delayMs: 0 })).toBe(true);
+    const bare = { ...caption };
+    delete bare.delayMs;
+    expect(isCaptionEvent(bare)).toBe(false);
+    for (const delayMs of [-1, 1.5, "450", null]) {
+      expect({ delayMs, ok: isCaptionEvent({ ...caption, delayMs }) }).toEqual({
+        delayMs,
+        ok: false,
+      });
+    }
+  });
+
   it("lists are newest first", () => {
     const meetings = asList(fixture("meeting_summary_list.json")).map((m) => Number(m.startedAtMs));
     const notes = asList(fixture("note_list.json")).map((n) => Number(n.createdAtMs));

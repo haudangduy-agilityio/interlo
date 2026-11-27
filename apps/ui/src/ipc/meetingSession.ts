@@ -2,12 +2,15 @@ import type { Caption } from "../protocol";
 import type { StartFailure } from "./startOutcome";
 import type { BannerEvent, CaptionEvent, Direction, LatencyEvent, MeetingRunState } from "./types";
 
+/** A line of the session: the caption and, when a caption event made it, that event's delay. */
+export type SessionCaption = Caption & { delayMs?: number };
+
 /** Everything the live screen, subtitle bar and compact panel show about the running meeting. */
 export interface SessionState {
   status: MeetingRunState;
   meetingId: string | null;
   startedAtMs: number | null;
-  captions: Caption[];
+  captions: SessionCaption[];
   /** Ids of lines that left `captions` because of the cap, newest last. Their late updates are ignored. */
   evictedLineIds: readonly string[];
   latency: LatencyEvent | null;
@@ -61,7 +64,13 @@ export function latestIncomingCaption(captions: readonly Caption[]): Caption | n
   return null;
 }
 
-export function captionFromEvent(e: CaptionEvent, startMs: number): Caption {
+/** A final line without a translation waits for none. */
+function translationStatusOf(e: CaptionEvent): Caption["translationStatus"] {
+  if (e.target.length > 0) return e.isFinal ? "final" : "partial";
+  return e.isFinal ? null : "pending";
+}
+
+export function captionFromEvent(e: CaptionEvent, startMs: number): SessionCaption {
   return {
     segmentId: e.lineId,
     sourceId: e.direction === "in" ? INCOMING_SOURCE_ID : OUTGOING_SOURCE_ID,
@@ -71,7 +80,8 @@ export function captionFromEvent(e: CaptionEvent, startMs: number): Caption {
     targetText: e.target.length > 0 ? e.target : null,
     // The caption event does not carry the target language.
     targetLanguage: null,
-    translationStatus: e.target.length === 0 ? "pending" : e.isFinal ? "final" : "partial",
+    translationStatus: translationStatusOf(e),
+    delayMs: e.delayMs,
   };
 }
 

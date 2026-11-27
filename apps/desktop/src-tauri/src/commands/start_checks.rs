@@ -2,6 +2,8 @@
 //! at every Start. Pure functions over injected facts, so tests need no audio
 //! stack and no Tauri runtime.
 
+use audio_io::{DeviceInfo, DeviceKind};
+
 use crate::ipc::{IpcError, StartMeetingArgs};
 
 /// One per-meeting check. `id()` is the wire string used in `IpcError.details`.
@@ -75,6 +77,29 @@ impl AudioFacts for SampleAudioFacts {
     }
 }
 
+/// The facts of the devices that one setup check read.
+pub struct DeviceFacts<'a>(pub &'a [DeviceInfo]);
+
+impl AudioFacts for DeviceFacts<'_> {
+    /// Without a default output the sound would go to the built-in speakers.
+    fn output_device(&self) -> OutputDevice {
+        match self.0.iter().find(|device| device.is_default_output) {
+            None => OutputDevice::BuiltInSpeakers,
+            Some(device) => match device.kind {
+                DeviceKind::BuiltInSpeakers => OutputDevice::BuiltInSpeakers,
+                DeviceKind::Headphones => OutputDevice::Headphones,
+                _ => OutputDevice::Other,
+            },
+        }
+    }
+
+    fn capture_and_voice_share_device(&self) -> bool {
+        let id_of = |kind| self.0.iter().find(|d| d.kind == kind).map(|d| &d.id);
+        let capture = id_of(DeviceKind::VirtualInput2ch);
+        capture.is_some() && capture == id_of(DeviceKind::VirtualOutput16ch)
+    }
+}
+
 /// The checks that fail, in `StartCheck::ORDER`.
 pub fn failed_checks(args: &StartMeetingArgs, facts: &dyn AudioFacts) -> Vec<StartCheck> {
     StartCheck::ORDER
@@ -122,6 +147,31 @@ mod tests {
         fn capture_and_voice_share_device(&self) -> bool {
             self.shared
         }
+    }
+
+    #[test]
+    fn device_facts_read_the_output_and_the_routing() {
+        let device = |id: &str, kind| DeviceInfo::new(id, id, kind);
+        let apart = [
+            device("a", DeviceKind::VirtualInput2ch),
+            device("b", DeviceKind::VirtualOutput16ch),
+            device("c", DeviceKind::Headphones).with_defaults(false, true),
+        ];
+        assert_eq!(
+            DeviceFacts(&apart).output_device(),
+            OutputDevice::Headphones
+        );
+        assert!(!DeviceFacts(&apart).capture_and_voice_share_device());
+        let shared = [
+            device("a", DeviceKind::VirtualInput2ch),
+            device("a", DeviceKind::VirtualOutput16ch),
+        ];
+        assert!(DeviceFacts(&shared).capture_and_voice_share_device());
+        assert_eq!(
+            DeviceFacts(&shared).output_device(),
+            OutputDevice::BuiltInSpeakers
+        );
+        assert!(!DeviceFacts(&shared[..1]).capture_and_voice_share_device());
     }
 
     const FINE: Facts = Facts {

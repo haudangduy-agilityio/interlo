@@ -52,6 +52,7 @@ describe("SessionProvider caption events", () => {
           isFinal: true,
           source: `Line ${n}`,
           target: "",
+          delayMs: 450,
         }),
       );
     return { transport, caption, renders: () => renders };
@@ -145,5 +146,41 @@ describe("SessionProvider model progress events", () => {
     expect(screen.getByText("enV:error")).toBeTruthy();
     act(() => screen.getByRole("button", { name: "clear" }).click());
     expect(screen.getByText("enV:none")).toBeTruthy();
+  });
+});
+
+describe("SessionProvider start", () => {
+  it("sends nothing while a meeting runs and keeps the session", async () => {
+    const transport = createMockTransport({ autoEmit: false });
+    const invoke = vi.spyOn(transport, "invoke");
+    const outcomes: string[] = [];
+    function Probe() {
+      const { session, start } = useSession();
+      const args = {
+        mode: "both" as const,
+        meetingAppId: "desktop",
+        checks: { headphonesConfirmed: true, meetingMicConfirmed: true },
+      };
+      return (
+        <div>
+          <p>status:{session.status}</p>
+          <button onClick={() => void start(args).then((o) => outcomes.push(o.kind))}>go</button>
+        </div>
+      );
+    }
+    render(
+      <ClientProvider client={createClient(transport)}>
+        <SessionProvider>
+          <Probe />
+        </SessionProvider>
+      </ClientProvider>,
+    );
+    act(() => transport.emit("meeting://status", { state: "running" }));
+
+    await act(async () => screen.getByRole("button", { name: "go" }).click());
+
+    expect(screen.getByText("status:running")).toBeTruthy();
+    expect(invoke.mock.calls.map(([command]) => command)).not.toContain("start_meeting");
+    expect(outcomes).toEqual(["cancelled"]);
   });
 });

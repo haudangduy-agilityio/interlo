@@ -19,7 +19,7 @@ crates/
     tests/realtime_scan.rs   callback-side files, and the marked audio-thread regions of probe.rs, name no lock, blocking, allocating or log call
     tests/mic_callback.rs    callback core without a sound card: level, ring never blocks, conversion, counters
     tests/mic_capture.rs     microphone source on a fake backend: device by name, errors, start and stop
-  engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
+  engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate, speech events and features, utterance spans, live chain, ONNX adapters
   playback/                playback queue, speed-up, mixer
   store/                   the one database file: schema versions, journal, projections, full-text index
     migrations/              numbered SQL changes of the schema, applied at open
@@ -41,11 +41,13 @@ crates/
     tests/delete_meeting.rs  deleting a meeting leaves none of its text in the database file or its log
 apps/
   desktop/src-tauri/       Tauri shell
-    src/commands/          one file per command group
+    src/commands/          one file per command group (history, meeting, models, notes, settings, setup, start checks)
     src/clock.rs           time source for the shell
     src/first_paint.rs     shows the hidden main window after a delay if the page did not (safety net)
     src/native_confirm.rs  native dialog that proves an owner click (ADR 0006)
     src/navigation.rs      webview navigation rules (only the app itself)
+    src/models_dir.rs      developer-only model folder from the environment
+    src/session/           one session controller, capture, model check, engine loading, policy and test fakes
     tests/                 IPC contract, security config, demo-data gate, native confirm gate,
                            network boundary
     build.rs               registers the command list for the capability check

@@ -30,6 +30,8 @@ export interface SessionApi {
   /** Pause mutes both directions; resume unmutes them. */
   setPaused(paused: boolean): Promise<void>;
   dismissBanner(): void;
+  /** Keep an error on the screens that show the session, until the owner closes it. */
+  showError(message: string): void;
   /** Forget what is known about one model download, for example after Cancel or Dismiss. */
   clearModelProgress(id: string): void;
   /** Forget the last failed start, for example once the cause is fixed. */
@@ -56,6 +58,8 @@ export function SessionProvider({
   // once per animation frame, so the screen renders once per frame, not once per event.
   const buffered = useRef<{ event: CaptionEvent; nowMs: number }[]>([]);
   const frame = useRef<number | null>(null);
+  // Ends the wait for the start in flight, when a stop overtakes it.
+  const overtake = useRef(() => {});
 
   const flush = useCallback(() => {
     frame.current = null;
@@ -91,20 +95,28 @@ export function SessionProvider({
   }, [client, clock, flush]);
 
   const start = useCallback(
-    async (args: StartMeetingArgs) => {
+    async (args: StartMeetingArgs): Promise<StartOutcome> => {
+      // A session that exists is left as it is: it keeps its captions and its Stop.
+      if (session.status !== "idle") return { kind: "cancelled" };
       // A new meeting starts with no lines, so captions still waiting from the last one are dropped.
       buffered.current = [];
       dispatch({ type: "startRequested" });
-      const outcome = await requestStart(client, args);
+      const overtaken = new Promise<StartOutcome>((resolve) => {
+        overtake.current = () => resolve({ kind: "cancelled" });
+      });
+      const outcome = await Promise.race([requestStart(client, args), overtaken]);
+      // A stop came first, so the answer of this start changes nothing.
+      if (outcome.kind === "cancelled") return outcome;
       if (outcome.kind === "started")
         dispatch({ type: "started", meetingId: outcome.meetingId, nowMs: clock.now() });
       else dispatch({ type: "startFailed", failure: outcome });
       return outcome;
     },
-    [client, clock],
+    [client, clock, session.status],
   );
 
   const stop = useCallback(async () => {
+    overtake.current();
     flush();
     dispatch({ type: "status", state: "stopping" });
     try {
@@ -112,7 +124,12 @@ export function SessionProvider({
       dispatch({ type: "status", state: "idle" });
     } catch (e) {
       const error = toUiError(e);
-      dispatch({ type: "status", state: error.code === "NO_MEETING" ? "idle" : "running" });
+      // No meeting is left, so the stop has nothing to report.
+      if (error.code === "NO_MEETING") {
+        dispatch({ type: "status", state: "idle" });
+        return;
+      }
+      dispatch({ type: "status", state: "running" });
       throw error;
     }
   }, [client, flush]);
@@ -134,6 +151,10 @@ export function SessionProvider({
   );
 
   const dismissBanner = useCallback(() => dispatch({ type: "dismissBanner" }), []);
+  const showError = useCallback(
+    (message: string) => dispatch({ type: "banner", event: { kind: "error", message } }),
+    [],
+  );
   const clearModelProgress = useCallback(
     (id: string) => dispatchModels({ type: "cleared", id }),
     [],
@@ -149,6 +170,7 @@ export function SessionProvider({
       setMute,
       setPaused,
       dismissBanner,
+      showError,
       clearModelProgress,
       clearStartFailure,
     }),
@@ -160,6 +182,7 @@ export function SessionProvider({
       setMute,
       setPaused,
       dismissBanner,
+      showError,
       clearModelProgress,
       clearStartFailure,
     ],

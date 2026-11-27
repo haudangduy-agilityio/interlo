@@ -39,6 +39,7 @@ export const en = {
   "captions.waiting": "Waiting for speech.",
   "captions.latest": "Latest",
   "caption.partner": "Partner",
+  "caption.delay": "{ms} ms",
   "caption.you": "You",
   "caption.status.partial": "partial",
   "caption.status.stable": "stable",

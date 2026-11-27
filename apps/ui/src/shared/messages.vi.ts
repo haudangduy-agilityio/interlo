@@ -33,6 +33,7 @@ export const vi: Record<MessageKey, string> = {
   "captions.waiting": "",
   "captions.latest": "",
   "caption.partner": "",
+  "caption.delay": "",
   "caption.you": "",
   "caption.status.partial": "",
   "caption.status.stable": "",
