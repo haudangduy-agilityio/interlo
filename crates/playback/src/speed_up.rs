@@ -30,6 +30,11 @@ const MONO: NonZeroU16 = NonZeroU16::MIN;
 /// it is not a number), the sample rate is 0, the input is shorter than
 /// `MIN_SPEED_UP_MS`, or the time stretch fails or returns less than the kept
 /// part, so no segment is lost.
+///
+/// It works on the whole segment at once, and its time grows with the length and
+/// with the square of the sample rate: compute the result before the segment is
+/// due. At a speed of 1.0 or less it only copies the samples, so a caller has no
+/// need to call it then.
 pub fn speed_up(samples: &[f32], sample_rate: u32, speed: f32) -> Vec<f32> {
     try_speed_up(samples, sample_rate, speed).unwrap_or_else(|| samples.to_vec())
 }
@@ -44,13 +49,18 @@ fn try_speed_up(samples: &[f32], sample_rate: u32, speed: f32) -> Option<Vec<f32
     let speed = speed.min(MAX_SPEED_FACTOR);
 
     let pad = samples_in(PAD_MS, rate);
-    let mut padded = vec![0.0; pad];
+    let padded_len = samples.len() + 2 * pad;
+    let mut padded = Vec::with_capacity(padded_len);
+    padded.resize(pad, 0.0);
     padded.extend_from_slice(samples);
-    padded.resize(padded.len() + pad, 0.0);
+    padded.resize(padded_len, 0.0);
     let output = wsola::stretch(&padded, rate, MONO, speed).ok()?;
 
     let position_after_stretch = |len: usize| (len as f64 / f64::from(speed)).round() as usize;
-    let from = position_after_stretch(pad) + samples_in(KEEP_FROM_MS, rate);
+    // Never later than one padding length into the output: at a speed near 1.0
+    // the plain place plus `KEEP_FROM_MS` lies behind the first place where the
+    // time stretch can put input.
+    let from = (position_after_stretch(pad) + samples_in(KEEP_FROM_MS, rate)).min(pad);
     let to = position_after_stretch(pad + samples.len()) + samples_in(KEEP_TO_MS, rate);
     output.get(from..to).map(<[f32]>::to_vec)
 }
@@ -137,6 +147,15 @@ mod tests {
             "peak {}",
             peak(first_40_ms)
         );
+    }
+
+    #[test]
+    fn a_speed_near_one_keeps_from_one_padding_length_on() {
+        let input = tone(16_000, 16_000, 200.0);
+        // At 1.02 the padding is 1 440 samples and the kept part ends at
+        // 17 098 + 240; it must not start after sample 1 440.
+        let output = speed_up(&input, 16_000, 1.02);
+        assert_eq!(output.len(), 17_338 - 1_440);
     }
 
     #[test]
