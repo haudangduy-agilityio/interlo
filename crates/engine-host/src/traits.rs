@@ -28,6 +28,10 @@ pub trait Engine: Send {
 /// Voice activity detection on one frame.
 pub trait Vad: Engine {
     fn is_speech(&mut self, frame: &[f32]) -> Result<bool, EngineError>;
+
+    /// Start a new stream: forget what earlier frames left in the engine. An
+    /// engine without such memory keeps this empty body.
+    fn reset(&mut self) {}
 }
 
 pub trait Recognizer: Engine {

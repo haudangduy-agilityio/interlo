@@ -32,6 +32,7 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 | tauri-plugin-dialog 2  | apps/desktop                                                                               | The native confirmation dialog before a model download (ADR 0006). Called from Rust only, in `native_confirm.rs`; the main window is granted no `dialog:` permission. Added in M1-04.2 with the owner's approval (2026-11-25); `cargo deny check` passes. Brings in `rfd`, `tauri-plugin` and `tauri-plugin-fs` (MIT OR Apache-2.0), and moves `tauri-utils` from 2.10.3 to 2.10.4 in the lock file |
 | cpal `=0.18.2`         | audio-io                                                                                   | Microphone capture through Core Audio, with the default input configuration of the chosen device; exact pin (Apache-2.0) |
 | rubato `=5.1.0`        | audio-io                                                                                   | Conversion of the microphone input to 16 kHz in `RateConverter`, without allocation in the audio callback; exact pin (MIT OR Apache-2.0) |
+| sha2 0.10              | model-store                                                                                | SHA-256 of the model files in `check_pack`. Added in SL-01 with the owner's approval (2026-11-26); version 0.10.9 was already in the lock file, so no new crate enters it (MIT OR Apache-2.0) |
 
 ## Rust crates added later (Later)
 

@@ -30,6 +30,17 @@
   `INTERLO_MODELS_DIR` names the folder that holds them. Without the variable it
   prints one `SKIP` line and passes; with the variable and a missing file it
   fails. The model and audio files never enter git.
+- The whole speech chain with the real models is the test
+  `real_chain_captions_the_test_sentence`
+  (`crates/engine-host/tests/chain_real_model.rs`): synthetic speech in, captions
+  out, at least 13 of the 15 words of the sentence. Run it with the network
+  denied, with `MODELS_DIR` set to the folder of the models:
+
+  ```bash
+  INTERLO_MODELS_DIR="$MODELS_DIR" scripts/network-off.sh cargo test --offline -p engine-host --test chain_real_model -- --nocapture
+  ```
+
+  Without the variable the test passes with its `SKIP` line and proves nothing.
 - Journal replay: a recorded event file gives the same captions every time
   (`fixtures/protocol/`).
 - Tauri commands call plain functions; test those functions, not the command

@@ -217,6 +217,12 @@ impl Vad for OnnxVad {
         let probability = self.probability(frame)?;
         Ok(is_speech_probability(probability, self.threshold))
     }
+
+    fn reset(&mut self) {
+        // Resolves to the inherent method, which wins over the trait method,
+        // so this does not recurse.
+        OnnxVad::reset(self);
+    }
 }
 
 #[cfg(test)]
