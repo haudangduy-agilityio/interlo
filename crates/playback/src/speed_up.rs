@@ -162,10 +162,11 @@ mod tests {
     #[test]
     fn at_the_cap_the_kept_part_starts_before_one_padding_length() {
         let input = tone(16_000, 16_000, 200.0);
-        // At 1.15 the kept part runs from 1 252 + 96 to 15 165 + 240, so the
-        // limit of one padding length does not move its start.
+        // At 1.10 the plain start is round(1 440 / 1.10) + 96 = 1 405,
+        // before the 1 440-sample limit. The kept part ends at
+        // round(17 440 / 1.10) + 240 = 16 095.
         let output = speed_up(&input, 16_000, MAX_SPEED_FACTOR);
-        assert_eq!(output.len(), 15_405 - 1_348);
+        assert_eq!(output.len(), 16_095 - 1_405);
     }
 
     #[test]

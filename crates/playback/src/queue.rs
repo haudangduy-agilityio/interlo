@@ -24,7 +24,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 /// Highest pitch-preserving speed-up, and the speed while catching up.
-pub const MAX_SPEED_FACTOR: f32 = 1.15;
+pub const MAX_SPEED_FACTOR: f32 = 1.10;
 /// Catching up starts when more than this much audio waits behind the front
 /// segment. Starting value.
 pub const SPEEDUP_START_WAITING_MS: u32 = 2_000;
@@ -332,7 +332,7 @@ mod tests {
         q.enqueue(seg("a", 4_000)).unwrap();
         q.enqueue(seg("b", 4_000)).unwrap();
         assert_eq!(q.backlog_ms(), 8_000);
-        assert_eq!(q.current_speed(), 1.15);
+        assert_eq!(q.current_speed(), 1.10);
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(q.current_speed(), 1.0, "2 000 ms wait");
 
         q.enqueue(seg("c", 1)).unwrap();
-        assert_eq!(q.current_speed(), 1.15, "2 001 ms wait");
+        assert_eq!(q.current_speed(), 1.10, "2 001 ms wait");
     }
 
     #[test]
@@ -378,7 +378,7 @@ mod tests {
         ] {
             q.enqueue(seg(id, ms)).unwrap();
         }
-        assert_eq!(q.current_speed(), 1.15);
+        assert_eq!(q.current_speed(), 1.10);
 
         for id in ["a", "b", "c"] {
             q.mark_played(id).unwrap();
@@ -386,7 +386,7 @@ mod tests {
 
         // "d" is the front segment and the 1 ms of "e" waits behind it.
         assert_eq!(q.backlog_ms(), 1_001);
-        assert_eq!(q.current_speed(), 1.15);
+        assert_eq!(q.current_speed(), 1.10);
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
         let mut q = PlaybackQueue::new();
         q.enqueue(seg("a", 1_000)).unwrap();
         q.enqueue(seg("b", 2_001)).unwrap();
-        assert_eq!(q.current_speed(), 1.15);
+        assert_eq!(q.current_speed(), 1.10);
 
         q.mark_played("a").unwrap();
         assert_eq!(q.current_speed(), 1.0, "nothing waits behind \"b\"");

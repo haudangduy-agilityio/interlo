@@ -158,9 +158,9 @@ fn backlog_speed_never_exceeds_the_cap_while_draining() {
 }
 
 #[test]
-fn the_speed_cap_is_1_15() {
+fn the_speed_cap_is_1_10() {
     // Pinned once, as the decided value (FR-60 to FR-64).
-    assert_eq!(MAX_SPEED_FACTOR, 1.15);
+    assert_eq!(MAX_SPEED_FACTOR, 1.10);
 }
 
 #[test]
@@ -211,11 +211,11 @@ fn caught_up_at_ms(len_ms: u32) -> f64 {
 }
 
 #[test]
-fn a_forced_lag_of_four_seconds_is_caught_up_within_thirty_seconds() {
+fn a_forced_lag_of_four_seconds_is_caught_up_within_36_seconds() {
     for len_ms in [1_000, 500] {
         let at = caught_up_at_ms(len_ms);
         assert!(
-            at <= 30_000.0,
+            at <= 36_000.0,
             "segments of {len_ms} ms: caught up at {at} ms"
         );
     }
