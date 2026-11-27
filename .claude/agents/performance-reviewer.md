@@ -25,7 +25,7 @@ Read the diff first, then the callers and the data sizes around each change.
   the callback. State the worst-case work per callback.
 - **Buffers.** Ring buffer sizes and units, a copy where a borrow works, a resample
   that allocates per block, a queue with no bound, backlog that can grow without a
-  speed-up cap (1.15x).
+  speed-up cap (1.10x).
 - **Engine host** (`engine-host`). One worker thread per model: look for a model
   load on the hot path, a blocking call on the capture thread, a result copied
   more times than needed, and work done for a segment that will be discarded.

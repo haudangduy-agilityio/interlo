@@ -15,7 +15,7 @@
 ## What to test
 
 - Every rule gets a test: a decision rule (capture order, start gate), a limit
-  (speed-up cap 1.15, 30 s hold, 1000 words), a refusal (system hotkey, checksum
+  (speed-up cap 1.10, 30 s hold, 1000 words), a refusal (system hotkey, checksum
   mismatch, password field), or a format (IPC JSON names, export text).
 - Test the boundary values of a limit, not only one value inside it.
 - A bug fix starts with a test that fails on the old code.
