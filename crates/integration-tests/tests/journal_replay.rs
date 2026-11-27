@@ -7,8 +7,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use meeting_core::coordinator::{Applied, Caption, SessionView};
-use meeting_core::journal::{AppendOutcome, Journal};
 use meeting_core::protocol::{Envelope, SegmentStatus, SessionStatus, TranslationStatus};
+use store::{AppendOutcome, Store};
 
 const SESSION_ID: &str = "session_01";
 
@@ -61,7 +61,8 @@ fn replayed_captions_show_the_final_line_with_its_matching_translation() {
 #[test]
 fn a_journal_round_trip_replays_to_the_same_captions_as_the_file() {
     let events = load_fixture();
-    let journal = Journal::open_in_memory().expect("in-memory journal");
+    let store = Store::open_in_memory().expect("in-memory store");
+    let journal = store.journal();
     for env in &events {
         assert_eq!(
             journal.append(env).expect("append"),
@@ -79,6 +80,34 @@ fn a_journal_round_trip_replays_to_the_same_captions_as_the_file() {
     let loaded = journal.load(SESSION_ID).expect("load");
     assert_eq!(loaded, events);
     assert_eq!(replay(&loaded), replay(&events));
+}
+
+#[test]
+fn events_replay_in_sequence_order_per_session() {
+    let store = Store::open_in_memory().expect("in-memory store");
+    let journal = store.journal();
+    let events = load_fixture();
+    let mut other = events[0].clone();
+    other.event_id = "evt_other".into();
+    other.session_id = "session_02".into();
+    // Append out of order on purpose; the journal must replay by sequence.
+    for env in events.iter().rev().chain([&other]) {
+        assert_eq!(
+            journal.append(env).expect("append"),
+            AppendOutcome::Inserted
+        );
+    }
+    assert_eq!(
+        journal.append(&events[0]).expect("append"),
+        AppendOutcome::Duplicate
+    );
+
+    let loaded = journal.load(SESSION_ID).expect("load");
+    assert_eq!(loaded, events);
+
+    let (_, status) = replay(&loaded);
+    assert_eq!(status, SessionStatus::Completed);
+    assert!(journal.load("session_unknown").expect("load").is_empty());
 }
 
 #[test]

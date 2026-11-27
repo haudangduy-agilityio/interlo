@@ -2320,7 +2320,6 @@ name = "meeting-core"
 version = "0.1.0"
 dependencies = [
  "diagnostics",
- "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4113,6 +4112,7 @@ version = "0.1.0"
 dependencies = [
  "meeting-core",
  "rusqlite",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

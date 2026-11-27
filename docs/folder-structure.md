@@ -3,7 +3,7 @@
 ```text
 Cargo.toml                 Rust workspace; every crate below is a member
 crates/
-  meeting-core/            protocol, session states, coordinator, journal, policy gate, start-check input rules
+  meeting-core/            protocol, session states, coordinator, policy gate, start-check input rules
   audio-io/                devices, device list, setup report, readiness probe, capture plan, microphone capture, callback guards, output, ring buffer, resampler
     src/device_list.rs       reads the device list with one fixed system tool, sorts devices into kinds
     src/setup_report.rs      the eight setup items with typed fixes and the Bluetooth warning
@@ -21,7 +21,11 @@ crates/
     tests/mic_capture.rs     microphone source on a fake backend: device by name, errors, start and stop
   engine-host/             engine traits, registry (policy-checked), test mocks, segmenter, language gate
   playback/                playback queue, speed-up, mixer
-  store/                   SQLite projections, schema, full-text index
+  store/                   the one database file: schema versions, journal, projections, full-text index
+    migrations/              numbered SQL changes of the schema, applied at open
+    src/schema.rs            version rule and migration records
+    src/journal.rs           append-only event journal
+    src/files.rs             file modes, the refused empty-file state, log truncation
   summary-jobs/            job queue, citation check, question answerer
   model-store/             compiled-in model table (manifest.rs), size and checksum checks, download gate, one-download-per-pack registry
   settings/                settings values, apply timing, hotkeys
@@ -34,7 +38,7 @@ crates/
     tests/pipeline.rs        engine chain through the coordinator
     tests/records.rs         meeting records and summaries
     tests/settings.rs        settings values and hotkeys
-    tests/delete_meeting.rs  deleting a meeting scrubs the store and the journal files
+    tests/delete_meeting.rs  deleting a meeting leaves none of its text in the database file or its log
 apps/
   desktop/src-tauri/       Tauri shell
     src/commands/          one file per command group
