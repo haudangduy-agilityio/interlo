@@ -25,8 +25,8 @@
 
 - No sound card, no model and no network in tests. Clocks, hashers, engines and
   network clients are passed in as parameters or traits.
-  One exception: a test that needs a real model file and a synthetic audio file
-  (for example `crates/engine-host/tests/vad_real_model.rs`) runs only when
+  One exception: a test that needs a real model file, and for audio a synthetic
+  audio file (for example `crates/engine-host/tests/vad_real_model.rs`) runs only when
   `INTERLO_MODELS_DIR` names the folder that holds them. Without the variable it
   prints one `SKIP` line and passes; with the variable and a missing file it
   fails. The model and audio files never enter git.
