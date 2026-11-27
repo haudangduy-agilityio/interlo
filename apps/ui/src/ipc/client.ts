@@ -34,6 +34,7 @@ export type TransportKind = "tauri" | "mock";
 
 export interface Client {
   readonly kind: TransportKind;
+  readonly canDownloadModels: boolean;
   checkSetup(): Promise<SetupStatus>;
   listModels(): Promise<ModelInfo[]>;
   downloadModel(args: DownloadModelArgs): Promise<void>;
@@ -105,6 +106,8 @@ export function createClient(transport: Transport, kind: TransportKind = "mock")
   }
   return {
     kind,
+    // The desktop shell has no download client yet (#41).
+    canDownloadModels: kind === "mock",
     checkSetup: () => call("check_setup"),
     listModels: () => call("list_models"),
     downloadModel: (args) => call("download_model", args),

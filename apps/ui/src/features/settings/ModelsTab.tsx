@@ -7,6 +7,7 @@ import {
   ActionErrorBanner,
   AsyncContent,
   EmptyState,
+  NotAvailable,
   type ActionErrorBannerProps,
 } from "../../shared/ui";
 
@@ -19,6 +20,7 @@ export interface ModelsTabProps {
   onDownload: (id: string) => void;
   onCancel?: (id: string) => void;
   onRetry: () => void;
+  canDownloadModels?: boolean;
 }
 
 interface RowHandlers {
@@ -34,7 +36,13 @@ const STATE_LABEL: Record<ModelState, MessageKey> = {
   error: "models.state.error",
 };
 
-function ModelRow({ model, progress, onDownload, onCancel }: RowHandlers & { model: ModelInfo }) {
+function ModelRow({
+  model,
+  progress,
+  onDownload,
+  onCancel,
+  unavailable,
+}: RowHandlers & { model: ModelInfo; unavailable: boolean }) {
   const t = useT();
   return (
     <li className="list__row">
@@ -48,6 +56,7 @@ function ModelRow({ model, progress, onDownload, onCancel }: RowHandlers & { mod
         event={progress[model.id]}
         onDownload={onDownload}
         onCancel={onCancel}
+        unavailable={unavailable}
       />
     </li>
   );
@@ -63,6 +72,7 @@ export function ModelsTab({
   onDownload,
   onCancel = NO_CANCEL,
   onRetry,
+  canDownloadModels = true,
 }: ModelsTabProps) {
   return (
     <div className="stack">
@@ -73,6 +83,7 @@ export function ModelsTab({
         onDownload={onDownload}
         onCancel={onCancel}
         onRetry={onRetry}
+        canDownloadModels={canDownloadModels}
       />
     </div>
   );
@@ -84,8 +95,12 @@ function ModelsList({
   onDownload,
   onCancel,
   onRetry,
-}: RowHandlers & { models: Async<ModelInfo[]>; onRetry: () => void }) {
+  canDownloadModels,
+}: RowHandlers & { models: Async<ModelInfo[]>; onRetry: () => void; canDownloadModels: boolean }) {
   const t = useT();
+  if (models.status === "error" && !canDownloadModels && models.error.code === "NOT_IMPLEMENTED") {
+    return <NotAvailable>{t("models.downloadUnavailable")}</NotAvailable>;
+  }
   return (
     <AsyncContent
       state={models}
@@ -95,17 +110,21 @@ function ModelsList({
       empty={<EmptyState title={t("models.emptyTitle")} description={t("models.emptyBody")} />}
     >
       {(all) => (
-        <ul className="list" aria-label={t("models.listLabel")}>
-          {all.map((m) => (
-            <ModelRow
-              key={m.id}
-              model={m}
-              progress={progress}
-              onDownload={onDownload}
-              onCancel={onCancel}
-            />
-          ))}
-        </ul>
+        <>
+          {canDownloadModels ? null : <p className="muted">{t("models.downloadUnavailable")}</p>}
+          <ul className="list" aria-label={t("models.listLabel")}>
+            {all.map((m) => (
+              <ModelRow
+                key={m.id}
+                model={m}
+                progress={progress}
+                onDownload={onDownload}
+                onCancel={onCancel}
+                unavailable={!canDownloadModels}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </AsyncContent>
   );

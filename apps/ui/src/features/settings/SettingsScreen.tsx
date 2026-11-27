@@ -64,6 +64,7 @@ function ModelsPanel() {
         onDownload={downloads.licence.request}
         onCancel={downloads.cancel}
         onRetry={reload}
+        canDownloadModels={client.canDownloadModels}
       />
       {downloads.licence.dialog}
     </>

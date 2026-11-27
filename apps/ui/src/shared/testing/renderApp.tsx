@@ -4,7 +4,7 @@ import { afterEach } from "vitest";
 import { AppStateProvider, Shell, SurfaceHost, type SurfaceId } from "../../app/index";
 import { SettingsLanguageSync } from "../../app/SettingsLanguageSync";
 import type { AppState } from "../../app/appReducer";
-import { createClient } from "../../ipc/client";
+import { createClient, type TransportKind } from "../../ipc/client";
 import { ClientProvider } from "../../ipc/ClientProvider";
 import { createMockTransport, type MockOptions, type MockTransport } from "../../ipc/mockTransport";
 import { SessionProvider } from "../../ipc/SessionProvider";
@@ -54,6 +54,8 @@ export interface RenderAppOptions extends MockOptions {
   failing?: Record<string, string | IpcError>;
   /** The clock the screens read. Default: the system clock. */
   clock?: Clock;
+  /** UI client kind. Default: mock. */
+  kind?: TransportKind;
 }
 
 /** Renders the whole shell on the mock transport. Events are off unless the test pushes them. */
@@ -62,11 +64,12 @@ export function renderApp({
   surface,
   failing = {},
   clock = systemClock,
+  kind = "mock",
   ...mockOptions
 }: RenderAppOptions = {}) {
   const transport = createFlakyTransport(mockOptions);
   for (const [cmd, message] of Object.entries(failing)) transport.failCommand(cmd, message);
-  const client = createClient(transport, "mock");
+  const client = createClient(transport, kind);
   const user = userEvent.setup();
   render(
     <ClockProvider clock={clock}>
