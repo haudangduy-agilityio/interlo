@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-11-17
 - Decision ID: D-80
+- Update 2026-11-26: the store no longer refuses every higher version. The
+  version rule and the meaning of "additive" are in
+  [ADR 0023](0023-one-database-version-rule.md) (D-193).
 
 ## Context
 

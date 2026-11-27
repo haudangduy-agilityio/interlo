@@ -222,6 +222,7 @@ export const en = {
 
   // ---- Models ----
   "models.loading": "Loading models",
+  "models.downloadUnavailable": "Downloading models is not available yet.",
   "models.listLabel": "Models",
   "models.emptyTitle": "No models listed",
   "models.emptyBody": "The shell reported no models.",

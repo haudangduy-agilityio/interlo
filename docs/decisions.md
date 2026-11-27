@@ -39,7 +39,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | [0010](adr/0010-quick-actions-enter-only.md) | Quick actions paste only after Enter (D-45) |
 | [0011](adr/0011-models-with-non-commercial-data-in-default-list.md) | Models trained on non-commercial data stay in the default list (D-47) |
 | [0012](adr/0012-model-manager.md) | Model manager: pinned URL and SHA-256 manifest, models from their own public host, no Interlo server (accepted, D-60) |
-| [0013](adr/0013-database-and-time-rules.md) | Database and time rules: journal `user_version`, UTC milliseconds, schema free until the first public tag (accepted, D-59) |
+| [0013](adr/0013-database-and-time-rules.md) | Database and time rules: UTC milliseconds (accepted, D-59; the schema freedom and the version rule are replaced by D-193) |
 | [0014](adr/0014-contribution-policy.md) | Contribution policy: DCO sign-off, no CLA, protected main (accepted, D-57; code of conduct removed 2026-11-19, D-187) |
 | [0015](adr/0015-automatic-updates.md) | Automatic updates: checked outside meetings, signed with its own key, from GitHub Releases (accepted, D-61) |
 | [0016](adr/0016-driver-installer.md) | Driver installer: one press, pinned URL and SHA-256, never bundled, administrator prompt (accepted, D-69) |
@@ -49,6 +49,7 @@ TODO(owner), before the repository is public: commit the wireframe export under 
 | [0020](adr/0020-ipc-types-stay-hand-written.md) | IPC types stay hand-written; the fixtures keep both sides in step (accepted) |
 | [0021](adr/0021-downloads-https-only-redirects-inside-the-allow-list.md) | Downloads use https only and follow a redirect only inside the pinned allow list (accepted, D-175) |
 | [0022](adr/0022-release-without-apple-developer-id.md) | Release without an Apple Developer account: a locally signed DMG, no notarization, an install guide (accepted, D-188) |
+| [0023](adr/0023-one-database-version-rule.md) | One database file owned by `store`: schema version rule, journal, cleanup after a delete (accepted, D-193) |
 
 ## Scope and release
 
@@ -195,7 +196,7 @@ Other rows that these decisions touch:
 | D-184 | Translation stage and spoken instructions. Decided 2026-11-19 (proposed the same day, confirmed by the owner). Five planted-instruction sentences are added to the M0-06 reading list. The result (the model obeys, prints the vocabulary list, or ignores them) is recorded in `docs/m0/`. |
 | D-185 | Ask injection test at M3-19. Decided 2026-11-19 (proposed the same day, confirmed by the owner). The done check of M3-19 adds a planted-instruction transcript: no planted instruction shows in the answer and every citation is an existing line id. X-18 later puts the summary, Ask and quick actions on one shared prompt builder. |
 | D-15 | Capture order: process tap for the chosen meeting app, then the 2ch virtual device for that app, else the session does not start. |
-| FR-60 to FR-64 | One playback queue; segments play in order, once, never cut or skipped; backlog speeds up to 1.15x with pitch kept; the latency gate includes queue wait. |
+| FR-60 to FR-64 | One playback queue; segments play in order, once, never cut or skipped; backlog speeds up to 1.10x with pitch kept, chosen at the listening check on 2026-11-27; the latency gate includes queue wait. |
 | FR-65, FR-63 | Merge pauses under 600 ms without a sentence-final mark; cut at 10 s at the next pause. |
 | FR-66, FR-67 | Engine failure in a segment: retry once, then keep the caption and play nothing. Unplug: hold the queue; after 30 s mark the rest "not played". |
 | FR-70 | Owner English speech is detected from the recognizer output and not translated. |
@@ -207,12 +208,13 @@ Other rows that these decisions touch:
 |---|---|
 | G6 | Nothing leaves the Mac during a meeting. |
 | A-13 | No local HTTP server. |
-| Storage | SQLite with WAL, append-only journal, text only, cascade delete per meeting (the journal rows go through `Journal::delete_session`, ADR 0008). |
+| Storage | SQLite with WAL, append-only journal, text only, cascade delete per meeting, journal rows included (ADR 0008, D-193). |
 | D-46 | Deleting a meeting deletes its utterances, speakers, summaries, insights, jobs, journal rows and the notes created in it. Daily notes not tied to a meeting stay. Confirmed tasks stay with the meeting link cleared; unconfirmed drafts from that meeting are deleted. Task rule confirmed (D-53, H-19). See ADR 0008. |
 | D-51 | No recorded human voice goes into the repository. Fixtures are synthetic (made from the sentences in the reading list, `docs/m0/reading-list.md`) plus live re-runs. Recordings used only for scoring (H-05) are deleted after scoring. M2-04 and M4-09 use synthetic audio or a live run. |
 | D-53 | Task rule of D-46 is confirmed by the owner (H-19): confirmed tasks stay when a meeting is deleted, with the link cleared; unconfirmed drafts are deleted. |
-| D-59 | Database and time rules. Schema v1 may change freely until the first public tag; after it every schema change needs a migration. `Store::conn()` becomes crate-private before E1 (E1-01). The journal sets `PRAGMA user_version` 1 and refuses a higher version. Times are stored as UTC milliseconds and shown and exported in the user's local time zone at the moment of use. See ADR 0013. |
+| D-59 | Database and time rules. Schema v1 may change freely until the first public tag; after it every schema change needs a migration (replaced by D-193). `Store::conn()` becomes crate-private before E1 (E1-01). The journal sets `PRAGMA user_version` 1 and refuses a higher version (replaced by D-193). Times are stored as UTC milliseconds and shown and exported in the user's local time zone at the moment of use. See ADR 0013. |
 | D-179 | Model integrity at every load. Decided 2026-11-19 (proposed the same day, confirmed by the owner). The engine host re-checks the SHA-256 of a model file before each load and refuses a symlink or a file not owned by the current user (control X-17, folded in M1-42). The PRD states the check at download only (FR-75): a PRD gap. |
+| D-193 | One database file and its version rule (owner, 2026-11-26, M3-01). `store` owns the one SQLite file, `PRAGMA user_version`, the migrations and the journal. A build opens a newer database when every newer migration is additive, and refuses any other without a change. A meeting delete removes its journal rows in the same transaction, then rebuilds the notes search index and the file and truncates the log; the next open finishes an interrupted cleanup. Migration 1 is not edited after this change. This applies D-125 and D-134 and replaces items 1 and 3 of D-59. See ADR 0023. |
 | D-180 | Driver signer rule. Decided 2026-11-19 (proposed the same day, confirmed by the owner). If the driver publisher signs the installer, X-15 pins the signer next to the hash. If it does not, X-15 pins the hash only and the owner reads the diff of every driver bump, because no second reviewer exists (D-146). The fact is checked in M0-18. |
 | D-181 | Crash output. Decided 2026-11-19 (proposed the same day, confirmed by the owner). A panic hook prints no caption text, and the app asserts at start that the core dump limit is 0 (control X-21). |
 | D-182 | Hardened runtime. Decided 2026-11-19 (proposed the same day, confirmed by the owner). The release build has the hardened runtime on and no entitlement that disables library validation. X-14 checks both with `codesign`. |

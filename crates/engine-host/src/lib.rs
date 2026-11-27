@@ -15,17 +15,21 @@ pub mod live_chain;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 pub mod onnx_asr;
+mod onnx_seq2seq;
+pub mod onnx_translate;
 pub mod onnx_vad;
 pub mod registry;
 pub mod segmenter;
 pub mod speech_events;
 pub mod speech_features;
 pub mod traits;
+mod translation_text;
 pub mod utterance;
 
 pub use error::{DenyCause, EngineError};
 pub use language_gate::owner_should_translate;
 pub use onnx_asr::OnnxRecognizer;
+pub use onnx_translate::OnnxTranslator;
 pub use onnx_vad::OnnxVad;
 pub use registry::{EngineRegistry, EngineRole};
 pub use segmenter::{segment, Piece, Segmenter};

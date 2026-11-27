@@ -2322,7 +2322,6 @@ name = "meeting-core"
 version = "0.1.0"
 dependencies = [
  "diagnostics",
- "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3129,6 +3128,7 @@ name = "playback"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.21",
+ "wsola",
 ]
 
 [[package]]
@@ -4116,6 +4116,7 @@ version = "0.1.0"
 dependencies = [
  "meeting-core",
  "rusqlite",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -5706,6 +5707,15 @@ dependencies = [
  "windows-core",
  "windows-version",
  "x11-dl",
+]
+
+[[package]]
+name = "wsola"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8149cd82a73bbde439d2b42a40a032de7dc28b1ec01919fcd0bd0456ecea75e6"
+dependencies = [
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -15,7 +15,7 @@ stops it after 5 seconds.
 ```text
 Meeting app audio --(process tap, or 2ch virtual device)--> audio-io --> engine-host
 Owner microphone ---------------------------------------->  audio-io --> engine-host
-engine-host --> meeting-core (coordinator, journal) --> store / summary-jobs
+engine-host --> meeting-core (coordinator) --> store (journal) / summary-jobs
 engine-host --> playback (queue, mixer) --> audio-io --> virtual microphone (16ch) --> meeting app
                                                      --> owner's headphones
 meeting-core --(events)--> apps/desktop (Tauri bridge) --(channels)--> apps/ui
@@ -36,11 +36,11 @@ of the `demo-data` feature uses `MeetingState` in place of the session.
 
 | Crate | Owns | Threads | Must never |
 |---|---|---|---|
-| meeting-core | Protocol, session states, coordinator (line state), journal, policy gate, egress guard (`GuardedClient`) | One actor task for the coordinator; one journal writer | Store audio; rewrite a final line; let text leave the Mac by default |
+| meeting-core | Protocol, session states, coordinator (line state), policy gate, egress guard (`GuardedClient`) | One actor task for the coordinator | Store audio; rewrite a final line; let text leave the Mac by default |
 | audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), readiness probe (microphone permission by a short open, macOS version, tap fact), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs; a `mic-probe` worker for the microphone check, which can outlive the call while a system dialog is open | Allocate, lock or log in the callback; block capture when a consumer is slow |
-| engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`), the recognition adapter (`OnnxRecognizer`, in process: one call takes one slice of speech, 0.1 s to 30 s long, and returns its Vietnamese text), the span rules (`utterance`: lead-in, cut at 15 s, minimum length) and the one speech chain (`live_chain`: samples from a source the shell passes in, to captions, delay, p50 and p95; `cancel` starts no new work and does not wait, `stop` also waits for a sink call that runs; it does not depend on `audio-io`) | Per session a reader thread (runs the detector) and a recognition thread (runs the recognizer). Planned: one worker thread per model | Open a network connection; hand out an engine the policy refuses; send anything of a session after its stop |
-| playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
-| store | SQLite projections, schema, full-text index, cascade delete | One writer, background reads | Store audio |
+| engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`), the recognition adapter (`OnnxRecognizer`, in process: one call takes one slice of speech, 0.1 s to 30 s long, and returns its Vietnamese text), the span rules (`utterance`: lead-in, cut at 15 s, minimum length) and the one speech chain (`live_chain`: samples from a source the shell passes in, to captions, delay, p50 and p95; `cancel` starts no new work and does not wait, `stop` also waits for a sink call that runs; it does not depend on `audio-io`), the translation adapter (`OnnxTranslator`, in process: one call takes one Vietnamese text and returns its English text) | Per session a reader thread (runs the detector) and a recognition thread (runs the recognizer). Planned: one worker thread per model | Open a network connection; hand out an engine the policy refuses; send anything of a session after its stop |
+| playback | Single playback queue, pitch-preserving speed-up of 1.10x while catching up, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
+| store | The one database file: schema version and migrations, journal, projections, full-text index, cascade delete and its cleanup | One writer, background reads; the journal writes through the store connection | Store audio; rewrite a final line; change the content of a database that it refuses |
 | summary-jobs | Job queue (3 attempts, retry 30 s and 60 s, 3-minute lease), citation check, question answerer | Background task | Replace good notes with a bad reply; keep a point without evidence line ids |
 | model-store | Compiled-in model table, size caps, checksums, download gate, the check of the files of a pack on disk (`check_pack`, SHA-256, no symlink, one owner) | Background download task | Run a model that failed its checksum; download without the owner's click |
 | settings | Settings values, when each applies, hotkey map and conflict check | UI thread through the bridge | Store API keys outside the Keychain; accept a system key |
@@ -49,7 +49,7 @@ of the `demo-data` feature uses `MeetingState` in place of the session.
 | quick-actions | Translate, fix grammar, save note; guard; preview, then paste only after Enter (E2, D-45) | Hotkey thread; engine call on a worker | Read a password field; log keystrokes; paste without Enter |
 | updater (planned, M4-15; the code location is decided in that task) | Update check, background download, signature check with the updater's own key, the "Restart to update" state (D-61, ADR 0015) | Background task | Check or download while a meeting runs; restart the app during a meeting; send more than the request for the manifest file; install an update with a wrong signature; open a connection outside the policy-owned client |
 | driver installer (planned, M1; the code location is decided in that task) | One-press install of the virtual audio driver: native confirmation, pinned download, SHA-256 check, administrator prompt, device wait, loopback test (D-69, ADR 0016) | Background task; the shell shows the dialogs | Bundle or redistribute the installer; take a URL from the webview; run an installer that failed its hash; see the administrator password |
-| integration-tests | Cross-crate tests only: capture, journal replay, pipeline, records, settings, delete through both stores | Test threads | Ship code, or hold logic that belongs to a crate |
+| integration-tests | Cross-crate tests only: capture, journal replay, pipeline, records, settings, meeting delete down to the file bytes | Test threads | Ship code, or hold logic that belongs to a crate |
 | interlo-desktop (apps/desktop/src-tauri) | Tauri bridge: commands for control, channels for streams; the one session (start, stop, load, capture, policy status) and the check of the model files at launch; stops an active session when the main page starts loading | Async handlers; slow session work on blocking threads | Send settings or keys to the webview; allow broad capabilities; load a model file that failed its check; allow a download during a session |
 
 ## Audio adapter boundary
@@ -89,8 +89,12 @@ CaptureSource (process tap, 2ch virtual device, later others)
 - **Playback side.** `SegmentPlayer` stays in `playback`; it carries no samples
   and `playback` has no audio backend. A player returns `Ok` only after it took
   the whole sentence; a sentence that is not marked played, after an error or a
-  hold under 30 s, is offered again, to be played from its start. A player that
-  writes to an `AudioOutput` is the next step (M1-08, M1-12).
+  hold under 30 s, is offered again, to be played from its start. The queue
+  passes the speed of each segment: 1.10 from the moment more than 2 s of audio
+  waits behind the front segment until nothing waits behind it, otherwise 1.0.
+  `playback::speed_up` changes the samples of one segment to that speed with the
+  pitch kept; it allocates, so a player calls it on the control side. A player
+  that writes to an `AudioOutput` is the next step (M1-08, M1-12).
 - `crates/audio-io/tests/adapter_boundary.rs` swaps fake sources and sinks
   behind the two traits and checks the chain output on a fixture.
 
@@ -163,21 +167,24 @@ native confirmation (name, source, size)
 ## Data model
 
 Tables: meetings, utterances, speakers, summaries, insights, notes, tags, tasks,
-jobs, models, settings, the journal events table (meeting-core) and the notes
-full-text index. Deleting a meeting removes its rows
-in the store (cascade) and its journal rows (`Journal::delete_session`, ADR 0008).
-Notes created in a meeting are deleted with it. Daily notes not tied to a meeting
-stay. Confirmed tasks stay with the meeting link cleared; unconfirmed drafts from
-that meeting are deleted (D-46, D-53).
+jobs, models, settings, the journal events table, the migration records
+(`schema_migrations`) and the notes full-text index. All are in one SQLite file
+that `store` owns (D-134). Deleting a meeting removes its rows (cascade) and its
+journal rows in one transaction, then rebuilds the notes index and the file and
+truncates the log, so the deleted text stays in none of them (ADR 0008, D-193). Notes created in a meeting
+are deleted with it. Daily notes not tied to a meeting stay. Confirmed tasks stay
+with the meeting link cleared; unconfirmed drafts from that meeting are deleted
+(D-46, D-53).
 
-Database and time rules (D-59, ADR 0013):
+Database and time rules (D-59, ADR 0013; D-193, ADR 0023):
 
-- The journal sets `PRAGMA user_version` (version 1) and refuses to open a
-  database with a higher version.
+- The store sets `PRAGMA user_version` and applies the numbered migrations in
+  `crates/store/migrations/` when it opens the file. It opens a newer database
+  when every newer migration is additive, and refuses any other without a change
+  of its content.
+- Every schema change is a new migration. Migration 1 is not edited.
 - Dates and times are stored as UTC milliseconds and shown and exported in the
   user's local time zone at the moment of use.
-- The schema may change freely until the first public tag; from then on every
-  schema change needs a migration.
 - `Store::conn()` becomes crate-private before E1 (task E1-01).
 
 Models: the model manager in `crates/model-store` downloads from a pinned

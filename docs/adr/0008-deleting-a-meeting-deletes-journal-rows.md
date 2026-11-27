@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-11-17
 - Decision ID: D-46
+- Update 2026-11-26: [ADR 0023](0023-one-database-version-rule.md) (D-193)
+  replaces the separate journal delete call and the checkpoint as the whole
+  cleanup of a delete.
 
 ## Context
 
@@ -37,7 +40,8 @@ The same action also removes what the meeting owns (D-46):
   delete.
 - A test must show that the journal returns no rows for a deleted session.
 
-- Implementation status: `Store::delete_meeting` and `Journal::delete_session` run a
-  WAL checkpoint (truncate) after the commit and report `scrubbed`. A reader that holds
-  the database open makes `scrubbed` false; the caller must retry `scrub()`. No caller
-  does that yet. A test reads the database and WAL bytes after the delete.
+- Implementation status (2026-11-26, D-193): `Store::delete_meeting` removes the
+  meeting rows and the journal rows in one transaction, then rebuilds the
+  search index of notes and the file, truncates the log and reports `scrubbed`. A reader that holds the database open
+  makes `scrubbed` false; `Store::scrub` and the next open try again. A test reads
+  the database and log bytes after the delete.

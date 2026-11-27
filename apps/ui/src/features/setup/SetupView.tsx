@@ -24,6 +24,7 @@ export interface SetupViewProps {
   onRecheck: () => void;
   onDownload: (id: string) => void;
   onCancel?: (id: string) => void;
+  canDownloadModels?: boolean;
 }
 
 const NO_PROGRESS: Readonly<Record<string, ModelsProgressEvent>> = {};
@@ -55,14 +56,17 @@ interface ItemRowProps {
   progress: Readonly<Record<string, ModelsProgressEvent>>;
   onDownload: (id: string) => void;
   onCancel: (id: string) => void;
+  canDownloadModels: boolean;
 }
 
-function ItemRow({ item, progress, onDownload, onCancel }: ItemRowProps) {
+function ItemRow({ item, progress, onDownload, onCancel, canDownloadModels }: ItemRowProps) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const t = useT();
   const label = t(SETUP_ITEM_LABEL_KEY[item.id]);
   const notReady = item.state === "missing" || item.state === "error";
   const needsSteps = item.id === "vmic" && notReady;
+  const downloadBlocked = item.group === "models" && notReady && !canDownloadModels;
+  const fixKey = downloadBlocked ? "models.downloadUnavailable" : setupFixKey(item);
   return (
     <li className="list__row">
       <span>{label}</span>
@@ -76,6 +80,7 @@ function ItemRow({ item, progress, onDownload, onCancel }: ItemRowProps) {
           event={progress[item.id]}
           onDownload={onDownload}
           onCancel={onCancel}
+          unavailable={!canDownloadModels}
         />
       ) : null}
       {needsSteps ? (
@@ -83,7 +88,7 @@ function ItemRow({ item, progress, onDownload, onCancel }: ItemRowProps) {
           {stepsOpen ? t("setup.hideSteps") : t("setup.showSteps")}
         </Button>
       ) : null}
-      {item.state !== "ok" ? <p className="setup-fix muted">{t(setupFixKey(item))}</p> : null}
+      {item.state !== "ok" ? <p className="setup-fix muted">{t(fixKey)}</p> : null}
       {needsSteps && stepsOpen ? <SetupSteps /> : null}
     </li>
   );
@@ -96,6 +101,7 @@ export function SetupView({
   onRecheck,
   onDownload,
   onCancel = NO_CANCEL,
+  canDownloadModels = true,
 }: SetupViewProps) {
   const t = useT();
   return (
@@ -133,6 +139,7 @@ export function SetupView({
                         progress={progress}
                         onDownload={onDownload}
                         onCancel={onCancel}
+                        canDownloadModels={canDownloadModels}
                       />
                     ))}
                   </ul>

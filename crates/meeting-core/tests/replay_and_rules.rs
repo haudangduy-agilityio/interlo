@@ -5,7 +5,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use meeting_core::coordinator::{Applied, SessionView};
-use meeting_core::journal::{AppendOutcome, Journal};
 use meeting_core::protocol::{
     Envelope, EventPayload, Language, SegmentStatus, SessionStatus, TranscriptSegment,
     TranslationSegment, TranslationStatus,
@@ -157,49 +156,8 @@ fn unknown_event_type_is_rejected_not_panicking() {
     assert!(matches!(view.apply(&e), Applied::Rejected(_)));
 }
 
-#[test]
-fn journal_is_idempotent_and_replays_in_sequence_order() {
-    let journal = Journal::open_in_memory().unwrap();
-    let events = fixture_envelopes();
-    // Append out of order on purpose; the journal must replay by sequence.
-    for e in events.iter().rev() {
-        assert_eq!(journal.append(e).unwrap(), AppendOutcome::Inserted);
-    }
-    assert_eq!(
-        journal.append(&events[0]).unwrap(),
-        AppendOutcome::Duplicate
-    );
-
-    let loaded = journal.load("session_01").unwrap();
-    assert_eq!(loaded, events);
-
-    let mut view = SessionView::new("session_01");
-    for e in &loaded {
-        assert_eq!(view.apply(e), Applied::Applied);
-    }
-    assert_eq!(view.status(), SessionStatus::Completed);
-}
-
-#[test]
-fn journal_rejects_sequence_reuse_by_a_different_event() {
-    let journal = Journal::open_in_memory().unwrap();
-    let a = env("evt_a", 1, &seg(1, SegmentStatus::Partial, "a"));
-    let b = env("evt_b", 1, &seg(1, SegmentStatus::Partial, "b"));
-    journal.append(&a).unwrap();
-    assert!(journal.append(&b).is_err());
-}
-
-#[test]
-fn journal_keeps_session_ids_apart() {
-    let journal = Journal::open_in_memory().unwrap();
-    journal
-        .append(&env("evt_a", 1, &seg(1, SegmentStatus::Partial, "a")))
-        .unwrap();
-    assert!(journal.load("session_other").unwrap().is_empty());
-}
-
 // ---- Review findings: final translations, failure language, captions cost,
-// ---- session transitions, dedupe window, secure journal, privacy default.
+// ---- session transitions, dedupe window, privacy default.
 
 fn seg_at(id: &str, revision: u32, start_ms: u64, language: Language) -> EventPayload {
     EventPayload::TranscriptSegmentUpdated(TranscriptSegment {

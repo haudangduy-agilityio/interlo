@@ -14,6 +14,7 @@ export interface ModelDownloadControlProps {
   event?: ModelsProgressEvent;
   onDownload: (id: string) => void;
   onCancel: (id: string) => void;
+  unavailable?: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export function ModelDownloadControl({
   event,
   onDownload,
   onCancel,
+  unavailable = false,
 }: ModelDownloadControlProps) {
   const t = useT();
   // The list can say "downloading" or "installing" before the first event, so that counts too.
@@ -39,6 +41,7 @@ export function ModelDownloadControl({
       {canDownload ? (
         <Button
           aria-label={t("setup.downloadNamed", { name: label })}
+          unavailable={unavailable}
           onClick={() => onDownload(id)}
         >
           {t("common.download")}
