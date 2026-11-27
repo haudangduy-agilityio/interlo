@@ -50,7 +50,7 @@ pub enum InputBlock<'a> {
 
 /// Called by the backend for every block, on the audio thread.
 pub type BlockHandler = Box<dyn FnMut(InputBlock<'_>) + Send + 'static>;
-/// Called by the backend when the stream reports an error.
+/// Called by the backend when an error ends the stream.
 pub type ErrorHandler = Box<dyn Fn() + Send + Sync + 'static>;
 
 /// The sound card, as `MicCapture` needs it.
@@ -110,6 +110,27 @@ pub fn map_open_error(kind: cpal::ErrorKind) -> InputOpenError {
     }
 }
 
+/// Whether an error report of the audio I/O library means that the stream ended.
+/// An overload, a changed route and a refused real-time priority leave the stream
+/// running. Every other kind ends it, a kind the library adds later included.
+fn ends_stream(kind: cpal::ErrorKind) -> bool {
+    !matches!(
+        kind,
+        cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied
+    )
+}
+
+/// The error callback of a stream of the audio I/O library: `on_error` runs only
+/// for a report that ends the stream. The callback allocates nothing and logs
+/// nothing.
+fn library_error_callback(on_error: ErrorHandler) -> impl FnMut(cpal::Error) + Send + 'static {
+    move |error: cpal::Error| {
+        if ends_stream(error.kind()) {
+            on_error()
+        }
+    }
+}
+
 /// A microphone as a `CaptureSource`.
 pub struct MicCapture {
     method: CaptureMethod,
@@ -149,7 +170,7 @@ impl MicCapture {
         self.counters.snapshot()
     }
 
-    /// True once the stream reported an error. Nothing reconnects.
+    /// True once an error ended the stream. Nothing reconnects.
     pub fn stream_failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
     }
@@ -286,7 +307,7 @@ impl MicBackend for SystemBackend {
             sample_rate: format.sample_rate,
             buffer_size: cpal::BufferSize::Default,
         };
-        let on_stream_error = move |_error: cpal::Error| on_error();
+        let on_stream_error = library_error_callback(on_error);
         let stream = match format.sample {
             SampleFormat::F32 => device.build_input_stream(
                 config,
@@ -312,5 +333,84 @@ impl MicCapture {
     /// A microphone on the real sound card.
     pub fn with_default_backend(config: MicConfig) -> Self {
         Self::new(config, Box::new(SystemBackend::new()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ring::ring_buffer;
+    use std::sync::Mutex;
+
+    /// A sound card with one input that keeps the error handler of its stream.
+    #[derive(Default)]
+    struct Card(Arc<Mutex<Option<ErrorHandler>>>);
+
+    impl MicBackend for Card {
+        fn input_devices(&mut self) -> Result<Vec<InputDeviceEntry>, InputOpenError> {
+            Ok(vec![InputDeviceEntry {
+                name: "Test Mic".to_string(),
+                input_channels: 1,
+                is_default: true,
+            }])
+        }
+
+        fn format_of(&mut self, _device: usize) -> Result<StreamFormat, InputOpenError> {
+            Ok(StreamFormat {
+                sample_rate: 16_000,
+                channels: 1,
+                sample: SampleFormat::F32,
+            })
+        }
+
+        fn open(
+            &mut self,
+            _device: usize,
+            _format: StreamFormat,
+            _on_block: BlockHandler,
+            on_error: ErrorHandler,
+        ) -> Result<Box<dyn Send>, InputOpenError> {
+            *self.0.lock().unwrap() = Some(on_error);
+            Ok(Box::new(()))
+        }
+    }
+
+    /// Whether a running microphone is marked as failed after the library
+    /// reported `kind` on its stream.
+    fn failed_after(kind: cpal::ErrorKind) -> bool {
+        let card = Card::default();
+        let handler = Arc::clone(&card.0);
+        let mut capture = MicCapture::new(MicConfig::default(), Box::new(card));
+        let (producer, _consumer) = ring_buffer(1024);
+        capture.start(producer).unwrap();
+        let on_error = handler.lock().unwrap().take().unwrap();
+        library_error_callback(on_error)(cpal::Error::new(kind));
+        capture.stream_failed()
+    }
+
+    #[test]
+    fn only_ending_stream_errors_mark_the_capture_failed() {
+        use cpal::ErrorKind::*;
+        // An overload, a changed route and a refused real-time priority.
+        for kind in [Xrun, DeviceChanged, RealtimeDenied] {
+            assert!(!failed_after(kind), "{kind:?} must not end the stream");
+        }
+        // A device that is not available, an invalid stream, the two
+        // unclassified kinds, and every other kind.
+        for kind in [
+            DeviceNotAvailable,
+            StreamInvalidated,
+            BackendError,
+            Other,
+            DeviceBusy,
+            HostUnavailable,
+            InvalidInput,
+            PermissionDenied,
+            ResourceExhausted,
+            UnsupportedConfig,
+            UnsupportedOperation,
+        ] {
+            assert!(failed_after(kind), "{kind:?} must end the stream");
+        }
     }
 }

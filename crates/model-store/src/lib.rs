@@ -5,13 +5,21 @@
 //! pinned SHA-256, size cap), the download gate
 //! (owner confirmation + https + the policy's model-host allow list, re-checked
 //! on every redirect hop), the per-pack download registry with its cancel flag,
-//! partial-file cleanup, and file verification. The hash function is passed in
+//! partial-file cleanup, file verification, the check of the files of a pack on
+//! disk (`check_pack`) and the SHA-256 hasher. The hash function is passed in
 //! through the `Hasher` trait.
 //!
 //! Must never: run a model that failed its checksum. Only `verify` can build a
 //! `Verified` value, and it fails on a size over the cap or a checksum mismatch.
 //! `Verified` holds the open file that was hashed; the loader reads that handle
 //! and never opens the path again, so a swap after the check cannot reach it.
+//! Limit: the developer build of the desktop program checks a local model folder
+//! with `check_pack`, and its engines then open the files by path, so a change
+//! between the check and the load is not detected there. The walk of
+//! `check_pack` is not atomic either: a folder below the model folder that is
+//! replaced with a link while the check runs can pass. A default build has no
+//! model folder and loads nothing. M1-42 must close both limits before a
+//! default build loads a model.
 //! The file length comes from the same open file that is hashed, never from the
 //! caller. The registry lock is held only to read or change the map, never while
 //! a dialog is open or a file is transferred, so a cancel always gets in. A
@@ -29,8 +37,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 
+mod checked;
 mod manifest;
 
+pub use checked::{check_pack, PackCheck, Sha256Hasher};
 pub use manifest::{ModelEntry, ModelFile, Pack};
 
 #[derive(Debug, Error)]
