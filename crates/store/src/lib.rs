@@ -1,25 +1,34 @@
-//! store: SQLite projections of meetings, notes, tasks, jobs, models and settings.
+//! store: the event journal and the SQLite projections of meetings, notes, tasks,
+//! jobs, models and settings.
 //!
-//! Owns: the schema (v1), migrations, WAL mode, foreign keys and the full-text
-//! index over notes. Everything is stored as text and integers.
+//! Owns: the one database file, its single schema version and every migration,
+//! WAL mode, foreign keys and the full-text index over notes. Everything is
+//! stored as text and integers.
 //!
-//! Must never: store audio, or rewrite a final line. A `final` utterance is
-//! immutable: `Store::upsert_utterance` refuses to touch it, and triggers abort
-//! a raw `UPDATE`, an `INSERT OR REPLACE` over it and a raw `DELETE` of it. The
-//! only delete that may remove a final line is `Store::delete_meeting`.
+//! Must never: store audio, rewrite a final line, or change the content of a
+//! database that it refuses. A `final` utterance is immutable:
+//! `Store::upsert_utterance` refuses to touch it, and triggers abort a raw
+//! `UPDATE`, an `INSERT OR REPLACE` over it, a change of a line id and a raw
+//! `DELETE` of it. Journal rows have the same protection. The only delete that
+//! may remove a final line or a journal row is `Store::delete_meeting`.
 
-use meeting_core::journal::{prepare_private_db, scrub_wal, tighten_db_sidecars};
 use meeting_core::protocol::{Language, SegmentStatus};
+use rusqlite::config::DbConfig;
 use rusqlite::functions::FunctionFlags;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-/// Schema version written by `Store::migrate` (stored in `PRAGMA user_version`).
-pub const SCHEMA_VERSION: i64 = 1;
+mod files;
+mod journal;
+mod schema;
+
+pub use journal::{AppendOutcome, Journal, JournalError};
+pub use schema::SCHEMA_VERSION;
+use schema::{Found, Migration, MIGRATIONS};
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -33,8 +42,10 @@ pub enum StoreError {
         stored: u32,
         offered: u32,
     },
-    #[error("database schema v{found} is newer than supported v{supported}")]
-    SchemaTooNew { found: i64, supported: i64 },
+    #[error("database schema v{found} has a change that this build (v{supported}) cannot use")]
+    IncompatibleSchema { found: i64, supported: i64 },
+    #[error("database schema v{found} is not one that this app wrote")]
+    UnknownSchema { found: i64 },
     #[error("not implemented: {0}")]
     NotImplemented(&'static str),
     #[error("io: {0}")]
@@ -42,147 +53,6 @@ pub enum StoreError {
     #[error("time {0} ms does not fit a database integer")]
     TimeOutOfRange(u64),
 }
-
-/// Schema v1. Text and integers only: there is no BLOB column on purpose.
-const MIGRATION_V1: &str = "
-CREATE TABLE meetings (
-    id          TEXT PRIMARY KEY,
-    title       TEXT NOT NULL,
-    started_ms  INTEGER NOT NULL,
-    ended_ms    INTEGER
-);
-
-CREATE TABLE utterances (
-    id          TEXT PRIMARY KEY,
-    meeting_id  TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-    source_id   TEXT NOT NULL,
-    speaker_id  TEXT,
-    start_ms    INTEGER NOT NULL,
-    end_ms      INTEGER NOT NULL,
-    status      TEXT NOT NULL CHECK (status IN ('partial', 'stable', 'final')),
-    language    TEXT NOT NULL CHECK (language IN ('en', 'vi')),
-    revision    INTEGER NOT NULL DEFAULT 0,
-    text        TEXT NOT NULL
-);
-CREATE INDEX utterances_by_meeting ON utterances(meeting_id, start_ms);
-
-CREATE TRIGGER utterances_final_guard
-BEFORE UPDATE ON utterances
-WHEN OLD.status = 'final'
-BEGIN
-    SELECT RAISE(ABORT, 'final utterance is immutable');
-END;
-
--- INSERT OR REPLACE and REPLACE delete the old row without firing delete
--- triggers (recursive_triggers is off), so the insert is guarded as well.
-CREATE TRIGGER utterances_final_no_replace
-BEFORE INSERT ON utterances
-WHEN EXISTS (SELECT 1 FROM utterances WHERE id = NEW.id AND status = 'final')
-BEGIN
-    SELECT RAISE(ABORT, 'final utterance is immutable');
-END;
-
--- store_delete_open() is a function that Store::init registers on each
--- connection. It returns 1 only inside Store::delete_meeting. A connection
--- without the function cannot delete a final line at all.
-CREATE TRIGGER utterances_final_no_delete
-BEFORE DELETE ON utterances
-WHEN OLD.status = 'final' AND store_delete_open() = 0
-BEGIN
-    SELECT RAISE(ABORT, 'final utterance is immutable');
-END;
-
-CREATE TABLE speakers (
-    meeting_id  TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-    id          TEXT NOT NULL,
-    label       TEXT NOT NULL,
-    PRIMARY KEY (meeting_id, id)
-);
-
-CREATE TABLE summaries (
-    id          TEXT PRIMARY KEY,
-    meeting_id  TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-    body        TEXT NOT NULL,
-    created_ms  INTEGER NOT NULL
-);
-
-CREATE TABLE insights (
-    id                 TEXT PRIMARY KEY,
-    meeting_id         TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-    kind               TEXT NOT NULL,
-    body               TEXT NOT NULL,
-    evidence_line_ids  TEXT NOT NULL DEFAULT '[]'
-);
-
-CREATE TABLE tags (
-    name        TEXT PRIMARY KEY
-);
-
--- seq is the rowid alias. notes_fts is keyed by it, so it must stay stable
--- (a table without an INTEGER PRIMARY KEY may renumber its rowids on VACUUM).
-CREATE TABLE notes (
-    seq         INTEGER PRIMARY KEY,
-    id          TEXT NOT NULL UNIQUE,
-    meeting_id  TEXT REFERENCES meetings(id) ON DELETE SET NULL,
-    text        TEXT NOT NULL,
-    tag         TEXT REFERENCES tags(name) ON UPDATE CASCADE ON DELETE SET NULL,
-    created_ms  INTEGER NOT NULL
-);
-
-CREATE TABLE tasks (
-    id          TEXT PRIMARY KEY,
-    meeting_id  TEXT REFERENCES meetings(id) ON DELETE SET NULL,
-    title       TEXT NOT NULL,
-    due_ms      INTEGER,
-    status      TEXT NOT NULL CHECK (status IN ('open', 'done'))
-);
-
-CREATE TABLE jobs (
-    id              TEXT PRIMARY KEY,
-    meeting_id      TEXT,
-    kind            TEXT NOT NULL,
-    state           TEXT NOT NULL,
-    attempts        INTEGER NOT NULL DEFAULT 0,
-    run_at_ms       INTEGER NOT NULL,
-    lease_until_ms  INTEGER,
-    payload         TEXT NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE models (
-    id           TEXT PRIMARY KEY,
-    url          TEXT NOT NULL,
-    sha256_hex   TEXT NOT NULL,
-    size_bytes   INTEGER,
-    verified_ms  INTEGER
-);
-
-CREATE TABLE settings (
-    key    TEXT PRIMARY KEY,
-    value  TEXT NOT NULL
-);
-
-CREATE INDEX summaries_by_meeting ON summaries(meeting_id);
-CREATE INDEX insights_by_meeting ON insights(meeting_id);
-CREATE INDEX notes_by_meeting ON notes(meeting_id);
-CREATE INDEX tasks_by_meeting ON tasks(meeting_id);
-CREATE INDEX jobs_by_meeting ON jobs(meeting_id);
-CREATE INDEX jobs_by_state_run_at ON jobs(state, run_at_ms);
-
--- The index row has the same rowid as notes.seq, so a note delete or update
--- finds its index row by key (O(log n)) and never scans the table.
-CREATE VIRTUAL TABLE notes_fts USING fts5(text);
-
-CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes BEGIN
-    INSERT INTO notes_fts(rowid, text) VALUES (NEW.seq, NEW.text);
-END;
-CREATE TRIGGER notes_fts_delete AFTER DELETE ON notes BEGIN
-    DELETE FROM notes_fts WHERE rowid = OLD.seq;
-END;
-CREATE TRIGGER notes_fts_update AFTER UPDATE OF text ON notes BEGIN
-    DELETE FROM notes_fts WHERE rowid = OLD.seq;
-    INSERT INTO notes_fts(rowid, text) VALUES (NEW.seq, NEW.text);
-END;
-";
 
 /// One stored transcript line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +99,34 @@ pub const DEFAULT_SEARCH_LIMIT: usize = 50;
 
 /// Wait this long for a lock before a statement fails with `SQLITE_BUSY`.
 const BUSY_TIMEOUT_MS: u64 = 5_000;
+/// Pause between two tries to change the journal mode. Starting value.
+const WAL_RETRY_PAUSE_MS: u64 = 10;
+
+/// Switch to write-ahead logging. SQLite does not apply the busy timeout to
+/// this change, so a busy file is tried again for as long as that timeout.
+fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
+    let give_up = Instant::now() + Duration::from_millis(BUSY_TIMEOUT_MS);
+    loop {
+        match conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get::<_, String>(0)) {
+            Err(e)
+                if e.sqlite_error_code() == Some(ErrorCode::DatabaseBusy)
+                    && Instant::now() < give_up =>
+            {
+                std::thread::sleep(Duration::from_millis(WAL_RETRY_PAUSE_MS));
+            }
+            other => return other.map(|_| ()),
+        }
+    }
+}
+
+/// UTC milliseconds of the system clock. A clock before 1970 gives 0.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok())
+        .unwrap_or(0)
+}
 
 /// SQLite integers are signed 64-bit. A time in milliseconds above that range
 /// cannot be stored, so it is refused instead of wrapped.
@@ -236,25 +134,43 @@ fn ms_to_sql(ms: u64) -> Result<i64, StoreError> {
     i64::try_from(ms).map_err(|_| StoreError::TimeOutOfRange(ms))
 }
 
+/// The settings row that a meeting delete writes in its own transaction and
+/// that the cleanup removes.
+const CLEANUP_PENDING_KEY: &str = "store.cleanup_pending";
+
+/// The rebuild step of the cleanup.
+pub(crate) type Rebuild = fn(&Connection) -> rusqlite::Result<()>;
+
+/// Rebuilds the search index of notes and then the database file, so that
+/// neither a key of the index nor a free page keeps old text.
+pub(crate) fn rebuild_all(conn: &Connection) -> rusqlite::Result<()> {
+    // A page key of the index holds the start of a word. The secure delete
+    // option keeps it while the page holds other words, and `VACUUM` copies it.
+    conn.execute_batch("INSERT INTO notes_fts(notes_fts) VALUES ('rebuild'); VACUUM")
+}
+
 /// What `Store::delete_meeting` did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeetingDeletion {
     /// True when a meeting with that id existed and was deleted.
     pub deleted: bool,
-    /// True when the write-ahead log was truncated, so no copy of the deleted
-    /// text stays in it (ADR 0008). False means "scrub again later"
-    /// (`Store::scrub`): another connection holds a read lock.
+    /// True when the search index and the database file were rebuilt and the
+    /// write-ahead log truncated, so none keeps a copy of the deleted text
+    /// (ADR 0008).
+    /// False means the cleanup is pending: `Store::scrub` and the next open try
+    /// it again.
     pub scrubbed: bool,
 }
 
 pub struct Store {
     conn: Connection,
-    /// Read by the SQL function `store_delete_open()`. True only while
-    /// `delete_meeting` runs.
+    /// Read by the SQL function `store_delete_open()`. True only while a
+    /// meeting delete runs.
     cascade_open: Arc<AtomicBool>,
 }
 
-/// Opens the final-line delete guard and closes it again on every exit path.
+/// Opens the delete guard of final lines and journal rows and closes it again
+/// on every exit path.
 struct CascadeScope<'a>(&'a AtomicBool);
 
 impl<'a> CascadeScope<'a> {
@@ -271,30 +187,75 @@ impl Drop for CascadeScope<'_> {
 }
 
 impl Store {
-    /// Open (or create) a database file in WAL mode. Call `migrate` afterwards.
-    /// The directory (mode 0700 when created here) and the file (mode 0600)
-    /// are made owner-only before SQLite opens them; `-wal` and `-shm` follow
-    /// the mode of the file.
+    /// Open (or create) the database file in WAL mode and bring it to the
+    /// schema of this build. A file that this build must not use is refused with
+    /// `IncompatibleSchema` or `UnknownSchema` and keeps its content. The
+    /// directory (mode 0700 when created here) and the files (mode 0600) are
+    /// made owner-only before SQLite opens them.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let path = path.as_ref();
-        prepare_private_db(path)?;
+        Self::open_with(path.as_ref(), MIGRATIONS, now_ms(), rebuild_all)
+    }
+
+    /// `open` with the migration list, the migration time and the rebuild step
+    /// of the cleanup passed in.
+    pub(crate) fn open_with(
+        path: &Path,
+        migrations: &[Migration],
+        now_ms: u64,
+        rebuild: Rebuild,
+    ) -> Result<Self, StoreError> {
+        let path = &files::resolve_links(path)?;
+        if files::is_empty_with_log(path)? {
+            files::tighten_existing(path)?;
+            return Err(StoreError::UnknownSchema { found: 0 });
+        }
+        files::prepare_private_db(path)?;
         let conn = Connection::open(path)?;
         conn.busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))?;
-        let _mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+        // A refused database keeps its bytes: until the open is accepted,
+        // closing the connection must not move the log into the file.
+        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
+        let found = {
+            // One read transaction: version and records belong to one state.
+            let read = conn.unchecked_transaction()?;
+            schema::inspect(&read, migrations)?
+        };
+        switch_to_wal(&conn)?;
         let store = Self::init(conn)?;
-        tighten_db_sidecars(path)?;
+        if let Found::Behind(_) = found {
+            schema::apply_pending(&store.conn, migrations, now_ms)?;
+        }
+        store
+            .conn
+            .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, false)?;
+        store.finish_open(rebuild);
+        files::tighten_sidecars(path)?;
         Ok(store)
     }
 
     /// In-memory database for tests. WAL does not apply to memory databases.
     pub fn open_in_memory() -> Result<Self, StoreError> {
-        Self::init(Connection::open_in_memory()?)
+        let store = Self::init(Connection::open_in_memory()?)?;
+        schema::apply_pending(&store.conn, MIGRATIONS, now_ms())?;
+        store.finish_open(rebuild_all);
+        Ok(store)
+    }
+
+    /// The last step of an accepted open: run a pending cleanup, else empty the
+    /// log. Neither step fails the open; a cleanup that cannot finish stays
+    /// pending.
+    fn finish_open(&self, rebuild: Rebuild) {
+        if matches!(self.cleanup_pending(), Ok(true)) {
+            let _ = self.clean_up(rebuild);
+        } else {
+            let _ = files::truncate_wal(&self.conn);
+        }
     }
 
     /// Per-connection setup, shared by every open path: foreign keys on,
     /// freed pages overwritten with zeros (deleted text must not stay in the
-    /// file), NORMAL sync (safe in WAL mode), a 5 s lock wait and the
-    /// final-line delete guard function.
+    /// file), NORMAL sync (safe in WAL mode), a 5 s lock wait and the delete
+    /// guard function.
     fn init(conn: Connection) -> Result<Self, StoreError> {
         conn.busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))?;
         conn.pragma_update(None, "foreign_keys", true)?;
@@ -311,35 +272,23 @@ impl Store {
         Ok(Self { conn, cascade_open })
     }
 
-    /// Raw connection for read queries and tests. Final utterances stay
-    /// protected by triggers even through this handle, but a caller that drops
-    /// a trigger or the schema can still break the rule: do not write schema
-    /// from here.
+    /// Raw connection for read queries and tests. Final utterances and journal
+    /// rows stay protected by triggers even through this handle, but a caller
+    /// that drops a trigger or the schema can still break the rule: do not write
+    /// schema from here.
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// The append-only event journal, on the connection of the store.
+    pub fn journal(&self) -> Journal<'_> {
+        Journal::new(&self.conn)
     }
 
     pub fn schema_version(&self) -> Result<i64, StoreError> {
         Ok(self
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))?)
-    }
-
-    /// Bring the database to schema v1. Safe to call again.
-    pub fn migrate(&self) -> Result<(), StoreError> {
-        let found = self.schema_version()?;
-        if found > SCHEMA_VERSION {
-            return Err(StoreError::SchemaTooNew {
-                found,
-                supported: SCHEMA_VERSION,
-            });
-        }
-        if found < 1 {
-            self.conn.execute_batch(&format!(
-                "BEGIN;\n{MIGRATION_V1}\nPRAGMA user_version = 1;\nCOMMIT;"
-            ))?;
-        }
-        Ok(())
     }
 
     pub fn insert_meeting(&self, id: &str, title: &str, started_ms: u64) -> Result<(), StoreError> {
@@ -352,8 +301,9 @@ impl Store {
 
     /// Delete a meeting in one transaction (D-46). Foreign keys cascade to its
     /// utterances (final lines included: this is the only path allowed to
-    /// delete them), speakers, summaries and insights. Its jobs have no foreign
-    /// key, so they are deleted explicitly. So are the notes created in the
+    /// delete them), speakers, summaries and insights. Its journal rows and its
+    /// jobs have no foreign key, so they are deleted explicitly; this is the
+    /// only path allowed to delete journal rows. So are the notes created in the
     /// meeting (`notes.meeting_id`); the `notes_fts_delete` trigger removes
     /// their search rows. Daily notes (`meeting_id` NULL) and other meetings'
     /// notes stay.
@@ -363,30 +313,80 @@ impl Store {
     /// (they live in `workspace-notes` memory only), so there is nothing to
     /// delete for them here.
     ///
-    /// After the commit the write-ahead log is checkpointed and truncated
-    /// (ADR 0008), so the deleted text does not stay in the `-wal` file. If
-    /// that cannot finish, `scrubbed` is false and the caller must call
-    /// `scrub` again later.
+    /// After the commit the search index of notes and the file are rebuilt and
+    /// the write-ahead log is truncated (ADR 0008), so the deleted text stays in
+    /// none of them. If that cannot finish, `scrubbed` is false and the cleanup
+    /// stays pending. The rebuild takes time in proportion to the size of the
+    /// data and holds the connection until it ends, so journal appends wait too.
     pub fn delete_meeting(&self, id: &str) -> Result<MeetingDeletion, StoreError> {
+        self.delete_meeting_with(id, rebuild_all)
+    }
+
+    /// `delete_meeting` with the rebuild step of the cleanup passed in.
+    fn delete_meeting_with(
+        &self,
+        id: &str,
+        rebuild: Rebuild,
+    ) -> Result<MeetingDeletion, StoreError> {
+        let deleted = self.commit_meeting_delete(id)?;
+        // The rows are gone. A cleanup that fails is reported, not an error.
+        let scrubbed = self.clean_up(rebuild).unwrap_or(false);
+        Ok(MeetingDeletion { deleted, scrubbed })
+    }
+
+    /// The transaction of a meeting delete, without the cleanup. Returns true
+    /// when a meeting row was deleted.
+    fn commit_meeting_delete(&self, id: &str) -> Result<bool, StoreError> {
         let _open = CascadeScope::open(&self.cascade_open);
         let tx = self.conn.unchecked_transaction()?;
+        // The session id of a journal row is the meeting id.
+        tx.execute("DELETE FROM events WHERE session_id = ?1", params![id])?;
         tx.execute("DELETE FROM jobs WHERE meeting_id = ?1", params![id])?;
         tx.execute("DELETE FROM notes WHERE meeting_id = ?1", params![id])?;
         let n = tx.execute("DELETE FROM meetings WHERE id = ?1", params![id])?;
+        // In the same transaction: a committed delete stays marked until the
+        // file is clean, also when the app exits before the cleanup.
+        tx.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, '1')",
+            params![CLEANUP_PENDING_KEY],
+        )?;
         tx.commit()?;
-        // The rows are already gone; a failed checkpoint is reported as
-        // `scrubbed: false`.
-        let scrubbed = scrub_wal(&self.conn).unwrap_or(false);
-        Ok(MeetingDeletion {
-            deleted: n > 0,
-            scrubbed,
-        })
+        Ok(n > 0)
     }
 
-    /// Checkpoint and truncate the write-ahead log again. `Ok(true)` when the
-    /// log is empty afterwards.
+    /// Rebuild the search index and the file and truncate the log again, to
+    /// finish the cleanup of a meeting delete. `Ok(true)` when all of it worked,
+    /// `Ok(false)` when the log cannot be truncated yet, and an error when the
+    /// rebuild or the checkpoint fails.
     pub fn scrub(&self) -> Result<bool, StoreError> {
-        Ok(scrub_wal(&self.conn)?)
+        self.clean_up(rebuild_all)
+    }
+
+    fn cleanup_pending(&self) -> rusqlite::Result<bool> {
+        self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM settings WHERE key = ?1)",
+            params![CLEANUP_PENDING_KEY],
+            |r| r.get(0),
+        )
+    }
+
+    /// Run the rebuild step, truncate the log, and remove the pending mark when
+    /// both worked.
+    fn clean_up(&self, rebuild: Rebuild) -> Result<bool, StoreError> {
+        let rebuilt = rebuild(&self.conn);
+        // The log holds the deleted text too: truncate it even when the rebuild
+        // failed.
+        let truncated = files::truncate_wal(&self.conn)?;
+        rebuilt?;
+        if truncated {
+            // The file is clean. A mark that cannot be removed only repeats the
+            // cleanup at the next open.
+            let _ = self.conn.execute(
+                "DELETE FROM settings WHERE key = ?1",
+                params![CLEANUP_PENDING_KEY],
+            );
+        }
+        Ok(truncated)
     }
 
     /// Insert a line, or revise it while it is not final. A final line is never
@@ -499,40 +499,138 @@ impl Store {
     }
 }
 
+/// Helpers that the tests of this crate share.
+#[cfg(test)]
+pub(crate) mod testing {
+    use meeting_core::protocol::{
+        Envelope, EventPayload, Language, SegmentStatus, TranscriptSegment,
+    };
+    use rusqlite::config::DbConfig;
+    use rusqlite::Connection;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A new folder that is removed with the value.
+    pub(crate) struct TempDir(PathBuf);
+
+    impl TempDir {
+        pub(crate) fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "store-test-{}-{nanos}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+
+        pub(crate) fn path(&self) -> &Path {
+            &self.0
+        }
+
+        pub(crate) fn db(&self) -> PathBuf {
+            self.0.join("store.db")
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A journal event of a final transcript line.
+    pub(crate) fn event(id: &str, session: &str, sequence: u64, text: &str) -> Envelope {
+        let payload = EventPayload::TranscriptSegmentUpdated(TranscriptSegment {
+            segment_id: format!("seg_{sequence}"),
+            source_id: "incoming".into(),
+            revision: 1,
+            start_ms: 0,
+            end_ms: 1000,
+            status: SegmentStatus::Final,
+            language: Language::En,
+            text: text.into(),
+        });
+        Envelope::new(id, session, sequence, "2026-11-26T00:00:00.000Z", &payload).unwrap()
+    }
+
+    pub(crate) fn wal_of(db: &Path) -> PathBuf {
+        PathBuf::from(format!("{}-wal", db.display()))
+    }
+
+    pub(crate) fn bytes(path: &Path) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+
+    /// A connection without the settings and functions of the store.
+    pub(crate) fn plain(db: &Path) -> Connection {
+        Connection::open(db).unwrap()
+    }
+
+    /// A plain connection that leaves its changes in the write-ahead log when
+    /// it closes, as an exit without a checkpoint does.
+    pub(crate) fn leaves_its_log(db: &Path) -> Connection {
+        let conn = plain(db);
+        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+            .unwrap();
+        conn
+    }
+
+    pub(crate) fn user_version(conn: &Connection) -> i64 {
+        conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    pub(crate) fn count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// Every schema object with its definition.
+    pub(crate) fn schema_of(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT type || ' ' || name || ' ' || coalesce(sql, '') FROM sqlite_master
+                 ORDER BY type, name",
+            )
+            .unwrap();
+        let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+        rows.collect::<Result<_, _>>().unwrap()
+    }
+
+    /// The migration records as (version, name, time, incompatible).
+    pub(crate) fn records(conn: &Connection) -> Vec<(i64, String, i64, i64)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT version, name, applied_ms, incompatible FROM schema_migrations
+                 ORDER BY version",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap();
+        rows.collect::<Result<_, _>>().unwrap()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const TABLES: [&str; 12] = [
-        "meetings",
-        "utterances",
-        "speakers",
-        "summaries",
-        "insights",
-        "notes",
-        "tags",
-        "tasks",
-        "jobs",
-        "models",
-        "settings",
-        "notes_fts",
-    ];
+    use crate::testing::{bytes, event, leaves_its_log, plain, wal_of, TempDir};
 
     fn ready() -> Store {
-        let s = Store::open_in_memory().unwrap();
-        s.migrate().unwrap();
-        s
-    }
-
-    fn table_exists(s: &Store, name: &str) -> bool {
-        s.conn()
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE name = ?1 AND type = 'table'",
-                params![name],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap()
-            == 1
+        Store::open_in_memory().unwrap()
     }
 
     fn count(s: &Store, table: &str) -> i64 {
@@ -554,35 +652,6 @@ mod tests {
             revision: 1,
             text: text.into(),
         }
-    }
-
-    #[test]
-    fn migrate_creates_every_table() {
-        let s = ready();
-        for t in TABLES {
-            assert!(table_exists(&s, t), "missing table {t}");
-        }
-        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn migrate_twice_is_a_no_op() {
-        let s = ready();
-        s.migrate().unwrap();
-        assert_eq!(s.schema_version().unwrap(), 1);
-    }
-
-    #[test]
-    fn newer_schema_is_refused() {
-        let s = Store::open_in_memory().unwrap();
-        s.conn().pragma_update(None, "user_version", 9).unwrap();
-        assert!(matches!(
-            s.migrate(),
-            Err(StoreError::SchemaTooNew {
-                found: 9,
-                supported: 1
-            })
-        ));
     }
 
     #[test]
@@ -845,7 +914,6 @@ mod tests {
         let path = temp_db_path("wal");
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             let mode: String = s
                 .conn()
                 .query_row("PRAGMA journal_mode", [], |r| r.get(0))
@@ -1085,7 +1153,6 @@ mod tests {
             Err(StoreError::TimeOutOfRange(u64::MAX))
         ));
         let store = Store::open_in_memory().expect("memory store");
-        store.migrate().expect("schema");
         assert!(matches!(
             store.insert_meeting("m1", "Too far", u64::MAX),
             Err(StoreError::TimeOutOfRange(_))
@@ -1107,7 +1174,6 @@ mod tests {
         let path = temp_db_path("pragmas");
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             check_pragmas(&s);
         }
         remove_db(&path);
@@ -1151,21 +1217,6 @@ mod tests {
             )
             .unwrap();
         assert!(plan.contains("jobs_by_state_run_at"), "plan: {plan}");
-    }
-
-    #[test]
-    fn migrate_twice_adds_no_schema_objects() {
-        let s = ready();
-        let count_objects = |s: &Store| -> i64 {
-            s.conn()
-                .query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| r.get(0))
-                .unwrap()
-        };
-        let before = count_objects(&s);
-        s.migrate().unwrap();
-        s.migrate().unwrap();
-        assert_eq!(count_objects(&s), before);
-        assert_eq!(index_names(&s), index_names(&ready()));
     }
 
     #[test]
@@ -1229,7 +1280,6 @@ mod tests {
         let path = temp_db_path("second-conn");
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             s.insert_meeting("m1", "t", 0).unwrap();
             s.upsert_utterance(&utt("u1", SegmentStatus::Final, "hello"))
                 .unwrap();
@@ -1268,7 +1318,6 @@ mod tests {
         let wal = format!("{}-wal", path.display());
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             fill_secret_meeting(&s);
             let before_db = std::fs::read(&path).unwrap_or_default();
             let before_wal = std::fs::read(&wal).unwrap_or_default();
@@ -1302,14 +1351,228 @@ mod tests {
         remove_db(&path);
     }
 
+    const MARKER: &str = "marker words of one meeting";
+
+    /// Meeting `m1` with a final line and three journal events that hold the
+    /// marker text.
+    fn fill_marked_meeting(s: &Store) {
+        s.insert_meeting("m1", "t", 0).unwrap();
+        s.upsert_utterance(&utt("u1", SegmentStatus::Final, "hello"))
+            .unwrap();
+        for sequence in 1..=3 {
+            s.journal()
+                .append(&event(&format!("e{sequence}"), "m1", sequence, MARKER))
+                .unwrap();
+        }
+    }
+
+    fn pending(conn: &Connection) -> bool {
+        conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM settings WHERE key = ?1)",
+            [CLEANUP_PENDING_KEY],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    fn marker_on_disk(db: &std::path::Path) -> bool {
+        [db.to_path_buf(), wal_of(db)]
+            .iter()
+            .any(|file| contains(&bytes(file).unwrap_or_default(), MARKER))
+    }
+
+    fn failing_rebuild(_: &Connection) -> rusqlite::Result<()> {
+        Err(rusqlite::Error::InvalidQuery)
+    }
+
+    #[test]
+    fn a_failed_meeting_delete_keeps_lines_and_journal_rows() {
+        let s = final_store();
+        s.journal()
+            .append(&event("e1", "m1", 1, "journal line"))
+            .unwrap();
+        // The delete of the jobs runs after the delete of the journal rows.
+        s.conn().execute_batch("DROP TABLE jobs").unwrap();
+
+        assert!(s.delete_meeting("m1").is_err());
+
+        assert_eq!(count(&s, "utterances"), 1);
+        assert_eq!(count(&s, "events"), 1);
+        assert!(!pending(s.conn()));
+        assert!(s.conn().execute("DELETE FROM utterances", []).is_err());
+        assert!(s.conn().execute("DELETE FROM events", []).is_err());
+    }
+
+    #[test]
+    fn journal_rows_without_a_meeting_are_removed() {
+        let dir = TempDir::new();
+        let s = Store::open(dir.db()).unwrap();
+        for sequence in 1..=3 {
+            s.journal()
+                .append(&event(&format!("e{sequence}"), "m9", sequence, MARKER))
+                .unwrap();
+        }
+        assert!(marker_on_disk(&dir.db()), "precondition");
+
+        let outcome = s.delete_meeting("m9").unwrap();
+
+        assert_eq!(
+            outcome,
+            MeetingDeletion {
+                deleted: false,
+                scrubbed: true
+            }
+        );
+        assert_eq!(count(&s, "events"), 0);
+        assert!(!marker_on_disk(&dir.db()));
+    }
+
+    #[test]
+    fn a_final_line_cannot_be_replaced_through_another_id_or_a_row_number() {
+        let dir = TempDir::new();
+        let s = Store::open(dir.db()).unwrap();
+        s.insert_meeting("m1", "t", 0).unwrap();
+        s.upsert_utterance(&utt("u1", SegmentStatus::Final, "final line"))
+            .unwrap();
+        s.upsert_utterance(&utt("u2", SegmentStatus::Stable, "second line"))
+            .unwrap();
+        let lines = |s: &Store| -> Vec<String> {
+            let mut stmt = s
+                .conn()
+                .prepare(
+                    "SELECT concat_ws('|', id, meeting_id, source_id, speaker_id, start_ms,
+                         end_ms, status, language, revision, text)
+                     FROM utterances ORDER BY id",
+                )
+                .unwrap();
+            let found = stmt.query_map([], |r| r.get(0)).unwrap();
+            found.collect::<Result<_, _>>().unwrap()
+        };
+        let stored = lines(&s);
+        let statements = [
+            "UPDATE utterances SET text = 'rewritten' WHERE id = 'u1'".to_string(),
+            raw_utterance_sql("INSERT OR REPLACE", "u1", "final", 9, "rewritten"),
+            "DELETE FROM utterances WHERE id = 'u1'".to_string(),
+            "UPDATE OR REPLACE utterances SET id = 'u1' WHERE id = 'u2'".to_string(),
+            "UPDATE utterances SET id = 'unused' WHERE id = 'u2'".to_string(),
+            "INSERT OR REPLACE INTO utterances (rowid, id, meeting_id, source_id, start_ms,
+                 end_ms, status, language, revision, text)
+             VALUES (1, 'u3', 'm1', 'incoming', 0, 1000, 'final', 'en', 1, 'rewritten')"
+                .to_string(),
+            "UPDATE OR REPLACE utterances SET rowid = 1 WHERE id = 'u2'".to_string(),
+        ];
+        let other = plain(&dir.db());
+
+        for sql in &statements {
+            assert!(s.conn().execute(sql, []).is_err(), "store: {sql}");
+            assert_eq!(lines(&s), stored, "store: {sql}");
+            assert!(other.execute(sql, []).is_err(), "plain: {sql}");
+            assert_eq!(lines(&s), stored, "plain: {sql}");
+        }
+    }
+
+    #[test]
+    fn a_replaced_meeting_row_keeps_its_final_lines() {
+        let s = final_store();
+        s.insert_meeting("m2", "other", 0).expect("meeting");
+        let statements = [
+            "INSERT OR REPLACE INTO meetings (id, title, started_ms) VALUES ('m1', 'x', 0)",
+            "UPDATE OR REPLACE meetings SET id = 'm1' WHERE id = 'm2'",
+            "UPDATE meetings SET id = 'm3' WHERE id = 'm1'",
+            "DELETE FROM meetings WHERE id = 'm1'",
+        ];
+
+        for sql in statements {
+            assert!(s.conn().execute(sql, []).is_err(), "{sql}");
+            assert_eq!(count(&s, "utterances"), 1, "{sql}");
+        }
+    }
+
+    #[test]
+    fn a_cleanup_left_by_an_exit_runs_at_the_next_open() {
+        for with_reader in [false, true] {
+            let dir = TempDir::new();
+            let db = dir.db();
+            {
+                let s = Store::open(&db).unwrap();
+                fill_marked_meeting(&s);
+                s.commit_meeting_delete("m1").unwrap();
+                // An exit: the log is not moved into the file.
+                s.conn()
+                    .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+                    .unwrap();
+            }
+            assert!(marker_on_disk(&db), "precondition");
+            assert!(pending(&leaves_its_log(&db)), "precondition");
+            let reader = with_reader.then(|| {
+                let reader = leaves_its_log(&db);
+                reader
+                    .execute_batch("BEGIN; SELECT count(*) FROM meetings;")
+                    .unwrap();
+                reader
+            });
+
+            let mut s = Store::open(&db).unwrap_or_else(|e| panic!("{with_reader}: {e}"));
+
+            if let Some(reader) = reader {
+                assert!(pending(s.conn()), "a blocked cleanup stays pending");
+                reader.execute_batch("COMMIT").unwrap();
+                drop(s);
+                s = Store::open(&db).unwrap();
+            }
+            assert!(!marker_on_disk(&db), "reader {with_reader}");
+            assert!(!pending(s.conn()), "reader {with_reader}");
+        }
+    }
+
+    #[test]
+    fn a_rebuild_that_fails_is_reported_and_tried_again() {
+        let dir = TempDir::new();
+        let db = dir.db();
+        {
+            let s = Store::open_with(&db, MIGRATIONS, 1, failing_rebuild).unwrap();
+            fill_marked_meeting(&s);
+
+            let outcome = s.delete_meeting_with("m1", failing_rebuild).unwrap();
+
+            assert_eq!(
+                outcome,
+                MeetingDeletion {
+                    deleted: true,
+                    scrubbed: false
+                }
+            );
+            assert!(pending(s.conn()));
+            assert_eq!(
+                bytes(&wal_of(&db)),
+                Some(Vec::new()),
+                "the log is truncated also when the rebuild fails"
+            );
+        }
+        {
+            let s = Store::open_with(&db, MIGRATIONS, 2, failing_rebuild).unwrap();
+            assert!(pending(s.conn()), "the cleanup stays pending");
+        }
+
+        let s = Store::open(&db).unwrap();
+
+        assert!(!marker_on_disk(&db));
+        assert!(!pending(s.conn()));
+    }
+
     #[test]
     fn delete_meeting_reports_when_a_reader_stops_the_wal_scrub() {
         let path = temp_db_path("scrub-busy");
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             s.conn().busy_timeout(Duration::from_millis(10)).unwrap();
             fill_secret_meeting(&s);
+            for sequence in 1..=3 {
+                s.journal()
+                    .append(&event(&format!("e{sequence}"), "m1", sequence, MARKER))
+                    .unwrap();
+            }
+            assert!(!pending(s.conn()));
             // A reader that started before the delete pins the old log frames.
             let reader = Connection::open(&path).unwrap();
             reader
@@ -1320,8 +1583,11 @@ mod tests {
 
             assert!(outcome.deleted);
             assert!(!outcome.scrubbed, "the log cannot be truncated yet");
+            assert!(pending(s.conn()));
             reader.execute_batch("COMMIT;").unwrap();
             assert!(s.scrub().unwrap(), "the retry succeeds");
+            assert!(!pending(s.conn()));
+            assert!(!marker_on_disk(&path));
         }
         remove_db(&path);
     }
@@ -1340,10 +1606,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn mode_of(path: &std::path::Path) -> u32 {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-    }
+    use crate::testing::mode_of;
 
     #[cfg(unix)]
     #[test]
@@ -1353,7 +1616,6 @@ mod tests {
         let path = dir.join("store.db");
         {
             let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
             s.insert_meeting("m1", "t", 0).unwrap();
 
             assert_eq!(mode_of(&dir), 0o700, "directory");
@@ -1374,11 +1636,55 @@ mod tests {
         std::fs::write(&path, b"").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         {
-            let s = Store::open(&path).unwrap();
-            s.migrate().unwrap();
+            let _s = Store::open(&path).unwrap();
             assert_eq!(mode_of(&path), 0o600);
         }
         remove_db(&path);
+    }
+
+    #[test]
+    fn reopen_keeps_rows_and_adds_no_record() {
+        use crate::testing::{records, schema_of};
+        let rows = |s: &Store| -> Vec<String> {
+            let mut stmt = s
+                .conn()
+                .prepare(
+                    "SELECT concat_ws('|', 'meeting', id, title, started_ms, ended_ms)
+                     FROM meetings
+                     UNION ALL
+                     SELECT concat_ws('|', 'line', id, meeting_id, source_id, speaker_id,
+                         start_ms, end_ms, status, language, revision, text)
+                     FROM utterances
+                     UNION ALL
+                     SELECT concat_ws('|', 'event', event_id, session_id, sequence,
+                         schema_version, event_type, occurred_at, payload)
+                     FROM events",
+                )
+                .unwrap();
+            let found = stmt.query_map([], |r| r.get(0)).unwrap();
+            found.collect::<Result<_, _>>().unwrap()
+        };
+        let dir = TempDir::new();
+        let first = Store::open(dir.db()).unwrap();
+        first.insert_meeting("m1", "t", 7).unwrap();
+        first
+            .upsert_utterance(&utt("u1", SegmentStatus::Final, "hello"))
+            .unwrap();
+        first
+            .journal()
+            .append(&event("e1", "m1", 1, "hello"))
+            .unwrap();
+        let before = rows(&first);
+        assert_eq!(before.len(), 3, "precondition");
+        let objects = schema_of(first.conn());
+        drop(first);
+
+        let second = Store::open(dir.db()).unwrap();
+
+        assert_eq!(rows(&second), before);
+        assert_eq!(second.schema_version().unwrap(), 1);
+        assert_eq!(records(second.conn()).len(), 1);
+        assert_eq!(schema_of(second.conn()), objects);
     }
 
     #[test]

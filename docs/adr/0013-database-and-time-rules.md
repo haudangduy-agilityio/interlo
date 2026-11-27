@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-11-17
 - Decision ID: D-59
+- Update 2026-11-26: [ADR 0023](0023-one-database-version-rule.md) (D-193)
+  replaces items 1 and 3 and the refusal of every higher version in the
+  consequences. Every schema change after that record is a new migration.
 
 ## Context
 

@@ -14,7 +14,6 @@ test-support = []
 diagnostics = { path = "../diagnostics" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rusqlite = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

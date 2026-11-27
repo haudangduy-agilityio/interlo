@@ -9,9 +9,7 @@ use summary_jobs::{check_citations, decide_notes, NotesDecision, Point, RejectRe
 use workspace_notes::{export_markdown, Note, Task, TaskStatus, DAY_MS};
 
 fn ready_store() -> Store {
-    let s = Store::open_in_memory().expect("open");
-    s.migrate().expect("migrate");
-    s
+    Store::open_in_memory().expect("open")
 }
 
 fn count(s: &Store, table: &str) -> i64 {
@@ -54,11 +52,19 @@ fn point(text: &str, ids: &[&str]) -> Point {
 }
 
 #[test]
-fn migrate_gives_schema_v1_and_a_second_migrate_changes_nothing() {
-    let s = ready_store();
-    assert_eq!(s.schema_version().expect("version"), store::SCHEMA_VERSION);
-    s.migrate().expect("second migrate");
-    assert_eq!(s.schema_version().expect("version"), 1);
+fn a_new_store_has_schema_v1_and_a_second_open_keeps_the_version() {
+    let path = std::env::temp_dir().join(format!("records-{}.db", std::process::id()));
+    {
+        let s = Store::open(&path).expect("open");
+        assert_eq!(s.schema_version().expect("version"), store::SCHEMA_VERSION);
+    }
+    {
+        let s = Store::open(&path).expect("second open");
+        assert_eq!(s.schema_version().expect("version"), 1);
+    }
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
 }
 
 #[test]

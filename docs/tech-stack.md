@@ -25,9 +25,9 @@ Status values: **Decided** (do not change without a new decision), **Rule set**
 
 | Crate                  | Used by                                                                                    | Why                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| serde, serde_json      | the crates that need them (not engine-host, model-store, playback, quick-actions or store) | Event and IPC serialization; audio-io parses the device list tool output |
+| serde, serde_json      | the crates that need them (not engine-host, model-store, playback or quick-actions; store uses serde_json only) | Event and IPC serialization; audio-io parses the device list tool output; store writes and reads journal payloads |
 | thiserror              | all                                                                                        | Error enums                                             |
-| rusqlite (bundled)     | meeting-core, store                                                                        | SQLite with WAL, journal, projections, full-text search |
+| rusqlite (bundled)     | store                                                                                      | SQLite with WAL, journal, projections, full-text search |
 | tauri 2, tauri-build 2 | apps/desktop                                                                               | App shell, commands, event channels                     |
 | tauri-plugin-dialog 2  | apps/desktop                                                                               | The native confirmation dialog before a model download (ADR 0006). Called from Rust only, in `native_confirm.rs`; the main window is granted no `dialog:` permission. Added in M1-04.2 with the owner's approval (2026-11-25); `cargo deny check` passes. Brings in `rfd`, `tauri-plugin` and `tauri-plugin-fs` (MIT OR Apache-2.0), and moves `tauri-utils` from 2.10.3 to 2.10.4 in the lock file |
 | cpal `=0.18.2`         | audio-io                                                                                   | Microphone capture through Core Audio, with the default input configuration of the chosen device; exact pin (Apache-2.0) |
