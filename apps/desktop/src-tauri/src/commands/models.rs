@@ -194,9 +194,10 @@ fn refuse_during_meeting(meeting_running: &dyn Fn() -> bool) -> IpcResult<()> {
 /// The whole `download_model` flow. Refusals run in this order: unknown id,
 /// licence not accepted (`INVALID_INPUT`), a meeting (`MEETING_RUNNING`), a
 /// download of the pack already running (`INVALID_INPUT`); only then the dialog.
-/// A meeting that began while the dialog was open refuses the confirmed download. The pack is registered before the
-/// dialog opens, so a second request for the same pack is refused while the
-/// first dialog is up, and the registry lock is never held while it is open.
+/// A meeting that began while the dialog was open refuses the confirmed download.
+/// The pack is registered before the dialog opens, so a second request for the
+/// same pack is refused while the first dialog is up, and the registry lock is
+/// never held while it is open.
 ///
 /// A declined dialog returns Ok and changes nothing (D-3). A cancel (during the
 /// dialog or the transfer) also returns Ok and leaves no `.part` file.

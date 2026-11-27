@@ -14,6 +14,7 @@ const ready = () => ({
 const PANEL = "Before you start";
 const STARTING = "Starting meeting…";
 const FAILED = { code: "START_FAILED", message: "The speech models could not be loaded." } as const;
+const NO_MEETING = { code: "NO_MEETING", message: "No meeting is running." } as const;
 
 type App = ReturnType<typeof renderApp>;
 
@@ -44,8 +45,9 @@ async function startInDialog(app: App) {
   return dialog;
 }
 
-/** Holds every start until the test answers it. A stop is accepted and counted. */
-function holdStarts(app: App) {
+/** Holds every start until the test answers it. A stop is counted, and accepted unless
+ * `stopError` is given. */
+function holdStarts(app: App, stopError?: unknown) {
   const held: { succeed: () => void; fail: (error: unknown) => void }[] = [];
   const stops: string[] = [];
   const real = app.transport.invoke.bind(app.transport);
@@ -55,6 +57,7 @@ function holdStarts(app: App) {
   ): Promise<T> => {
     if (cmd === "stop_meeting") {
       stops.push(cmd);
+      if (stopError !== undefined) return Promise.reject(stopError);
       return Promise.resolve({ meetingId: "mtg_held" } as T);
     }
     if (cmd !== "start_meeting") return real<T>(cmd, args);
@@ -105,9 +108,12 @@ describe("Live screen around a session", () => {
 
     await app.user.click(main().getByRole("button", { name: "Stop meeting" }));
     await waitFor(() => expect(stops).toHaveLength(1));
+    // The panel closes with the stop, so the next start confirms its checks again.
+    expect(screen.queryByRole("region", { name: PANEL })).toBeNull();
     await answer(() => (late === "success" ? held[0].succeed() : held[0].fail(FAILED)));
 
     expect(await main().findByRole("button", { name: "Start meeting" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: PANEL })).toBeNull();
     expect(screen.getByText("State: Idle.")).toBeTruthy();
     expect(screen.queryByText(STARTING)).toBeNull();
     expect(screen.queryByText("Meeting running.")).toBeNull();
@@ -137,6 +143,60 @@ describe("Live screen around a session", () => {
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Confirm before starting: headphones in use.");
+  });
+
+  it("stopped_start_leaves_the_screen_idle (the stop finds no meeting)", async () => {
+    const app = renderApp(ready());
+    const { stops } = holdStarts(app, NO_MEETING);
+    await startOnLive(app);
+    await app.user.click(await main().findByRole("button", { name: "Stop meeting" }));
+    await waitFor(() => expect(stops).toHaveLength(1));
+
+    expect(await screen.findByText("State: Idle.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(NO_MEETING.message)).toBeNull();
+  });
+
+  it("start_during_a_running_meeting_opens_the_live_screen", async () => {
+    const app = renderApp({ ...ready(), screen: "home" });
+    const { held, stops } = holdStarts(app);
+    app.emit("meeting://status", { state: "running" });
+    app.emit("meeting://caption", line(1, "Xin chào mọi người."));
+    await app.user.click(await main().findByRole("button", { name: "Start meeting" }));
+
+    expect(await screen.findByText("State: Running.")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByText("Xin chào mọi người.")).toBeTruthy();
+    expect(main().getByRole("button", { name: "Stop meeting" })).toBeTruthy();
+    expect(held).toEqual([]);
+    expect(stops).toEqual([]);
+  });
+
+  it("start_during_a_pending_start_opens_the_live_screen", async () => {
+    const app = renderApp(ready());
+    const { held, stops } = holdStarts(app);
+    await startOnLive(app);
+    await app.user.click(screen.getByRole("button", { name: "Today" }));
+    await app.user.click(await main().findByRole("button", { name: "Start meeting" }));
+
+    expect(await main().findByText(STARTING)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(held).toHaveLength(1);
+    expect(stops).toEqual([]);
+  });
+
+  it("cancel_that_cannot_stop_shows_the_failure_on_the_live_screen", async () => {
+    const app = renderApp({ ...ready(), screen: "home" });
+    holdStarts(app, new Error("the shell did not answer"));
+    const dialog = await startInDialog(app);
+    await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await app.user.click(screen.getByRole("button", { name: "Live meeting" }));
+
+    const banners = await main().findAllByRole("alert");
+    expect(banners.map((banner) => banner.textContent).join()).toContain(
+      "the shell did not answer",
+    );
+    expect(main().getByRole("button", { name: "Stop meeting" })).toBeTruthy();
   });
 
   it.each(["Cancel", "Close dialog"])(

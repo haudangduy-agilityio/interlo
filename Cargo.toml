@@ -38,7 +38,7 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 
-# The hash of the model files is far too slow without optimisation: a developer
+# The hash of the model files is far too slow without optimisation: a debug
 # build would hash gigabytes at about 30 MB/s.
 [profile.dev.package."sha2@0.11"]
 opt-level = 3

@@ -21,7 +21,8 @@ use crate::ipc::{
 #[cfg(not(feature = "demo-data"))]
 use crate::session::{controller, Session};
 
-/// Managed state: the id of the running meeting, if any.
+/// The id of the running meeting of the sample flow, if any. A `demo-data`
+/// build manages it; another build uses a `Session`.
 #[derive(Debug, Default)]
 pub struct MeetingState {
     running: Mutex<Option<String>>,
@@ -70,10 +71,7 @@ pub fn begin_meeting(
 ) -> IpcResult<MeetingHandle> {
     let mut running = state.lock();
     if running.is_some() {
-        return Err(IpcError::new(
-            ErrorCode::MeetingRunning,
-            "A meeting is already running.",
-        ));
+        return Err(IpcError::meeting_running());
     }
     if !status.can_start {
         return Err(IpcError::new(
@@ -92,10 +90,7 @@ pub fn end_meeting(state: &MeetingState) -> IpcResult<MeetingHandle> {
     let mut running = state.lock();
     match running.take() {
         Some(meeting_id) => Ok(MeetingHandle { meeting_id }),
-        None => Err(IpcError::new(
-            ErrorCode::NoMeeting,
-            "No meeting is running.",
-        )),
+        None => Err(IpcError::no_meeting()),
     }
 }
 
@@ -129,10 +124,7 @@ pub fn stop(state: &MeetingState, sink: &dyn StatusSink) -> IpcResult<MeetingHan
 /// tell the owner that the microphone is muted when it is not.
 pub fn apply_mute(state: &MeetingState, _args: &SetMuteArgs) -> IpcResult<()> {
     if !state.is_running() {
-        return Err(IpcError::new(
-            ErrorCode::NoMeeting,
-            "No meeting is running.",
-        ));
+        return Err(IpcError::no_meeting());
     }
     Err(IpcError::not_implemented("Muting"))
 }
@@ -228,7 +220,7 @@ pub async fn stop_meeting(app: AppHandle) -> IpcResult<MeetingHandle> {
     tauri::async_runtime::spawn_blocking(move || app.state::<Session>().stop(&app))
         .await
         // A stop takes the session before anything can panic: none is left.
-        .unwrap_or_else(|_| Err(controller::no_meeting()))
+        .unwrap_or_else(|_| Err(IpcError::no_meeting()))
 }
 
 #[cfg(feature = "demo-data")]

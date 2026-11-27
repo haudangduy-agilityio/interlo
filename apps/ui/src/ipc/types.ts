@@ -167,7 +167,10 @@ export interface CaptionEvent {
   isFinal: boolean;
   source: string;
   target: string;
-  /** Time from the end of the speech span to this text. A whole number, 0 or more. */
+  /**
+   * Time from the moment the end of the speech was detected, about 256 ms after it, to this
+   * text. A whole number, 0 or more.
+   */
   delayMs: number;
 }
 

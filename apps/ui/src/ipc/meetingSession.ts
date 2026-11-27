@@ -64,6 +64,12 @@ export function latestIncomingCaption(captions: readonly Caption[]): Caption | n
   return null;
 }
 
+/** A final line without a translation waits for none. */
+function translationStatusOf(e: CaptionEvent): Caption["translationStatus"] {
+  if (e.target.length > 0) return e.isFinal ? "final" : "partial";
+  return e.isFinal ? null : "pending";
+}
+
 export function captionFromEvent(e: CaptionEvent, startMs: number): SessionCaption {
   return {
     segmentId: e.lineId,
@@ -74,9 +80,7 @@ export function captionFromEvent(e: CaptionEvent, startMs: number): SessionCapti
     targetText: e.target.length > 0 ? e.target : null,
     // The caption event does not carry the target language.
     targetLanguage: null,
-    // A final line without a translation waits for none.
-    translationStatus:
-      e.target.length > 0 ? (e.isFinal ? "final" : "partial") : e.isFinal ? null : "pending",
+    translationStatus: translationStatusOf(e),
     delayMs: e.delayMs,
   };
 }

@@ -19,7 +19,11 @@ pub mod session;
 #[cfg(feature = "demo-data")]
 use commands::meeting::MeetingState;
 #[cfg(not(feature = "demo-data"))]
+use engine_host::live_chain::MonotonicClock;
+#[cfg(not(feature = "demo-data"))]
 use session::{machine::ThisMac, model_check::ModelCheck, Session};
+#[cfg(not(feature = "demo-data"))]
+use std::sync::Arc;
 use tauri::Manager;
 
 /// Build the app, register every command and run the event loop.
@@ -48,6 +52,7 @@ pub fn run() {
                     Box::new(model_store::Sha256Hasher),
                 ),
                 session::policy::shared_policy(),
+                Arc::new(MonotonicClock::default()),
             ));
             Ok(())
         })

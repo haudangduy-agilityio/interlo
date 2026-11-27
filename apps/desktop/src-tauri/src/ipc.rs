@@ -38,6 +38,16 @@ impl IpcError {
         }
     }
 
+    /// A command needs a meeting and there is none.
+    pub fn no_meeting() -> Self {
+        Self::new(ErrorCode::NoMeeting, "No meeting is running.")
+    }
+
+    /// A start while a meeting exists.
+    pub fn meeting_running() -> Self {
+        Self::new(ErrorCode::MeetingRunning, "A meeting is already running.")
+    }
+
     pub fn start_check_failed(message: impl Into<String>, details: Vec<String>) -> Self {
         Self {
             details: Some(details),

@@ -233,8 +233,8 @@ Event rules:
   must not rely on the exact window size. The speech chain sends one final caption
   per recognized piece of speech: `direction` `out`, the Vietnamese text in `source`,
   an empty `target` (no translation yet), a `lineId` not used before in this app run
-  and `delayMs`, a whole number, 0 or more: the milliseconds from the end of that
-  piece of speech to its text.
+  and `delayMs`, a whole number, 0 or more: the milliseconds from the moment the end
+  of that piece of speech was detected, about 256 ms after it, to its text.
 - `meeting://latency` follows each caption with the nearest-rank p50 and p95 of the
   delays of this session.
 - `meeting://banner` from a session: `warning` `One sentence could not be

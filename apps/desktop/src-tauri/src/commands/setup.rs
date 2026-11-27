@@ -4,11 +4,12 @@
 //! The probe opens the microphone, so it runs on a blocking thread. Calls that
 //! overlap share one run. While a meeting runs no microphone is opened. A
 //! permission seen as granted is kept for the app session; any other result is
-//! probed again at the next call. Model states come from the model manager
-//! (M1-04); until it reports, all four are `missing`.
+//! probed again at the next call. This check counts no model as downloaded: a
+//! `Session` sets the four model rows from its model check
+//! (`session/model_check.rs`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(not(feature = "demo-data"))]
 use tauri::Manager;
@@ -22,10 +23,12 @@ use audio_io::{
     SetupState as ReportState, SystemEnv,
 };
 
+#[cfg(test)]
 use crate::commands::meeting::MeetingState;
 use crate::ipc::{IpcResult, SetupGroup, SetupItem, SetupItemId, SetupState, SetupStatus};
+use crate::session::flight::Flight;
 
-/// No model manager reports yet (M1-04), so no model counts as downloaded.
+/// The probe does not read model files, so it reports every model as missing.
 const MODELS_NOT_DOWNLOADED: [ModelState; 4] = [ModelState::Missing; 4];
 
 fn group_of(id: ReportId) -> SetupGroup {
@@ -86,39 +89,11 @@ pub struct SetupAnswer {
     pub devices: Vec<DeviceInfo>,
 }
 
-/// One run of the check and the callers that wait for its answer.
-struct Flight {
-    answer: Mutex<Option<SetupAnswer>>,
-    ready: Condvar,
-}
-
-impl Flight {
-    fn new() -> Self {
-        Self {
-            answer: Mutex::new(None),
-            ready: Condvar::new(),
-        }
-    }
-
-    fn wait(&self) -> SetupAnswer {
-        let mut answer = self.answer.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if let Some(found) = answer.as_ref() {
-                return found.clone();
-            }
-            answer = self
-                .ready
-                .wait(answer)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
-    }
-}
-
 /// Ends the run in flight when the leader returns, also when it panics: then
 /// the waiting callers get the failed status instead of waiting for ever.
 struct Leader<'a> {
-    slot: &'a Mutex<Option<Arc<Flight>>>,
-    flight: Arc<Flight>,
+    slot: &'a Mutex<Option<Arc<Flight<SetupAnswer>>>>,
+    flight: Arc<Flight<SetupAnswer>>,
 }
 
 impl Leader<'_> {
@@ -127,24 +102,13 @@ impl Leader<'_> {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        *self
-            .flight
-            .answer
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(found);
-        self.flight.ready.notify_all();
+        self.flight.finish(found);
     }
 }
 
 impl Drop for Leader<'_> {
     fn drop(&mut self) {
-        let finished = self
-            .flight
-            .answer
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some();
-        if !finished {
+        if !self.flight.is_finished() {
             self.finish(failed_answer());
         }
     }
@@ -187,19 +151,20 @@ impl ProbeEnv for MeetingGuard<'_> {
 #[derive(Clone, Default)]
 pub struct SetupCheck {
     granted: Arc<AtomicBool>,
-    flight: Arc<Mutex<Option<Arc<Flight>>>>,
+    flight: Arc<Mutex<Option<Arc<Flight<SetupAnswer>>>>>,
     gate: ProbeGate,
 }
 
 impl SetupCheck {
-    /// The check. `meeting_running` is asked when the microphone would be
-    /// opened: while a meeting runs it is not opened. A call that joins a run in
-    /// flight gets that run's answer, whatever its own flag says.
+    /// The status of `answer`.
+    #[cfg(test)]
     pub fn run(&self, env: &mut dyn ProbeEnv, meeting_running: &dyn Fn() -> bool) -> SetupStatus {
         self.answer(env, meeting_running).status
     }
 
-    /// Like `run`, with what else the run found.
+    /// The check. `meeting_running` is asked when the microphone would be
+    /// opened: while a meeting runs it is not opened. A call that joins a run in
+    /// flight gets that run's answer, whatever its own flag says.
     pub fn answer(
         &self,
         env: &mut dyn ProbeEnv,
@@ -210,7 +175,7 @@ impl SetupCheck {
             match slot.as_ref() {
                 Some(running) => (Arc::clone(running), false),
                 None => {
-                    let flight = Arc::new(Flight::new());
+                    let flight = Arc::new(Flight::default());
                     *slot = Some(Arc::clone(&flight));
                     (flight, true)
                 }
@@ -254,6 +219,7 @@ impl SetupCheck {
     }
 
     /// The check on a given system, with the flag of a given meeting state.
+    #[cfg(test)]
     pub fn run_with(&self, env: &mut dyn ProbeEnv, meeting: &MeetingState) -> SetupStatus {
         self.run(env, &|| meeting.is_running())
     }
@@ -282,7 +248,7 @@ pub fn failed_status() -> SetupStatus {
 }
 
 /// `failed_status` as the answer of a run.
-pub fn failed_answer() -> SetupAnswer {
+fn failed_answer() -> SetupAnswer {
     SetupAnswer {
         status: failed_status(),
         waited: false,

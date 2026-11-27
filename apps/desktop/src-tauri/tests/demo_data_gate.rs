@@ -161,11 +161,10 @@ fn the_scan_flags_an_ungated_use_and_accepts_a_gated_one() {
 #[cfg(not(feature = "demo-data"))]
 mod default_build {
     use interlo_desktop::commands::history::current_meetings;
-    use interlo_desktop::commands::meeting::{apply_mute, MeetingState};
     use interlo_desktop::commands::models::current_models;
     use interlo_desktop::commands::notes::{current_notes, save_note};
     use interlo_desktop::commands::settings::{apply_setting, current_settings};
-    use interlo_desktop::ipc::{Direction, ErrorCode, SetMuteArgs};
+    use interlo_desktop::ipc::ErrorCode;
     use serde_json::json;
 
     #[test]
@@ -204,20 +203,6 @@ mod default_build {
             ErrorCode::InvalidInput
         );
     }
-
-    #[test]
-    fn mute_without_a_meeting_stays_no_meeting() {
-        let args = SetMuteArgs {
-            direction: Direction::Out,
-            muted: true,
-        };
-        assert_eq!(
-            apply_mute(&MeetingState::default(), &args)
-                .unwrap_err()
-                .code,
-            ErrorCode::NoMeeting
-        );
-    }
 }
 
 /// A default build reads no model folder, so a Start on a computer with every
@@ -231,12 +216,13 @@ mod default_start {
         DeviceInfo, DeviceKind, DeviceListError, DeviceSnapshot, MicConfig, MicPermission,
         ProbeEnv, Transport,
     };
+    use engine_host::live_chain::MonotonicClock;
     use engine_host::EngineError;
     use interlo_desktop::commands::setup::{SetupAnswer, SetupCheck};
     use interlo_desktop::events::{
         BannerEvent, CaptionEvent, LatencyEvent, RunState, SessionSink, StatusSink,
     };
-    use interlo_desktop::ipc::{ErrorCode, StartChecks, StartMeetingArgs};
+    use interlo_desktop::ipc::{Direction, ErrorCode, SetMuteArgs, StartChecks, StartMeetingArgs};
     use interlo_desktop::models_dir;
     use interlo_desktop::session::capture::{Microphone, OpenFailed};
     use interlo_desktop::session::machine::{LoadedEngines, Machine};
@@ -328,19 +314,37 @@ mod default_start {
         }
     }
 
-    #[test]
-    fn default_build_start_names_the_missing_models() {
+    /// The session of a default build on a computer with every device.
+    fn default_session() -> Session {
         let models = ModelCheck::launch(
             models_dir::from_environment(),
             model_store::packs(),
             rustix::process::getuid().as_raw(),
             Box::new(model_store::Sha256Hasher),
         );
-        let session = Session::new(
+        Session::new(
             Box::new(Computer(SetupCheck::default())),
             models,
             shared_policy(),
+            Arc::new(MonotonicClock::default()),
+        )
+    }
+
+    #[test]
+    fn mute_without_a_meeting_stays_no_meeting() {
+        let args = SetMuteArgs {
+            direction: Direction::Out,
+            muted: true,
+        };
+        assert_eq!(
+            default_session().mute(&args).unwrap_err().code,
+            ErrorCode::NoMeeting
         );
+    }
+
+    #[test]
+    fn default_build_start_names_the_missing_models() {
+        let session = default_session();
         let args = StartMeetingArgs {
             mode: "speak".to_string(),
             meeting_app_id: "meeting-app".to_string(),

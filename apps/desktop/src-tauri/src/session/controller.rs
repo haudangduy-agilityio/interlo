@@ -9,9 +9,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use engine_host::live_chain::{
-    Caption, ChainEnd, ChainSink, Clock, Engines, Latency, LiveChain, MonotonicClock,
-};
+use engine_host::live_chain::{Caption, ChainEnd, ChainSink, Clock, Engines, Latency, LiveChain};
 use meeting_core::policy::PrivacyPolicy;
 use meeting_core::protocol::SessionStatus;
 
@@ -24,7 +22,7 @@ use crate::ipc::{
     SetupStatus, StartMeetingArgs,
 };
 use crate::session::capture::{mic_config, Capture, Microphone};
-use crate::session::engines::{EngineCache, LoadError};
+use crate::session::engines::EngineCache;
 use crate::session::machine::Machine;
 use crate::session::model_check::ModelCheck;
 use crate::session::policy::{self, SharedPolicy};
@@ -136,7 +134,7 @@ impl Reservation<'_> {
         if self.shared.phase().is_starting(&self.id) {
             Ok(())
         } else {
-            Err(no_meeting())
+            Err(IpcError::no_meeting())
         }
     }
 
@@ -144,7 +142,7 @@ impl Reservation<'_> {
     fn announce(&mut self) -> IpcResult<()> {
         let phase = self.shared.phase();
         if !phase.is_starting(&self.id) {
-            return Err(no_meeting());
+            return Err(IpcError::no_meeting());
         }
         self.events.emit_status(RunState::Starting);
         self.announced = true;
@@ -156,7 +154,7 @@ impl Reservation<'_> {
     fn refuse(&self, error: IpcError) -> IpcError {
         let mut phase = self.shared.phase();
         if !phase.is_starting(&self.id) {
-            return no_meeting();
+            return IpcError::no_meeting();
         }
         self.shared.release(&mut phase);
         if self.announced {
@@ -173,7 +171,7 @@ impl Reservation<'_> {
         if !phase.is_starting(&self.id) {
             drop(phase);
             microphone.capture.stop();
-            return Err(no_meeting());
+            return Err(IpcError::no_meeting());
         }
         let sink = Forward {
             shared: Arc::downgrade(self.shared),
@@ -198,7 +196,7 @@ impl Reservation<'_> {
                 drop(phase);
                 microphone.capture.stop();
                 // The chain only fails when a thread cannot start.
-                Err(self.refuse(start_failed(LoadError::Failed.message())))
+                Err(self.refuse(start_failed(PROCESSING_STOPPED)))
             }
         }
     }
@@ -207,7 +205,7 @@ impl Reservation<'_> {
 impl Drop for Reservation<'_> {
     fn drop(&mut self) {
         // After `refuse`, `run` or a stop, this changes nothing.
-        self.refuse(no_meeting());
+        self.refuse(IpcError::no_meeting());
     }
 }
 
@@ -276,14 +274,19 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(machine: Box<dyn Machine>, models: ModelCheck, policy: SharedPolicy) -> Self {
+    pub fn new(
+        machine: Box<dyn Machine>,
+        models: ModelCheck,
+        policy: SharedPolicy,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 machine,
                 models,
                 engines: EngineCache::default(),
                 policy,
-                clock: Arc::new(MonotonicClock::default()),
+                clock,
                 phase: Mutex::default(),
             }),
         }
@@ -355,10 +358,7 @@ impl Session {
     fn reserve(&self, id: String, events: Arc<dyn SessionSink>) -> IpcResult<Reservation<'_>> {
         let mut phase = self.shared.phase();
         if !matches!(*phase, Phase::Idle) {
-            return Err(IpcError::new(
-                ErrorCode::MeetingRunning,
-                "A meeting is already running.",
-            ));
+            return Err(IpcError::meeting_running());
         }
         *phase = Phase::Starting { id: id.clone() };
         policy::record(&self.shared.policy, SessionStatus::Preparing);
@@ -375,7 +375,7 @@ impl Session {
     pub fn stop(&self, events: &dyn SessionSink) -> IpcResult<MeetingHandle> {
         let mut phase = self.shared.phase();
         let (meeting_id, chain) = match std::mem::take(&mut *phase) {
-            Phase::Idle => return Err(no_meeting()),
+            Phase::Idle => return Err(IpcError::no_meeting()),
             Phase::Starting { id } => (id, None),
             Phase::Running {
                 id,
@@ -383,6 +383,9 @@ impl Session {
                 mut capture,
             } => {
                 policy::record(&self.shared.policy, SessionStatus::Stopping);
+                // First, so that no waiting speech is recognized while the
+                // microphone closes.
+                chain.cancel();
                 capture.stop();
                 (id, Some(chain))
             }
@@ -402,13 +405,9 @@ impl Session {
         if matches!(*self.shared.phase(), Phase::Running { .. }) {
             Err(IpcError::not_implemented("Muting"))
         } else {
-            Err(no_meeting())
+            Err(IpcError::no_meeting())
         }
     }
-}
-
-pub(crate) fn no_meeting() -> IpcError {
-    IpcError::new(ErrorCode::NoMeeting, "No meeting is running.")
 }
 
 /// The answer of a start whose task panicked.
@@ -424,4 +423,41 @@ fn start_failed(message: &str) -> IpcError {
 /// Milliseconds as the events carry them.
 fn wire_ms(milliseconds: u64) -> u32 {
     u32::try_from(milliseconds).unwrap_or(u32::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::testing::Rig;
+    use std::thread;
+
+    #[test]
+    fn an_event_goes_out_only_while_its_session_runs() {
+        let rig = Rig::new();
+        let warn = |id: &str| {
+            let mut sink = Forward {
+                shared: Arc::downgrade(&rig.session.shared),
+                id: id.to_string(),
+                events: Arc::new(rig.events.clone()),
+            };
+            sink.recognition_failed();
+        };
+        let warnings = || rig.events.banners().len();
+
+        warn("m1");
+        assert_eq!(warnings(), 0, "without a session");
+        rig.fake.load_gate.hold();
+        thread::scope(|scope| {
+            let held = scope.spawn(|| rig.start());
+            rig.fake.load_gate.wait_for_arrival(1);
+            warn("m1");
+            assert_eq!(warnings(), 0, "while its session is starting");
+            rig.fake.load_gate.release();
+            held.join().unwrap().unwrap();
+        });
+        warn("another");
+        assert_eq!(warnings(), 0, "of another session");
+        warn("m1");
+        assert_eq!(warnings(), 1, "of the running session");
+    }
 }

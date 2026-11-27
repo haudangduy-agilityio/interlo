@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,7 @@ use audio_io::{
     DeviceInfo, DeviceKind, DeviceListError, DeviceSnapshot, MicConfig, MicPermission, ProbeEnv,
     Transport,
 };
-use engine_host::live_chain::FrameSource;
+use engine_host::live_chain::{Clock, FrameSource, MonotonicClock};
 use engine_host::traits::{Engine, Recognition, Recognizer, Vad};
 use engine_host::{EngineError, FRAME_SAMPLES};
 use meeting_core::policy::Provider;
@@ -377,13 +377,21 @@ impl FrameSource for Feed {
     }
 }
 
+/// What a test runs while a microphone closes.
+pub type WhileClosing = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 struct FakeCapture {
     stopped: Arc<AtomicUsize>,
+    while_closing: WhileClosing,
     journal: Journal,
 }
 
 impl Capture for FakeCapture {
     fn stop(&mut self) {
+        let run = self.while_closing.lock().unwrap().take();
+        if let Some(run) = run {
+            run();
+        }
         self.stopped.fetch_add(1, Ordering::SeqCst);
         self.journal.add("capture stopped");
     }
@@ -409,7 +417,13 @@ pub struct Fake {
     pub loads: Mutex<Vec<PathBuf>>,
     pub engines: Arc<EngineControls>,
     pub open_fails: AtomicBool,
+    /// The next setup check panics.
+    pub setup_panics: AtomicBool,
+    /// The next opening of a microphone panics.
+    pub open_panics: AtomicBool,
     pub open_gate: Gate,
+    /// Runs inside the next stop of a microphone.
+    pub while_closing: WhileClosing,
     /// How each microphone was asked for.
     pub opened: Mutex<Vec<MicConfig>>,
     pub feeds: Mutex<Vec<Feed>>,
@@ -432,7 +446,10 @@ impl Fake {
             loads: Mutex::default(),
             engines: Arc::default(),
             open_fails: AtomicBool::new(false),
+            setup_panics: AtomicBool::new(false),
+            open_panics: AtomicBool::new(false),
             open_gate: Gate::default(),
+            while_closing: WhileClosing::default(),
             opened: Mutex::default(),
             feeds: Mutex::default(),
             stopped: Arc::default(),
@@ -461,6 +478,9 @@ impl Machine for FakeMac {
     fn setup(&self, meeting_running: &dyn Fn() -> bool) -> SetupAnswer {
         let fake = &self.0;
         fake.setup_gate.pass();
+        if fake.setup_panics.swap(false, Ordering::SeqCst) {
+            panic!("scripted setup panic");
+        }
         let running = meeting_running();
         fake.asked.lock().unwrap().push(running);
         let waits = fake.waits.load(Ordering::SeqCst) > 0;
@@ -510,6 +530,9 @@ impl Machine for FakeMac {
         fake.journal.add("open");
         fake.opened.lock().unwrap().push(config);
         fake.open_gate.pass();
+        if fake.open_panics.swap(false, Ordering::SeqCst) {
+            panic!("scripted open panic");
+        }
         if fake.open_fails.load(Ordering::SeqCst) {
             return Err(OpenFailed);
         }
@@ -519,6 +542,7 @@ impl Machine for FakeMac {
             source: Box::new(feed),
             capture: Box::new(FakeCapture {
                 stopped: Arc::clone(&fake.stopped),
+                while_closing: Arc::clone(&fake.while_closing),
                 journal: fake.journal.clone(),
             }),
         })
@@ -609,10 +633,27 @@ impl SessionSink for Events {
     }
 }
 
+/// A clock that moves only when the test moves it.
+#[derive(Default)]
+pub struct ManualClock(AtomicU64);
+
+impl ManualClock {
+    pub fn set(&self, now_ms: u64) {
+        self.0.store(now_ms, Ordering::SeqCst);
+    }
+}
+
+impl Clock for ManualClock {
+    fn now_ms(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 /// A session on the fake computer with this model check.
 pub fn session_with(models: ModelCheck) -> Session {
     let machine = FakeMac(Fake::new(Journal::default()));
-    Session::new(Box::new(machine), models, shared_policy())
+    let clock = Arc::new(MonotonicClock::default());
+    Session::new(Box::new(machine), models, shared_policy(), clock)
 }
 
 /// A session with its model folder, its fake computer and its events.
@@ -627,6 +668,11 @@ pub struct Rig {
 
 impl Rig {
     pub fn new() -> Self {
+        Self::timed(Arc::new(MonotonicClock::default()))
+    }
+
+    /// A rig whose session reads the time from `clock`.
+    pub fn timed(clock: Arc<dyn Clock>) -> Self {
         let folder = Folder::new();
         let hashes = Recording::default();
         let models = ModelCheck::launch(
@@ -635,17 +681,13 @@ impl Rig {
             folder.uid(),
             Box::new(hashes.clone()),
         );
-        Self::with(folder, hashes, models)
-    }
-
-    pub fn with(folder: Folder, hashes: Recording, models: ModelCheck) -> Self {
         let journal = Journal::default();
         let fake = Fake::new(journal.clone());
         let machine = FakeMac(Arc::clone(&fake));
         Self {
             folder,
             hashes,
-            session: Session::new(Box::new(machine), models, shared_policy()),
+            session: Session::new(Box::new(machine), models, shared_policy(), clock),
             events: Events::new(journal),
             fake,
             next_id: AtomicUsize::new(1),

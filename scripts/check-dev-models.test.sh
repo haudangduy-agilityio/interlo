@@ -10,7 +10,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 # The fake build tool: it logs its arguments and writes a program that holds the
 # variable name or not, as WITH_FEATURE and WITHOUT_FEATURE say (yes, no, none,
-# fail).
+# fail, locked: a program that cannot be read).
 cat >"$WORK/cargo" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >>"$LOG"
@@ -23,6 +23,7 @@ case "$kind" in
   no) printf 'program\0INTERLO_MODELS\0end' >"$BIN" ;;
   none) rm -f "$BIN" ;;
   fail) exit 101 ;;
+  locked) printf 'program' >"$BIN" && chmod 000 "$BIN" ;;
 esac
 FAKE
 chmod +x "$WORK/cargo"
@@ -78,6 +79,9 @@ expect "a missing program is refused" 1 "no program at"
 
 run_check yes none
 expect "a missing default program is refused" 1 "no program at"
+
+run_check locked no
+expect "a search that cannot run is refused" 1 "did not run"
 
 run_check yes no nothing
 expect "an unknown argument is refused" 64 "usage:"

@@ -3,11 +3,12 @@
 
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::Arc;
 use std::thread;
 
 use crate::ipc::{SetupItemId, SetupState, SetupStatus};
 use crate::models_dir::ModelFolder;
+use crate::session::flight::Flight;
 use model_store::{check_pack, Hasher, Pack, PackCheck};
 
 /// The hasher of the check.
@@ -32,9 +33,8 @@ struct Shared {
     packs: &'static [Pack],
     owner_uid: u32,
     hasher: ModelHasher,
-    /// `None` until the launch check ends.
-    results: Mutex<Option<Results>>,
-    ended: Condvar,
+    /// There once the launch check ends.
+    results: Flight<Results>,
 }
 
 impl Shared {
@@ -45,32 +45,13 @@ impl Shared {
         }
     }
 
-    fn finish(&self, results: Results) {
-        *self.results.lock().unwrap_or_else(PoisonError::into_inner) = Some(results);
-        self.ended.notify_all();
-    }
-
     /// Replace the result of one pack.
     fn keep(&self, pack: &str, found: PackCheck) {
-        let mut results = self.results.lock().unwrap_or_else(PoisonError::into_inner);
-        let kept = results.iter_mut().flatten();
-        for (_, result) in kept.filter(|(checked, _)| *checked == pack) {
-            *result = found;
-        }
-    }
-
-    /// The results, after the launch check has ended.
-    fn results(&self) -> Results {
-        let mut results = self.results.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if let Some(found) = results.as_ref() {
-                return found.clone();
+        self.results.change(|results| {
+            for (_, result) in results.iter_mut().filter(|(checked, _)| *checked == pack) {
+                *result = found;
             }
-            results = self
-                .ended
-                .wait(results)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
+        });
     }
 
     /// The answer when the launch check cannot run to its end.
@@ -101,11 +82,10 @@ impl ModelCheck {
             packs,
             owner_uid,
             hasher,
-            results: Mutex::new(None),
-            ended: Condvar::new(),
+            results: Flight::default(),
         });
         if !matches!(shared.folder, ModelFolder::At(_)) {
-            shared.finish(Vec::new());
+            shared.results.finish(Vec::new());
             return Self { shared };
         }
         let worker = Arc::clone(&shared);
@@ -119,10 +99,10 @@ impl ModelCheck {
                 // A check that panics fails every pack; nobody waits for ever.
                 let results = panic::catch_unwind(AssertUnwindSafe(all))
                     .unwrap_or_else(|_| worker.all_failed());
-                worker.finish(results);
+                worker.results.finish(results);
             });
         if started.is_err() {
-            shared.finish(shared.all_failed());
+            shared.results.finish(shared.all_failed());
         }
         Self { shared }
     }
@@ -142,7 +122,7 @@ impl ModelCheck {
             return PackCheck::Missing;
         }
         // The launch check ends first, so it cannot overwrite this result.
-        self.shared.results();
+        self.shared.results.wait();
         let Some(pack) = self.shared.packs.iter().find(|pack| pack.id == pack_id) else {
             return PackCheck::Failed;
         };
@@ -160,7 +140,7 @@ impl ModelCheck {
                 ROWS.map(|(id, _, _)| (id, SetupState::Missing, (*why).to_string()))
             }
             ModelFolder::At(_) => {
-                let results = self.shared.results();
+                let results = self.shared.results.wait();
                 ROWS.map(|(id, pack, name)| {
                     let found = results.iter().find(|(checked, _)| *checked == pack);
                     match found.map_or(PackCheck::Failed, |(_, result)| *result) {

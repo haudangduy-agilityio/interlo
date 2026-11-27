@@ -32,7 +32,7 @@ const StartContext = createContext<StartApi | null>(null);
 export function StartProvider({ children }: { children: ReactNode }) {
   const { dispatch } = useAppState();
   const { state: setup, refresh } = useSetupStatus();
-  const { session, start, stop, clearStartFailure } = useSession();
+  const { session, start, stop, showError, clearStartFailure } = useSession();
   const t = useT();
   const startForm = useStartForm();
   const { begin } = startForm;
@@ -46,6 +46,11 @@ export function StartProvider({ children }: { children: ReactNode }) {
 
   const requestStart = useCallback(
     async (chosen: MeetingMode = "both") => {
+      // A session that exists is shown, with its Stop, instead of a second start.
+      if (session.status !== "idle") {
+        dispatch({ type: "navigate", screen: "live" });
+        return;
+      }
       let status: SetupStatus;
       if (setup.status === "done") {
         status = setup.data;
@@ -66,7 +71,7 @@ export function StartProvider({ children }: { children: ReactNode }) {
       setMode(chosen);
       begin();
     },
-    [setup, refresh, toast, t, dispatch, clearStartFailure, begin],
+    [session.status, setup, refresh, toast, t, dispatch, clearStartFailure, begin],
   );
 
   // A failed start belongs to the dialog that showed it. Closing it forgets the failure, and
@@ -76,14 +81,14 @@ export function StartProvider({ children }: { children: ReactNode }) {
   const closeDialog = useCallback(() => {
     if (pending) {
       stop().catch((e: unknown) => {
-        const error = toUiError(e);
-        // The start ended by itself: there is nothing left to cancel.
-        if (error.code !== "NO_MEETING") toast(error.message, "error");
+        const { message } = toUiError(e);
+        toast(message, "error");
+        showError(message);
       });
     }
     clearStartFailure();
     close();
-  }, [pending, stop, toast, clearStartFailure, close]);
+  }, [pending, stop, toast, showError, clearStartFailure, close]);
   useEffect(() => clearStartFailure, [clearStartFailure]);
 
   const confirm = async () => {

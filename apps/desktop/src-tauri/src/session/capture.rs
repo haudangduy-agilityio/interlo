@@ -25,25 +25,26 @@ pub struct Microphone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpenFailed;
 
-/// How to open the setup microphone of `devices`, or `None` without one. The
-/// default input is opened without a name; any other by its exact name.
+/// How to open the setup microphone of `devices`, or `None` without one. It is
+/// opened by its exact name, also when it is the default input: the default may
+/// change while the models load.
 pub fn mic_config(devices: &[DeviceInfo]) -> Option<MicConfig> {
     microphone(devices).map(|device| MicConfig {
-        device_name: (!device.is_default_input).then(|| device.name.clone()),
+        device_name: Some(device.name.clone()),
     })
 }
 
 /// The microphone that the source and the capture share.
-type Shared = Arc<Mutex<MicCapture>>;
+type SharedMic = Arc<Mutex<MicCapture>>;
 
-fn lock(mic: &Shared) -> MutexGuard<'_, MicCapture> {
+fn lock(mic: &SharedMic) -> MutexGuard<'_, MicCapture> {
     mic.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// What the chain reads: the ring, and whether the stream still runs.
 struct RingSource {
     ring: RingConsumer,
-    mic: Shared,
+    mic: SharedMic,
 }
 
 impl FrameSource for RingSource {
@@ -66,7 +67,7 @@ impl Drop for RingSource {
     }
 }
 
-struct MicStop(Shared);
+struct MicStop(SharedMic);
 
 impl Capture for MicStop {
     fn stop(&mut self) {

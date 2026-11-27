@@ -4,6 +4,7 @@
 pub mod capture;
 pub mod controller;
 mod engines;
+pub(crate) mod flight;
 pub mod machine;
 pub mod model_check;
 pub mod policy;

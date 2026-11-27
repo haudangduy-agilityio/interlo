@@ -69,11 +69,16 @@ as the model table names them.
 
 3. Start it through `open`, so that the microphone permission belongs to the app.
    `MODEL_DIR` is the absolute path of the model folder, `LOG_FILE` receives the
-   error output.
+   error output. Keep `LOG_FILE` outside protected folders such as the Desktop: the
+   start fails when macOS refuses to open the file.
 
    ```bash
    open -n target/release/bundle/macos/Interlo.app --env INTERLO_DEV_MODELS_DIR="$MODEL_DIR" --stderr "$LOG_FILE"
    ```
+
+A model folder inside a protected folder makes macOS ask once for access to that folder.
+When the `mic` row reads `missing` and no dialog appears, a refusal is already stored:
+see "Checking the microphone permission in the app".
 
 The gate builds both debug programs and checks that only the developer one holds the
 variable name (`scripts/check-dev-models.sh`).

@@ -452,6 +452,15 @@ impl LiveChain {
         self.shared.close();
     }
 
+    /// Start no new work: waiting spans are dropped and no new sink call begins.
+    /// Does not wait for a sink call that runs now, so it may be called under a
+    /// lock that the sink takes. `stop` still waits for that call.
+    pub fn cancel(&self) {
+        // No gate lock here: the caller may hold a lock that the sink takes.
+        self.shared.closed.store(true, Ordering::SeqCst);
+        self.shared.drop_waiting();
+    }
+
     /// Spans that wait for the recognizer or are in its call.
     pub fn pending_spans(&self) -> usize {
         self.shared.pending.load(Ordering::SeqCst)
@@ -462,9 +471,8 @@ impl Drop for LiveChain {
     /// Does not wait for a sink call that runs now: call `stop` first when
     /// nothing may follow.
     fn drop(&mut self) {
-        // No gate lock here: a drop inside a sink call must not block.
-        self.shared.closed.store(true, Ordering::SeqCst);
-        self.shared.drop_waiting();
+        // A drop inside a sink call must not block, so it only cancels.
+        self.cancel();
     }
 }
 
@@ -1099,6 +1107,61 @@ mod tests {
         until("the old call is done", || chain.pending_spans() == 0);
         assert_eq!(sink.all(), [], "nothing follows a stop");
         assert_eq!(next_sink.captions()[0].text, "mới");
+    }
+
+    /// Stays inside each caption call until the test lets it go.
+    struct HeldSink {
+        entered: Sender<()>,
+        release: Receiver<()>,
+    }
+
+    impl ChainSink for HeldSink {
+        fn caption(&mut self, _caption: Caption) {
+            let _ = self.entered.send(());
+            let _ = self.release.recv_timeout(WAIT);
+        }
+
+        fn latency(&mut self, _latency: Latency) {}
+
+        fn recognition_failed(&mut self) {}
+
+        fn ended(&mut self, _end: ChainEnd) {}
+    }
+
+    #[test]
+    fn cancel_drops_waiting_spans_without_waiting_for_the_sink() {
+        let rig = Rig::new();
+        let feed = Feed::default();
+        let (entered, in_sink) = channel();
+        let (release, held) = channel();
+        let sink = HeldSink {
+            entered,
+            release: held,
+        };
+        let chain = LiveChain::start(
+            feed.source(),
+            Arc::clone(&rig.engines),
+            Arc::clone(&rig.clock) as Arc<dyn Clock>,
+            Box::new(sink),
+        )
+        .unwrap();
+        feed.push(&utterance(1.0, 10));
+        feed.push(&utterance(2.0, 10));
+        assert_eq!(rig.next_call().level, 1.0);
+        until("one span waits", || chain.pending_spans() == 2);
+        rig.answer(Reply::Text("một"));
+        in_sink.recv_timeout(WAIT).expect("the caption call");
+
+        // The sink call is still held: cancel does not wait for it.
+        chain.cancel();
+        assert_eq!(chain.pending_spans(), 1, "only the span in its call");
+        release.send(()).unwrap();
+        until("the call is done", || chain.pending_spans() == 0);
+        chain.stop();
+        assert!(
+            rig.calls.try_recv().is_err(),
+            "the waiting span is not recognized"
+        );
     }
 
     #[test]

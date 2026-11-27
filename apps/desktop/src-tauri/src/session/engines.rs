@@ -2,11 +2,12 @@
 //! their check, kept for later sessions, and dropped after a failure.
 
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use engine_host::live_chain::Engines;
 use model_store::PackCheck;
 
+use crate::session::flight::Flight;
 use crate::session::machine::Machine;
 use crate::session::model_check::ModelCheck;
 use crate::session::policy::SharedPolicy;
@@ -33,38 +34,12 @@ impl LoadError {
 
 type Loaded = Result<Arc<Engines>, LoadError>;
 
-/// One load and the starts that wait for its result.
-#[derive(Default)]
-struct Flight {
-    result: Mutex<Option<Loaded>>,
-    ready: Condvar,
-}
-
-impl Flight {
-    fn finish(&self, loaded: Loaded) {
-        *self.result.lock().unwrap_or_else(PoisonError::into_inner) = Some(loaded);
-        self.ready.notify_all();
-    }
-
-    fn wait(&self) -> Loaded {
-        let mut result = self.result.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if let Some(loaded) = result.as_ref() {
-                return loaded.clone();
-            }
-            result = self
-                .ready
-                .wait(result)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
-    }
-}
-
 #[derive(Default)]
 enum Slot {
     #[default]
     Empty,
-    Loading(Arc<Flight>),
+    /// One load; later starts wait for its result.
+    Loading(Arc<Flight<Loaded>>),
     Ready(Arc<Engines>),
 }
 

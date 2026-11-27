@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_CAPTION_LINES,
   MAX_EVICTED_LINE_IDS,
+  captionFromEvent,
   initialSession,
   isPaused,
   latestIncomingCaption,
@@ -53,6 +54,12 @@ describe("sessionReducer", () => {
       targetText: "Chúng ta có thể giao.",
       startMs: 2500,
     });
+  });
+
+  it("a final line without a translation waits for none", () => {
+    const caption = captionFromEvent({ ...partial, isFinal: true, target: "" }, 0);
+    expect(caption.targetText).toBeNull();
+    expect(caption.translationStatus).toBeNull();
   });
 
   it("is paused only when running and both directions are muted", () => {
