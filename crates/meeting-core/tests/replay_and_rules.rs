@@ -157,7 +157,7 @@ fn unknown_event_type_is_rejected_not_panicking() {
 }
 
 // ---- Review findings: final translations, failure language, captions cost,
-// ---- session transitions, dedupe window, secure journal, privacy default.
+// ---- session transitions, dedupe window, privacy default.
 
 fn seg_at(id: &str, revision: u32, start_ms: u64, language: Language) -> EventPayload {
     EventPayload::TranscriptSegmentUpdated(TranscriptSegment {

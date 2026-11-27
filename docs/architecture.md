@@ -35,7 +35,7 @@ share one run, and no microphone is opened while a meeting runs (`MeetingState`)
 | audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), readiness probe (microphone permission by a short open, macOS version, tap fact), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs; a `mic-probe` worker for the microphone check, which can outlive the call while a system dialog is open | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`), the recognition adapter (`OnnxRecognizer`, in process: one call takes one slice of speech, 0.1 s to 30 s long, and returns its Vietnamese text) | One worker thread per model | Open a network connection; hand out an engine the policy refuses |
 | playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
-| store | The one database file: schema version and migrations, journal, projections, full-text index, cascade delete and its cleanup | One writer, background reads; the journal writes through the store connection | Store audio; change the content of a database that it refuses |
+| store | The one database file: schema version and migrations, journal, projections, full-text index, cascade delete and its cleanup | One writer, background reads; the journal writes through the store connection | Store audio; rewrite a final line; change the content of a database that it refuses |
 | summary-jobs | Job queue (3 attempts, retry 30 s and 60 s, 3-minute lease), citation check, question answerer | Background task | Replace good notes with a bad reply; keep a point without evidence line ids |
 | model-store | Compiled-in model table, size caps, checksums, download gate | Background download task | Run a model that failed its checksum; download without the owner's click |
 | settings | Settings values, when each applies, hotkey map and conflict check | UI thread through the bridge | Store API keys outside the Keychain; accept a system key |
@@ -159,8 +159,8 @@ Tables: meetings, utterances, speakers, summaries, insights, notes, tags, tasks,
 jobs, models, settings, the journal events table, the migration records
 (`schema_migrations`) and the notes full-text index. All are in one SQLite file
 that `store` owns (D-134). Deleting a meeting removes its rows (cascade) and its
-journal rows in one transaction, then rebuilds the file and truncates the log, so
-the deleted text stays in neither (ADR 0008, D-193). Notes created in a meeting
+journal rows in one transaction, then rebuilds the notes index and the file and
+truncates the log, so the deleted text stays in none of them (ADR 0008, D-193). Notes created in a meeting
 are deleted with it. Daily notes not tied to a meeting stay. Confirmed tasks stay
 with the meeting link cleared; unconfirmed drafts from that meeting are deleted
 (D-46, D-53).

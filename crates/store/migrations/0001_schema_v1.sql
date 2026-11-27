@@ -46,7 +46,7 @@ END;
 
 -- store_delete_open() is a function that Store::init registers on each
 -- connection. It returns 1 only inside Store::delete_meeting. A connection
--- without the function cannot delete a final line at all.
+-- without the function cannot delete a final line or a journal row at all.
 CREATE TRIGGER utterances_final_no_delete
 BEFORE DELETE ON utterances
 WHEN OLD.status = 'final' AND store_delete_open() = 0

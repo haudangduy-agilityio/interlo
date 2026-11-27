@@ -25,7 +25,7 @@ crates/
     migrations/              numbered SQL changes of the schema, applied at open
     src/schema.rs            version rule and migration records
     src/journal.rs           append-only event journal
-    src/files.rs             file modes, the refused empty-file state, log truncation
+    src/files.rs             link resolution, file modes, the refused empty-file state, log truncation
   summary-jobs/            job queue, citation check, question answerer
   model-store/             compiled-in model table (manifest.rs), size and checksum checks, download gate, one-download-per-pack registry
   settings/                settings values, apply timing, hotkeys

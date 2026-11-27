@@ -1,14 +1,16 @@
-//! store: SQLite projections of meetings, notes, tasks, jobs, models and settings.
+//! store: the event journal and the SQLite projections of meetings, notes, tasks,
+//! jobs, models and settings.
 //!
 //! Owns: the one database file, its single schema version and every migration,
 //! WAL mode, foreign keys and the full-text index over notes. Everything is
 //! stored as text and integers.
 //!
-//! Must never: store audio, or rewrite a final line. A `final` utterance is
-//! immutable: `Store::upsert_utterance` refuses to touch it, and triggers abort
-//! a raw `UPDATE`, an `INSERT OR REPLACE` over it, a change of a line id and a
-//! raw `DELETE` of it. Journal rows have the same protection. The only delete
-//! that may remove a final line or a journal row is `Store::delete_meeting`.
+//! Must never: store audio, rewrite a final line, or change the content of a
+//! database that it refuses. A `final` utterance is immutable:
+//! `Store::upsert_utterance` refuses to touch it, and triggers abort a raw
+//! `UPDATE`, an `INSERT OR REPLACE` over it, a change of a line id and a raw
+//! `DELETE` of it. Journal rows have the same protection. The only delete that
+//! may remove a final line or a journal row is `Store::delete_meeting`.
 
 use meeting_core::protocol::{Language, SegmentStatus};
 use rusqlite::config::DbConfig;
@@ -118,11 +120,11 @@ fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// UTC milliseconds of the system clock. A clock before 1970 gives 0.
-fn now_ms() -> i64 {
+fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
+        .and_then(|since| u64::try_from(since.as_millis()).ok())
         .unwrap_or(0)
 }
 
@@ -136,11 +138,15 @@ fn ms_to_sql(ms: u64) -> Result<i64, StoreError> {
 /// that the cleanup removes.
 const CLEANUP_PENDING_KEY: &str = "store.cleanup_pending";
 
-/// Rebuilds the database file, so that no free page keeps old text.
+/// The rebuild step of the cleanup.
 pub(crate) type Rebuild = fn(&Connection) -> rusqlite::Result<()>;
 
-pub(crate) fn vacuum(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("VACUUM")
+/// Rebuilds the search index of notes and then the database file, so that
+/// neither a key of the index nor a free page keeps old text.
+pub(crate) fn rebuild_all(conn: &Connection) -> rusqlite::Result<()> {
+    // A page key of the index holds the start of a word. The secure delete
+    // option keeps it while the page holds other words, and `VACUUM` copies it.
+    conn.execute_batch("INSERT INTO notes_fts(notes_fts) VALUES ('rebuild'); VACUUM")
 }
 
 /// What `Store::delete_meeting` did.
@@ -148,8 +154,9 @@ pub(crate) fn vacuum(conn: &Connection) -> rusqlite::Result<()> {
 pub struct MeetingDeletion {
     /// True when a meeting with that id existed and was deleted.
     pub deleted: bool,
-    /// True when the database file was rebuilt and the write-ahead log
-    /// truncated, so neither keeps a copy of the deleted text (ADR 0008).
+    /// True when the search index and the database file were rebuilt and the
+    /// write-ahead log truncated, so none keeps a copy of the deleted text
+    /// (ADR 0008).
     /// False means the cleanup is pending: `Store::scrub` and the next open try
     /// it again.
     pub scrubbed: bool,
@@ -186,7 +193,7 @@ impl Store {
     /// directory (mode 0700 when created here) and the files (mode 0600) are
     /// made owner-only before SQLite opens them.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        Self::open_with(path.as_ref(), MIGRATIONS, now_ms(), vacuum)
+        Self::open_with(path.as_ref(), MIGRATIONS, now_ms(), rebuild_all)
     }
 
     /// `open` with the migration list, the migration time and the rebuild step
@@ -194,9 +201,10 @@ impl Store {
     pub(crate) fn open_with(
         path: &Path,
         migrations: &[Migration],
-        now_ms: i64,
+        now_ms: u64,
         rebuild: Rebuild,
     ) -> Result<Self, StoreError> {
+        let path = &files::resolve_links(path)?;
         if files::is_empty_with_log(path)? {
             files::tighten_existing(path)?;
             return Err(StoreError::UnknownSchema { found: 0 });
@@ -229,7 +237,7 @@ impl Store {
     pub fn open_in_memory() -> Result<Self, StoreError> {
         let store = Self::init(Connection::open_in_memory()?)?;
         schema::apply_pending(&store.conn, MIGRATIONS, now_ms())?;
-        store.finish_open(vacuum);
+        store.finish_open(rebuild_all);
         Ok(store)
     }
 
@@ -264,10 +272,10 @@ impl Store {
         Ok(Self { conn, cascade_open })
     }
 
-    /// Raw connection for read queries and tests. Final utterances stay
-    /// protected by triggers even through this handle, but a caller that drops
-    /// a trigger or the schema can still break the rule: do not write schema
-    /// from here.
+    /// Raw connection for read queries and tests. Final utterances and journal
+    /// rows stay protected by triggers even through this handle, but a caller
+    /// that drops a trigger or the schema can still break the rule: do not write
+    /// schema from here.
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
@@ -305,12 +313,13 @@ impl Store {
     /// (they live in `workspace-notes` memory only), so there is nothing to
     /// delete for them here.
     ///
-    /// After the commit the file is rebuilt and the write-ahead log truncated
-    /// (ADR 0008), so the deleted text stays in neither. If that cannot finish,
-    /// `scrubbed` is false and the cleanup stays pending. The rebuild takes time
-    /// in proportion to the size of the file.
+    /// After the commit the search index of notes and the file are rebuilt and
+    /// the write-ahead log is truncated (ADR 0008), so the deleted text stays in
+    /// none of them. If that cannot finish, `scrubbed` is false and the cleanup
+    /// stays pending. The rebuild takes time in proportion to the size of the
+    /// data and holds the connection until it ends, so journal appends wait too.
     pub fn delete_meeting(&self, id: &str) -> Result<MeetingDeletion, StoreError> {
-        self.delete_meeting_with(id, vacuum)
+        self.delete_meeting_with(id, rebuild_all)
     }
 
     /// `delete_meeting` with the rebuild step of the cleanup passed in.
@@ -345,10 +354,12 @@ impl Store {
         Ok(n > 0)
     }
 
-    /// Rebuild the file and truncate the log again, to finish the cleanup of a
-    /// meeting delete. `Ok(true)` when both worked.
+    /// Rebuild the search index and the file and truncate the log again, to
+    /// finish the cleanup of a meeting delete. `Ok(true)` when all of it worked,
+    /// `Ok(false)` when the log cannot be truncated yet, and an error when the
+    /// rebuild or the checkpoint fails.
     pub fn scrub(&self) -> Result<bool, StoreError> {
-        self.clean_up(vacuum)
+        self.clean_up(rebuild_all)
     }
 
     fn cleanup_pending(&self) -> rusqlite::Result<bool> {
@@ -359,7 +370,7 @@ impl Store {
         )
     }
 
-    /// Rebuild the file, truncate the log, and remove the pending mark when
+    /// Run the rebuild step, truncate the log, and remove the pending mark when
     /// both worked.
     fn clean_up(&self, rebuild: Rebuild) -> Result<bool, StoreError> {
         let rebuilt = rebuild(&self.conn);
@@ -1461,6 +1472,23 @@ mod tests {
     }
 
     #[test]
+    fn a_replaced_meeting_row_keeps_its_final_lines() {
+        let s = final_store();
+        s.insert_meeting("m2", "other", 0).expect("meeting");
+        let statements = [
+            "INSERT OR REPLACE INTO meetings (id, title, started_ms) VALUES ('m1', 'x', 0)",
+            "UPDATE OR REPLACE meetings SET id = 'm1' WHERE id = 'm2'",
+            "UPDATE meetings SET id = 'm3' WHERE id = 'm1'",
+            "DELETE FROM meetings WHERE id = 'm1'",
+        ];
+
+        for sql in statements {
+            assert!(s.conn().execute(sql, []).is_err(), "{sql}");
+            assert_eq!(count(&s, "utterances"), 1, "{sql}");
+        }
+    }
+
+    #[test]
     fn a_cleanup_left_by_an_exit_runs_at_the_next_open() {
         for with_reader in [false, true] {
             let dir = TempDir::new();
@@ -1515,6 +1543,11 @@ mod tests {
                 }
             );
             assert!(pending(s.conn()));
+            assert_eq!(
+                bytes(&wal_of(&db)),
+                Some(Vec::new()),
+                "the log is truncated also when the rebuild fails"
+            );
         }
         {
             let s = Store::open_with(&db, MIGRATIONS, 2, failing_rebuild).unwrap();
@@ -1611,17 +1644,21 @@ mod tests {
 
     #[test]
     fn reopen_keeps_rows_and_adds_no_record() {
-        use crate::testing::{records, schema_of, TempDir};
+        use crate::testing::{records, schema_of};
         let rows = |s: &Store| -> Vec<String> {
             let mut stmt = s
                 .conn()
                 .prepare(
-                    "SELECT 'meeting ' || id || ' ' || title || ' ' || started_ms FROM meetings
+                    "SELECT concat_ws('|', 'meeting', id, title, started_ms, ended_ms)
+                     FROM meetings
                      UNION ALL
-                     SELECT 'line ' || id || ' ' || status || ' ' || text FROM utterances
+                     SELECT concat_ws('|', 'line', id, meeting_id, source_id, speaker_id,
+                         start_ms, end_ms, status, language, revision, text)
+                     FROM utterances
                      UNION ALL
-                     SELECT 'event ' || event_id || ' ' || session_id || ' ' || sequence
-                         || ' ' || payload FROM events",
+                     SELECT concat_ws('|', 'event', event_id, session_id, sequence,
+                         schema_version, event_type, occurred_at, payload)
+                     FROM events",
                 )
                 .unwrap();
             let found = stmt.query_map([], |r| r.get(0)).unwrap();
@@ -1635,7 +1672,7 @@ mod tests {
             .unwrap();
         first
             .journal()
-            .append(&crate::testing::event("e1", "m1", 1, "hello"))
+            .append(&event("e1", "m1", 1, "hello"))
             .unwrap();
         let before = rows(&first);
         assert_eq!(before.len(), 3, "precondition");

@@ -1,7 +1,7 @@
 //! The schema version of the database file: the migrations that this build
 //! holds, their records, and the rule that decides whether a file may be opened.
 
-use crate::StoreError;
+use crate::{ms_to_sql, StoreError};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 
@@ -25,7 +25,7 @@ pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
 }];
 
 /// Schema version that this build writes, stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 
 /// What the version rule says about a database that may be opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,12 +106,13 @@ fn read_records(conn: &Connection) -> rusqlite::Result<Option<Vec<(Value, Value)
 pub(crate) fn apply_pending(
     conn: &Connection,
     migrations: &[Migration],
-    now_ms: i64,
+    now_ms: u64,
 ) -> Result<(), StoreError> {
     // The write lock is taken first and the file is inspected again under it:
     // another open may have migrated it since the first inspection.
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     if let Found::Behind(version) = inspect(&tx, migrations)? {
+        let applied_ms = ms_to_sql(now_ms)?;
         for migration in migrations.iter().filter(|m| m.version > version) {
             tx.execute_batch(migration.sql)?;
             tx.execute(
@@ -120,7 +121,7 @@ pub(crate) fn apply_pending(
                 params![
                     migration.version,
                     migration.name,
-                    now_ms,
+                    applied_ms,
                     migration.incompatible
                 ],
             )?;
@@ -137,10 +138,10 @@ mod tests {
         bytes, count, event, leaves_its_log, mode_of, plain, records, schema_of, user_version,
         wal_of, TempDir,
     };
-    use crate::{vacuum, Store, StoreError};
+    use crate::{rebuild_all, Store, StoreError};
     use std::path::Path;
 
-    const NOW_MS: i64 = 1_800_000_000_000;
+    const NOW_MS: u64 = 1_800_000_000_000;
 
     const TABLES: [&str; 14] = [
         "meetings",
@@ -178,12 +179,31 @@ mod tests {
                 .unwrap();
             assert_eq!(found, 1, "{case}: missing table {table}");
         }
+        let secure_delete: i64 = s
+            .conn()
+            .query_row(
+                "SELECT v FROM notes_fts_config WHERE k = 'secure-delete'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{case}: search index secure delete: {e}"));
+        assert_eq!(secure_delete, 1, "{case}: search index secure delete");
     }
 
     /// A version-1 database with one meeting row, closed cleanly.
     fn closed_v1(db: &Path) {
         let s = Store::open(db).unwrap();
         s.insert_meeting("m_old", "kept", 1).unwrap();
+    }
+
+    /// Writes the meeting row `m1` so that it stays in the log of the database.
+    fn leave_row_in_log(db: &Path) {
+        leaves_its_log(db)
+            .execute(
+                "INSERT INTO meetings VALUES ('m1', 'in the log', 1, NULL)",
+                [],
+            )
+            .unwrap();
     }
 
     /// Turns a version-1 database into a newer one: one more table, one more
@@ -197,7 +217,7 @@ mod tests {
         for (record, incompatible) in newer {
             conn.execute(
                 "INSERT INTO schema_migrations VALUES (?1, 'later', ?2, ?3)",
-                params![record, NOW_MS, incompatible],
+                params![record, ms_to_sql(NOW_MS).unwrap(), incompatible],
             )
             .unwrap();
         }
@@ -292,6 +312,16 @@ mod tests {
         s.journal().append(&written).unwrap();
         assert_eq!(count(s.conn(), "meetings"), 2);
         assert_eq!(count(s.conn(), "utterances"), 1);
+        let read_back: (String, String) = s
+            .conn()
+            .query_row(
+                "SELECT m.title, u.text FROM meetings m JOIN utterances u ON u.meeting_id = m.id
+                 WHERE m.id = 'm_new'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(read_back, ("written".to_string(), "line".to_string()));
         assert_eq!(s.journal().load("m_new").unwrap(), [written]);
         assert_eq!(s.schema_version().unwrap(), 2);
         assert_eq!(schema_of(s.conn()), before);
@@ -474,7 +504,7 @@ mod tests {
         // (a) a new database.
         let dir = TempDir::new();
         let db = dir.db();
-        assert!(Store::open_with(&db, &broken, NOW_MS, vacuum).is_err());
+        assert!(Store::open_with(&db, &broken, NOW_MS, rebuild_all).is_err());
         {
             let conn = plain(&db);
             assert_eq!(user_version(&conn), 0);
@@ -485,16 +515,11 @@ mod tests {
         let dir = TempDir::new();
         let db = dir.db();
         drop(Store::open(&db).unwrap());
-        leaves_its_log(&db)
-            .execute(
-                "INSERT INTO meetings VALUES ('m1', 'in the log', 1, NULL)",
-                [],
-            )
-            .unwrap();
+        leave_row_in_log(&db);
         assert!(!bytes(&wal_of(&db)).unwrap().is_empty(), "precondition");
         let main_before = bytes(&db).unwrap();
 
-        assert!(Store::open_with(&db, &broken, NOW_MS, vacuum).is_err());
+        assert!(Store::open_with(&db, &broken, NOW_MS, rebuild_all).is_err());
 
         assert!(
             bytes(&db).unwrap() == main_before,
@@ -522,19 +547,19 @@ mod tests {
         let db = dir.db();
         closed_v1(&db);
 
-        let first = Store::open_with(&db, &list, NOW_MS, vacuum).unwrap();
+        let first = Store::open_with(&db, &list, NOW_MS, rebuild_all).unwrap();
         assert_eq!(first.schema_version().unwrap(), 2);
         assert_eq!(
             records(first.conn())[1],
-            (2, "extra".to_string(), NOW_MS, 1)
+            (2, "extra".to_string(), ms_to_sql(NOW_MS).unwrap(), 1)
         );
         assert_eq!(count(first.conn(), "meetings"), 1);
         let objects = schema_of(first.conn());
         drop(first);
 
-        let second = Store::open_with(&db, &list, NOW_MS + 1, vacuum).unwrap();
+        let second = Store::open_with(&db, &list, NOW_MS + 1, rebuild_all).unwrap();
         assert_eq!(records(second.conn()).len(), 2);
-        assert_eq!(records(second.conn())[1].2, NOW_MS);
+        assert_eq!(records(second.conn())[1].2, ms_to_sql(NOW_MS).unwrap());
         assert_eq!(schema_of(second.conn()), objects);
     }
 
@@ -560,12 +585,7 @@ mod tests {
             let dir = TempDir::new();
             let db = dir.db();
             closed_v1(&db);
-            leaves_its_log(&db)
-                .execute(
-                    "INSERT INTO meetings VALUES ('m1', 'in the log', 1, NULL)",
-                    [],
-                )
-                .unwrap();
+            leave_row_in_log(&db);
             assert!(!bytes(&wal_of(&db)).unwrap().is_empty(), "precondition");
             let reader = with_reader.then(|| {
                 let reader = plain(&db);
@@ -591,12 +611,7 @@ mod tests {
             let dir = TempDir::new();
             let db = dir.db();
             closed_v1(&db);
-            leaves_its_log(&db)
-                .execute(
-                    "INSERT INTO meetings VALUES ('m1', 'in the log', 1, NULL)",
-                    [],
-                )
-                .unwrap();
+            leave_row_in_log(&db);
             bytes(&wal_of(&db)).unwrap()
         };
         assert!(committed_rows.len() > 1, "precondition");
@@ -634,6 +649,101 @@ mod tests {
                 assert_eq!(mode_of(file), 0o600, "{case}: {}", file.display());
             }
         }
+    }
+
+    #[test]
+    fn a_link_to_an_empty_file_with_a_log_is_refused_and_kept() {
+        for target_exists in [false, true] {
+            let case = format!("target exists {target_exists}");
+            let dir = TempDir::new();
+            let (link, target) = (dir.db(), dir.path().join("moved.db"));
+            if target_exists {
+                std::fs::write(&target, b"").unwrap();
+            }
+            std::fs::write(wal_of(&target), b"log data").unwrap();
+            // A relative link, as a moved database often has.
+            std::os::unix::fs::symlink("moved.db", &link).unwrap();
+
+            let result = Store::open(&link);
+
+            assert!(
+                matches!(result, Err(StoreError::UnknownSchema { found: 0 })),
+                "{case}: {:?}",
+                result.err()
+            );
+            assert!(
+                bytes(&wal_of(&target)).as_deref() == Some(b"log data"),
+                "{case}: log"
+            );
+            assert_eq!(target.exists(), target_exists, "{case}: target");
+        }
+    }
+
+    #[test]
+    fn a_link_to_a_database_tightens_the_files_of_the_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let (link, target) = (dir.db(), dir.path().join("moved.db"));
+        closed_v1(&target);
+        leave_row_in_log(&target);
+        for file in [target.clone(), wal_of(&target)] {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let s = Store::open(&link).unwrap();
+
+        assert_eq!(count(s.conn(), "meetings"), 2);
+        assert_eq!(mode_of(&target), 0o600, "database file");
+        assert_eq!(mode_of(&wal_of(&target)), 0o600, "-wal file");
+    }
+
+    #[test]
+    fn a_database_without_write_access_is_tightened_and_opened() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let db = dir.db();
+        closed_v1(&db);
+        std::fs::set_permissions(&db, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let s = Store::open(&db).unwrap();
+
+        assert_eq!(count(s.conn(), "meetings"), 1);
+        assert_eq!(mode_of(&db), 0o600);
+    }
+
+    #[test]
+    fn a_folder_at_the_database_path_is_refused_and_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        for through_link in [false, true] {
+            let case = format!("through a link {through_link}");
+            let dir = TempDir::new();
+            let db = dir.db();
+            let folder = if through_link {
+                let folder = dir.path().join("documents");
+                std::os::unix::fs::symlink(&folder, &db).unwrap();
+                folder
+            } else {
+                db.clone()
+            };
+            std::fs::create_dir(&folder).unwrap();
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+            assert!(Store::open(&db).is_err(), "{case}");
+
+            assert_eq!(mode_of(&folder), 0o700, "{case}");
+        }
+    }
+
+    #[test]
+    fn a_link_into_a_missing_folder_is_refused_and_creates_nothing() {
+        let dir = TempDir::new();
+        let gone = dir.path().join("gone");
+        std::os::unix::fs::symlink(gone.join("moved.db"), dir.db()).unwrap();
+
+        assert!(Store::open(dir.db()).is_err());
+
+        assert!(!gone.exists(), "a folder was created");
     }
 
     #[test]

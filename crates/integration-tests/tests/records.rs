@@ -52,7 +52,7 @@ fn point(text: &str, ids: &[&str]) -> Point {
 }
 
 #[test]
-fn a_new_store_has_schema_v1_and_a_second_open_changes_nothing() {
+fn a_new_store_has_schema_v1_and_a_second_open_keeps_the_version() {
     let path = std::env::temp_dir().join(format!("records-{}.db", std::process::id()));
     {
         let s = Store::open(&path).expect("open");

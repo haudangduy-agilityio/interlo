@@ -1,5 +1,6 @@
-//! The database file on disk: owner-only modes, the state that must be refused
-//! before SQLite opens it, and the truncation of the write-ahead log.
+//! The database file on disk: link resolution, owner-only modes, the state that
+//! must be refused before SQLite opens it, and the truncation of the write-ahead
+//! log.
 
 use rusqlite::Connection;
 use std::io;
@@ -11,6 +12,8 @@ const PRIVATE_DIR_MODE: u32 = 0o700;
 /// Mode of a database file and its `-wal` and `-shm` files: owner only.
 #[cfg(unix)]
 const PRIVATE_FILE_MODE: u32 = 0o600;
+/// A database path with this many links in a row counts as a loop of links.
+const MAX_LINKS: u32 = 32;
 
 fn beside(db: &Path, suffix: &str) -> PathBuf {
     let mut name = db.as_os_str().to_os_string();
@@ -18,8 +21,43 @@ fn beside(db: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// The file that `db` names. SQLite follows a symbolic link and keeps the log
+/// beside the target, so every check on the files uses the target. A link into a
+/// folder that is missing is an error: a new database there would hide the one
+/// that the link stood for.
+pub(crate) fn resolve_links(db: &Path) -> io::Result<PathBuf> {
+    let mut path = db.to_path_buf();
+    for followed in 0..MAX_LINKS {
+        match std::fs::symlink_metadata(&path) {
+            Ok(found) if found.file_type().is_symlink() => {
+                let target = std::fs::read_link(&path)?;
+                // A relative target starts at the folder of the link.
+                path = match path.parent() {
+                    Some(folder) => folder.join(target),
+                    None => target,
+                };
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ if followed > 0 && lacks_folder(&path) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "the folder of the linked database file is missing",
+                ));
+            }
+            _ => return Ok(path),
+        }
+    }
+    Err(io::Error::other("too many links to the database file"))
+}
+
+/// True when `path` names a folder for the file and that folder does not exist.
+fn lacks_folder(path: &Path) -> bool {
+    path.parent()
+        .is_some_and(|folder| !folder.as_os_str().is_empty() && !folder.exists())
+}
+
 /// Size of a file in bytes. A missing file has size 0.
-fn size_of(path: &Path) -> io::Result<u64> {
+fn file_len(path: &Path) -> io::Result<u64> {
     match std::fs::metadata(path) {
         Ok(found) => Ok(found.len()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
@@ -32,7 +70,7 @@ fn size_of(path: &Path) -> io::Result<u64> {
 pub(crate) fn is_empty_with_log(db: &Path) -> io::Result<bool> {
     // The log is read first. SQLite writes the file header before it creates a
     // log, so an open that runs at the same moment cannot look like this state.
-    Ok(size_of(&beside(db, "-wal"))? > 0 && size_of(db)? <= 1)
+    Ok(file_len(&beside(db, "-wal"))? > 0 && file_len(db)? <= 1)
 }
 
 /// Create the parent directory of a database file (mode 0700 when this call
@@ -68,24 +106,32 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 #[cfg(unix)]
 fn create_private_file(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(PRIVATE_FILE_MODE)
-        .open(path)?;
+    let mut new_file = std::fs::OpenOptions::new();
+    new_file.mode(PRIVATE_FILE_MODE);
+    create_if_missing(path, &mut new_file)?;
     // `mode` above does not change a file that already existed.
     tighten(path)
 }
 
 #[cfg(not(unix))]
 fn create_private_file(path: &Path) -> io::Result<()> {
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-        .map(|_| ())
+    create_if_missing(path, &mut std::fs::OpenOptions::new())
+}
+
+/// Create the file. A file that exists is not opened here: it may refuse write
+/// access, and closing it would drop the locks that this process holds on it.
+/// Something else at the path, such as a folder, is an error, so that its mode
+/// is not changed afterwards.
+fn create_if_missing(path: &Path, options: &mut std::fs::OpenOptions) -> io::Result<()> {
+    match options.write(true).create_new(true).open(path) {
+        Ok(_) => Ok(()),
+        Err(e)
+            if e.kind() == io::ErrorKind::AlreadyExists && std::fs::metadata(path)?.is_file() =>
+        {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Set an existing file to 0600. A missing file is skipped.
@@ -125,4 +171,31 @@ pub(crate) fn truncate_wal(conn: &Connection) -> rusqlite::Result<bool> {
     // checkpoint could not finish.
     let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
     Ok(busy == 0)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::testing::TempDir;
+
+    #[test]
+    fn a_chain_of_links_is_followed_up_to_the_limit() {
+        let dir = TempDir::new();
+        let target = dir.db();
+        let mut last = target.clone();
+        // The limit of ADR 0023: a chain of 32 links is an error.
+        for links in 1..=32 {
+            let link = dir.path().join(format!("link{links}"));
+            std::os::unix::fs::symlink(&last, &link).unwrap();
+
+            let found = resolve_links(&link);
+
+            if links < 32 {
+                assert_eq!(found.unwrap(), target, "{links} links");
+            } else {
+                assert!(found.is_err(), "{links} links");
+            }
+            last = link;
+        }
+    }
 }

@@ -41,7 +41,7 @@ The same action also removes what the meeting owns (D-46):
 - A test must show that the journal returns no rows for a deleted session.
 
 - Implementation status (2026-11-26, D-193): `Store::delete_meeting` removes the
-  meeting rows and the journal rows in one transaction, then rebuilds the file,
-  truncates the log and reports `scrubbed`. A reader that holds the database open
+  meeting rows and the journal rows in one transaction, then rebuilds the
+  search index of notes and the file, truncates the log and reports `scrubbed`. A reader that holds the database open
   makes `scrubbed` false; `Store::scrub` and the next open try again. A test reads
   the database and log bytes after the delete.

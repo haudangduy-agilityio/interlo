@@ -121,6 +121,17 @@ fn count(store: &Store, sql: &str) -> i64 {
         .expect("count")
 }
 
+fn lines_of(store: &Store, meeting_id: &str) -> i64 {
+    store
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM utterances WHERE meeting_id = ?1",
+            [meeting_id],
+            |r| r.get(0),
+        )
+        .expect("lines")
+}
+
 /// One final line and one journal event of meeting `m3`, which stays. Its
 /// words are not searched for.
 fn write_kept_line(store: &Store, kept: &mut Words, number: u64) {
@@ -231,6 +242,97 @@ fn fill_meeting(store: &Store, words: &mut Words) {
     }
 }
 
+/// The number of page keys of the notes search index that hold one of `tails`.
+fn index_keys_with(store: &Store, tails: &HashSet<Tail>) -> usize {
+    let mut statement = store
+        .conn()
+        .prepare("SELECT term FROM notes_fts_idx")
+        .expect("statement");
+    let keys = statement
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .expect("keys");
+    keys.map(|key| key.expect("key"))
+        .filter(|key| {
+            key.windows(TAIL_LEN)
+                .any(|window| tails.contains(&Tail::try_from(window).expect("window")))
+        })
+        .count()
+}
+
+/// The search index keeps the start of the first word of each of its pages.
+/// Notes of `m1` and daily notes that stay are mixed at random and hold words
+/// which differ in their last digits only, so such a key can be a whole word of
+/// `m1`.
+#[test]
+fn deleting_a_meeting_leaves_no_note_word_in_the_search_index() {
+    const NOTES: usize = 80;
+    let dir = TempDir::new();
+    let path = dir.0.join("interlo.db");
+    let store = Store::open(&path).expect("store");
+    // Small index pages, so that a few notes fill many of them.
+    store
+        .conn()
+        .execute(
+            "INSERT INTO notes_fts(notes_fts, rank) VALUES ('pgsz', 64)",
+            [],
+        )
+        .expect("page size");
+    store.insert_meeting(MEETING_ID, "t", 0).expect("meeting");
+    let mut words = Words::new(SEED);
+    let stem = words.word();
+    let mut removed = HashSet::new();
+    let mut kept = Vec::new();
+    store.conn().execute_batch("BEGIN").expect("begin");
+    for number in 0..NOTES {
+        let id = format!("note{number}");
+        let word = format!("{stem}{number:03}");
+        let meeting = (words.below(2) == 1).then_some(MEETING_ID);
+        store
+            .insert_note(&id, meeting, &word, None, 1)
+            .expect("note");
+        if meeting.is_some() {
+            let tail = &word.as_bytes()[word.len() - TAIL_LEN..];
+            removed.insert(Tail::try_from(tail).expect("tail"));
+        } else {
+            kept.push((id, word));
+        }
+    }
+    store.conn().execute_batch("COMMIT").expect("commit");
+    assert_eq!(
+        on_disk(&path, &removed).len(),
+        removed.len(),
+        "test precondition: the words are on disk before the delete"
+    );
+    assert!(
+        index_keys_with(&store, &removed) > 0,
+        "test precondition: a key of the search index holds a word of m1"
+    );
+
+    let outcome = store.delete_meeting(MEETING_ID).expect("delete");
+
+    assert_eq!(
+        outcome,
+        MeetingDeletion {
+            deleted: true,
+            scrubbed: true
+        }
+    );
+    for (id, word) in &kept {
+        assert_eq!(
+            store.search_notes(word).expect("search"),
+            std::slice::from_ref(id),
+            "a daily note is still found"
+        );
+    }
+    let left = on_disk(&path, &removed);
+    assert!(
+        left.is_empty(),
+        "{} of {} words are left on disk",
+        left.len(),
+        removed.len()
+    );
+}
+
 #[test]
 fn deleting_a_meeting_scrubs_its_text_from_the_database_and_log() {
     let dir = TempDir::new();
@@ -262,19 +364,10 @@ fn deleting_a_meeting_scrubs_its_text_from_the_database_and_log() {
         store.journal().load(MEETING_ID).expect("load").is_empty(),
         "journal rows left"
     );
-    assert_eq!(
-        count(
-            &store,
-            "SELECT count(*) FROM utterances WHERE meeting_id = 'm1'"
-        ),
-        0
-    );
+    assert_eq!(lines_of(&store, MEETING_ID), 0);
     assert_eq!(store.journal().load("m2").expect("load").len(), 1);
     assert_eq!(
-        count(
-            &store,
-            "SELECT count(*) FROM utterances WHERE meeting_id = 'm3'"
-        ),
+        lines_of(&store, KEPT_MEETING_ID),
         LINES as i64,
         "lines of the meeting that stays"
     );
