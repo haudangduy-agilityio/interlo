@@ -34,7 +34,7 @@ share one run, and no microphone is opened while a meeting runs (`MeetingState`)
 | meeting-core | Protocol, session states, coordinator (line state), policy gate, egress guard (`GuardedClient`) | One actor task for the coordinator | Store audio; rewrite a final line; let text leave the Mac by default |
 | audio-io | Devices, device list and setup report (eight items, typed fixes, Bluetooth warning), readiness probe (microphone permission by a short open, macOS version, tap fact), capture plan (process tap, then 2ch virtual device, else refuse), microphone capture, callback guards, output, ring buffers, resampling | Real-time callback plus one router thread; a short reader thread while the device list runs; a `mic-probe` worker for the microphone check, which can outlive the call while a system dialog is open | Allocate, lock or log in the callback; block capture when a consumer is slow |
 | engine-host | Engine traits (Vad, Recognizer, Translator, Synthesizer, SpeakerId, Summarizer), registry checked by the privacy policy at registration and at every use, test mocks (feature `mock`), segmenter, language gate, the voice activity adapter (`OnnxVad`, in process) and its start and end events (`SpeechDetector`), the recognition adapter (`OnnxRecognizer`, in process: one call takes one slice of speech, 0.1 s to 30 s long, and returns its Vietnamese text), the span rules (`utterance`: lead-in, cut at 15 s, minimum length) and the one speech chain (`live_chain`: samples from a source the shell passes in, to captions, delay, p50 and p95; it does not depend on `audio-io`), the translation adapter (`OnnxTranslator`, in process: one call takes one Vietnamese text and returns its English text) | Per session a reader thread (runs the detector) and a recognition thread (runs the recognizer). Planned: one worker thread per model | Open a network connection; hand out an engine the policy refuses; send anything of a session after its stop |
-| playback | Single playback queue, speed-up up to 1.15x, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
+| playback | Single playback queue, pitch-preserving speed-up of 1.10x while catching up, play once per segment, unplug hold, mixer and ducking | Real-time callback for the mix | Cut, skip or reorder a segment; send the partner's original audio into the meeting |
 | store | The one database file: schema version and migrations, journal, projections, full-text index, cascade delete and its cleanup | One writer, background reads; the journal writes through the store connection | Store audio; rewrite a final line; change the content of a database that it refuses |
 | summary-jobs | Job queue (3 attempts, retry 30 s and 60 s, 3-minute lease), citation check, question answerer | Background task | Replace good notes with a bad reply; keep a point without evidence line ids |
 | model-store | Compiled-in model table, size caps, checksums, download gate, the check of the files of a pack on disk (`check_pack`, SHA-256, no symlink, one owner) | Background download task | Run a model that failed its checksum; download without the owner's click |
@@ -84,8 +84,12 @@ CaptureSource (process tap, 2ch virtual device, later others)
 - **Playback side.** `SegmentPlayer` stays in `playback`; it carries no samples
   and `playback` has no audio backend. A player returns `Ok` only after it took
   the whole sentence; a sentence that is not marked played, after an error or a
-  hold under 30 s, is offered again, to be played from its start. A player that
-  writes to an `AudioOutput` is the next step (M1-08, M1-12).
+  hold under 30 s, is offered again, to be played from its start. The queue
+  passes the speed of each segment: 1.10 from the moment more than 2 s of audio
+  waits behind the front segment until nothing waits behind it, otherwise 1.0.
+  `playback::speed_up` changes the samples of one segment to that speed with the
+  pitch kept; it allocates, so a player calls it on the control side. A player
+  that writes to an `AudioOutput` is the next step (M1-08, M1-12).
 - `crates/audio-io/tests/adapter_boundary.rs` swaps fake sources and sinks
   behind the two traits and checks the chain output on a fixture.
 

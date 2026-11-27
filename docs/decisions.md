@@ -196,7 +196,7 @@ Other rows that these decisions touch:
 | D-184 | Translation stage and spoken instructions. Decided 2026-11-19 (proposed the same day, confirmed by the owner). Five planted-instruction sentences are added to the M0-06 reading list. The result (the model obeys, prints the vocabulary list, or ignores them) is recorded in `docs/m0/`. |
 | D-185 | Ask injection test at M3-19. Decided 2026-11-19 (proposed the same day, confirmed by the owner). The done check of M3-19 adds a planted-instruction transcript: no planted instruction shows in the answer and every citation is an existing line id. X-18 later puts the summary, Ask and quick actions on one shared prompt builder. |
 | D-15 | Capture order: process tap for the chosen meeting app, then the 2ch virtual device for that app, else the session does not start. |
-| FR-60 to FR-64 | One playback queue; segments play in order, once, never cut or skipped; backlog speeds up to 1.15x with pitch kept; the latency gate includes queue wait. |
+| FR-60 to FR-64 | One playback queue; segments play in order, once, never cut or skipped; backlog speeds up to 1.10x with pitch kept, chosen at the listening check on 2026-11-27; the latency gate includes queue wait. |
 | FR-65, FR-63 | Merge pauses under 600 ms without a sentence-final mark; cut at 10 s at the next pause. |
 | FR-66, FR-67 | Engine failure in a segment: retry once, then keep the caption and play nothing. Unplug: hold the queue; after 30 s mark the rest "not played". |
 | FR-70 | Owner English speech is detected from the recognizer output and not translated. |
