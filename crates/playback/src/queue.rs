@@ -60,6 +60,11 @@ pub enum SegmentState {
 }
 
 /// Plays one segment at a speed factor. A real backend comes later.
+///
+/// Contract: `play` returns `Ok` only after the player took the whole sentence
+/// (all of `segment`), because the queue then marks it played and never offers
+/// it again. A sentence that is not marked played, after an error or a hold
+/// shorter than `HOLD_TIMEOUT_MS`, is offered again, to be played from its start.
 pub trait SegmentPlayer {
     fn play(&mut self, segment: &Segment, speed: f32) -> Result<(), PlaybackError>;
 }
@@ -543,6 +548,126 @@ mod tests {
         assert_eq!(called, ["a", "a", "b"]);
         assert_eq!(q.state("a"), Some(SegmentState::Played));
         assert_eq!(q.state("b"), Some(SegmentState::Played));
+    }
+
+    /// Keeps every segment it was given.
+    #[derive(Default)]
+    struct KeepingPlayer(Vec<Segment>);
+
+    impl SegmentPlayer for KeepingPlayer {
+        fn play(&mut self, segment: &Segment, _speed: f32) -> Result<(), PlaybackError> {
+            self.0.push(segment.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_later_version_of_a_queued_sentence_is_refused_and_never_spoken() {
+        let mut q = PlaybackQueue::new();
+        let mut player = KeepingPlayer::default();
+        assert_eq!(q.enqueue(seg("s1", 1_200)), Ok(true));
+
+        // Before the first version is offered.
+        assert_eq!(q.enqueue(seg("s1", 1_500)), Ok(false));
+        assert_eq!(q.backlog_ms(), 1_200);
+
+        // While the first version is offered.
+        assert_eq!(q.peek_next(), Some(&seg("s1", 1_200)));
+        assert_eq!(q.enqueue(seg("s1", 1_500)), Ok(false));
+        assert_eq!(q.backlog_ms(), 1_200);
+
+        // Right after it was played.
+        q.play_next(&mut player).unwrap();
+        assert_eq!(q.enqueue(seg("s1", 1_500)), Ok(false));
+        assert_eq!(q.backlog_ms(), 0);
+
+        assert_eq!(q.play_next(&mut player), Ok(None));
+        assert_eq!(player.0, vec![seg("s1", 1_200)]);
+    }
+
+    #[test]
+    fn a_sentence_interrupted_by_a_short_hold_is_offered_again_first() {
+        let mut q = PlaybackQueue::new();
+        for (id, ms) in [("a", 1_000), ("b", 2_000), ("c", 3_000)] {
+            q.enqueue(seg(id, ms)).unwrap();
+        }
+        // "a" is offered and playing when the output goes away.
+        assert_eq!(q.peek_next(), Some(&seg("a", 1_000)));
+        q.hold(5_000);
+        assert_eq!(q.peek_next(), None, "a held queue offers nothing");
+
+        assert_eq!(q.resume(5_000 + HOLD_TIMEOUT_MS - 1), 0);
+
+        assert_eq!(q.peek_next(), Some(&seg("a", 1_000)));
+        for id in ["a", "b", "c"] {
+            assert_eq!(q.state(id), Some(SegmentState::Queued), "{id}");
+        }
+        assert_eq!(drain_ids(&mut q), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_sentence_marked_played_during_a_hold_is_not_offered_again() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 1_000)).unwrap();
+        q.enqueue(seg("b", 2_000)).unwrap();
+        // The player had taken all of "a" when the output went away.
+        assert_eq!(q.peek_next(), Some(&seg("a", 1_000)));
+        q.hold(5_000);
+        assert_eq!(q.mark_played("a"), Ok(()));
+
+        assert_eq!(q.resume(5_001), 0);
+
+        assert_eq!(q.state("a"), Some(SegmentState::Played));
+        assert_eq!(drain_ids(&mut q), vec!["b"]);
+    }
+
+    /// Two segments, the first one offered, held since 1 000 ms.
+    fn offered_and_held() -> PlaybackQueue {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 100)).unwrap();
+        q.enqueue(seg("b", 100)).unwrap();
+        assert_eq!(q.peek_next(), Some(&seg("a", 100)));
+        q.hold(1_000);
+        q
+    }
+
+    #[test]
+    fn the_hold_limit_drops_the_offered_sentence_through_expiry_and_resume() {
+        let limit = 1_000 + HOLD_TIMEOUT_MS;
+
+        let mut expired = offered_and_held();
+        assert_eq!(expired.expire_hold(limit - 1), 0);
+        assert_eq!(expired.state("a"), Some(SegmentState::Queued));
+        assert_eq!(expired.state("b"), Some(SegmentState::Queued));
+        assert_eq!(expired.expire_hold(limit), 2);
+        assert_eq!(expired.resume(limit + 1), 0);
+
+        let mut resumed = offered_and_held();
+        assert_eq!(resumed.resume(limit), 2);
+
+        for q in [expired, resumed] {
+            assert_eq!(q.state("a"), Some(SegmentState::NotPlayed));
+            assert_eq!(q.state("b"), Some(SegmentState::NotPlayed));
+            assert!(!q.is_held());
+            assert_eq!(q.peek_next(), None);
+        }
+    }
+
+    #[test]
+    fn a_sentence_that_keeps_failing_is_offered_again_and_never_skipped() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 100)).unwrap();
+        q.enqueue(seg("b", 100)).unwrap();
+        let mut player = flaky(3);
+
+        for _ in 0..3 {
+            assert_eq!(q.play_next(&mut player), Err(PlaybackError::NotImplemented));
+        }
+
+        let called: Vec<&str> = player.calls.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(called, ["a", "a", "a"]);
+        assert_eq!(q.state("a"), Some(SegmentState::Queued));
+        assert_eq!(q.state("b"), Some(SegmentState::Queued));
     }
 
     #[test]
