@@ -16,7 +16,7 @@ scripts/check.sh full
 | UI lint | `npm --prefix apps/ui run lint` |
 | UI format | `npm --prefix apps/ui run format:check` |
 | UI types | `npm --prefix apps/ui run typecheck` |
-| UI unit and integration tests | `npm --prefix apps/ui test` |
+| UI unit and interaction tests | `npm --prefix apps/ui test` |
 | UI build | `npm --prefix apps/ui run build` |
 | Shell build | `cargo build -p interlo-desktop` |
 

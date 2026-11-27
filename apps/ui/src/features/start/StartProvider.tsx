@@ -3,7 +3,9 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -37,6 +39,11 @@ export function StartProvider({ children }: { children: ReactNode }) {
   const startForm = useStartForm();
   const { begin } = startForm;
   const [mode, setMode] = useState<MeetingMode>("both");
+  // Read again after the setup check, so it must be the status of that moment.
+  const sessionStatus = useRef(session.status);
+  useLayoutEffect(() => {
+    sessionStatus.current = session.status;
+  }, [session.status]);
 
   const toast = useCallback(
     (message: string, kind: "info" | "error" = "info") =>
@@ -47,10 +54,12 @@ export function StartProvider({ children }: { children: ReactNode }) {
   const requestStart = useCallback(
     async (chosen: MeetingMode = "both") => {
       // A session that exists is shown, with its Stop, instead of a second start.
-      if (session.status !== "idle") {
+      const showSession = () => {
+        if (sessionStatus.current === "idle") return false;
         dispatch({ type: "navigate", screen: "live" });
-        return;
-      }
+        return true;
+      };
+      if (showSession()) return;
       let status: SetupStatus;
       if (setup.status === "done") {
         status = setup.data;
@@ -58,9 +67,13 @@ export function StartProvider({ children }: { children: ReactNode }) {
         try {
           status = await refresh();
         } catch (e) {
+          // A session may have begun even when the setup check cannot run.
+          if (showSession()) return;
           toast(t("start.checkFailed", { message: toUiError(e).message }), "error");
           return;
         }
+        // A session may have begun during the check.
+        if (showSession()) return;
       }
       if (!status.canStart) {
         dispatch({ type: "navigate", screen: "setup" });
@@ -71,7 +84,7 @@ export function StartProvider({ children }: { children: ReactNode }) {
       setMode(chosen);
       begin();
     },
-    [session.status, setup, refresh, toast, t, dispatch, clearStartFailure, begin],
+    [setup, refresh, toast, t, dispatch, clearStartFailure, begin],
   );
 
   // A failed start belongs to the dialog that showed it. Closing it forgets the failure, and

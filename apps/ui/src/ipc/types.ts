@@ -168,8 +168,8 @@ export interface CaptionEvent {
   source: string;
   target: string;
   /**
-   * Time from the moment the end of the speech was detected, about 256 ms after it, to this
-   * text. A whole number, 0 or more.
+   * Milliseconds from the end-of-speech report (about 256 ms after speech ends), or the
+   * forced cut at 15 s, until this text is ready. A whole number, 0 or more.
    */
   delayMs: number;
 }

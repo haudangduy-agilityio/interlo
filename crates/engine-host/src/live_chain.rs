@@ -72,7 +72,7 @@ pub struct Caption {
     /// A number that no other caption of this program run has.
     pub line_id: u64,
     pub text: String,
-    /// From the end of speech (or the cut) to the text.
+    /// From the moment the end of speech was detected (or the cut) to the text.
     pub delay_ms: u64,
 }
 
@@ -452,9 +452,9 @@ impl LiveChain {
         self.shared.close();
     }
 
-    /// Start no new work: waiting spans are dropped and no new sink call begins.
-    /// Does not wait for a sink call that runs now, so it may be called under a
-    /// lock that the sink takes. `stop` still waits for that call.
+    /// Start no new work: waiting spans are dropped and no new send to the sink
+    /// begins. A send that runs now may still finish its calls. Does not wait for
+    /// it, so it may be called under a lock that the sink takes. `stop` waits.
     pub fn cancel(&self) {
         // No gate lock here: the caller may hold a lock that the sink takes.
         self.shared.closed.store(true, Ordering::SeqCst);
@@ -1113,12 +1113,16 @@ mod tests {
     struct HeldSink {
         entered: Sender<()>,
         release: Receiver<()>,
+        /// Nothing released a call in time.
+        gave_up: Arc<AtomicBool>,
     }
 
     impl ChainSink for HeldSink {
         fn caption(&mut self, _caption: Caption) {
             let _ = self.entered.send(());
-            let _ = self.release.recv_timeout(WAIT);
+            if self.release.recv_timeout(WAIT).is_err() {
+                self.gave_up.store(true, Ordering::SeqCst);
+            }
         }
 
         fn latency(&mut self, _latency: Latency) {}
@@ -1134,9 +1138,11 @@ mod tests {
         let feed = Feed::default();
         let (entered, in_sink) = channel();
         let (release, held) = channel();
+        let gave_up = Arc::new(AtomicBool::new(false));
         let sink = HeldSink {
             entered,
             release: held,
+            gave_up: Arc::clone(&gave_up),
         };
         let chain = LiveChain::start(
             feed.source(),
@@ -1154,6 +1160,7 @@ mod tests {
 
         // The sink call is still held: cancel does not wait for it.
         chain.cancel();
+        assert!(!gave_up.load(Ordering::SeqCst), "cancel did not wait");
         assert_eq!(chain.pending_spans(), 1, "only the span in its call");
         release.send(()).unwrap();
         until("the call is done", || chain.pending_spans() == 0);

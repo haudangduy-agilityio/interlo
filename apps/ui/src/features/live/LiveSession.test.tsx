@@ -185,6 +185,60 @@ describe("Live screen around a session", () => {
     expect(stops).toEqual([]);
   });
 
+  it("start_during_a_setup_check_opens_the_live_screen_of_a_new_session", async () => {
+    const app = renderApp({
+      ...ready(),
+      screen: "home",
+      failing: { check_setup: "shell crashed" },
+    });
+    await answer(() => {});
+    app.transport.heal("check_setup");
+    const real = app.transport.invoke.bind(app.transport);
+    const checks: (() => void)[] = [];
+    vi.spyOn(app.transport, "invoke").mockImplementation((<T,>(
+      cmd: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (cmd !== "check_setup") return real<T>(cmd, args);
+      return new Promise<T>((resolve) => checks.push(() => resolve(real<T>(cmd, args))));
+    }) as typeof app.transport.invoke);
+    await app.user.click(await topBar().findByRole("button", { name: "Start meeting" }));
+    expect(checks).toHaveLength(1);
+    app.emit("meeting://status", { state: "running" });
+    await answer(checks[0]);
+
+    expect(await screen.findByText("State: Running.")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("start_during_a_failed_setup_check_opens_the_live_screen_of_a_new_session", async () => {
+    const app = renderApp({
+      ...ready(),
+      screen: "home",
+      failing: { check_setup: "shell crashed" },
+    });
+    await answer(() => {});
+    app.transport.heal("check_setup");
+    const real = app.transport.invoke.bind(app.transport);
+    const checks: (() => void)[] = [];
+    vi.spyOn(app.transport, "invoke").mockImplementation((<T,>(
+      cmd: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (cmd !== "check_setup") return real<T>(cmd, args);
+      return new Promise<T>((_resolve, reject) =>
+        checks.push(() => reject(new Error("shell crashed"))),
+      );
+    }) as typeof app.transport.invoke);
+    await app.user.click(await topBar().findByRole("button", { name: "Start meeting" }));
+    expect(checks).toHaveLength(1);
+    app.emit("meeting://status", { state: "running" });
+    await answer(checks[0]);
+
+    expect(await screen.findByText("State: Running.")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("cancel_that_cannot_stop_shows_the_failure_on_the_live_screen", async () => {
     const app = renderApp({ ...ready(), screen: "home" });
     holdStarts(app, new Error("the shell did not answer"));

@@ -264,6 +264,8 @@ pub enum Load {
 pub enum Mode {
     #[default]
     Work,
+    /// Hears no speech, or recognizes no words.
+    Silent,
     Fail,
     Panic,
 }
@@ -297,6 +299,7 @@ impl Vad for FakeVad {
         let mode = *self.controls.detector.lock().unwrap();
         match mode {
             Mode::Work => Ok(frame[0] != 0.0),
+            Mode::Silent => Ok(false),
             Mode::Fail => Err(EngineError::Backend("scripted".into())),
             Mode::Panic => panic!("scripted detector panic"),
         }
@@ -331,6 +334,10 @@ impl Recognizer for FakeRecognizer {
         match mode {
             Mode::Work => Ok(Recognition {
                 text: format!("text {call}"),
+                detected: Language::Vi,
+            }),
+            Mode::Silent => Ok(Recognition {
+                text: String::new(),
                 detected: Language::Vi,
             }),
             Mode::Fail => Err(EngineError::Backend("scripted".into())),

@@ -5,7 +5,13 @@
 //! command bridge would be exposed to foreign content.
 
 use tauri::plugin::{Builder, TauriPlugin};
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, Runtime, Url};
+
+#[cfg(feature = "demo-data")]
+use crate::commands::meeting::MeetingState;
+#[cfg(not(feature = "demo-data"))]
+use crate::session::Session;
 
 /// Allow the app's own origin (`tauri://localhost`) and, in development, the
 /// dev server origin. Everything else is denied.
@@ -34,13 +40,118 @@ pub fn guard<R: Runtime>() -> TauriPlugin<R> {
             };
             is_allowed_navigation(url, dev_url.as_ref())
         })
+        .on_page_load(|webview, payload| {
+            let app = webview.app_handle();
+            #[cfg(not(feature = "demo-data"))]
+            {
+                let session = app.state::<Session>();
+                stop_session_for_page_load(
+                    webview.label(),
+                    payload.event(),
+                    session.is_active(),
+                    || {
+                        let _ = session.stop(app);
+                    },
+                );
+            }
+            #[cfg(feature = "demo-data")]
+            {
+                let state = app.state::<MeetingState>();
+                stop_session_for_page_load(
+                    webview.label(),
+                    payload.event(),
+                    state.is_running(),
+                    || {
+                        let _ = crate::commands::meeting::stop(&state, app);
+                    },
+                );
+            }
+        })
         .build()
+}
+
+/// Stop once when the page begins loading, but leave the first idle load alone.
+fn stop_session_for_page_load(
+    label: &str,
+    event: PageLoadEvent,
+    active: bool,
+    stop: impl FnOnce(),
+) {
+    if label == "main" && event == PageLoadEvent::Started && active {
+        stop();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tauri::Url;
+
+    #[test]
+    fn a_page_load_stops_only_an_active_session() {
+        use crate::session::testing::Rig;
+        use tauri::webview::PageLoadEvent;
+
+        let rig = Rig::new();
+        stop_session_for_page_load(
+            "main",
+            PageLoadEvent::Started,
+            rig.session.is_active(),
+            || {
+                rig.stop().unwrap();
+            },
+        );
+        assert!(!rig.session.is_active());
+        assert!(
+            rig.events.all().is_empty(),
+            "idle page load has no error/event"
+        );
+        assert_eq!(rig.fake.open_captures(), 0);
+
+        rig.start().unwrap();
+        stop_session_for_page_load(
+            "main",
+            PageLoadEvent::Finished,
+            rig.session.is_active(),
+            || {
+                panic!("the finished event must not stop twice");
+            },
+        );
+        assert!(rig.session.is_active(), "finish is not a second stop");
+
+        stop_session_for_page_load(
+            "captions",
+            PageLoadEvent::Started,
+            rig.session.is_active(),
+            || {
+                rig.stop().unwrap();
+            },
+        );
+        assert!(
+            rig.session.is_active(),
+            "another webview load does not stop the session"
+        );
+        assert_eq!(rig.fake.open_captures(), 1);
+
+        stop_session_for_page_load(
+            "main",
+            PageLoadEvent::Started,
+            rig.session.is_active(),
+            || {
+                rig.stop().unwrap();
+            },
+        );
+        assert!(!rig.session.is_active());
+        assert_eq!(
+            rig.fake.open_captures(),
+            0,
+            "page load closes the microphone"
+        );
+        assert_eq!(
+            rig.events.statuses().last(),
+            Some(&crate::events::RunState::Idle)
+        );
+    }
 
     fn url(text: &str) -> Url {
         Url::parse(text).unwrap()

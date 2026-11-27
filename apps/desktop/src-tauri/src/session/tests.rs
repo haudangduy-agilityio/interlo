@@ -321,7 +321,9 @@ fn a_default_input_changed_during_the_load_is_not_opened() {
         rig.fake.load_gate.wait_for_arrival(1);
         let mut devices = working_devices();
         devices[0] = devices[0].clone().with_defaults(false, false);
-        devices[1] = devices[1].clone().with_defaults(true, false);
+        let plugged_in = DeviceInfo::new("Plugged in", "Plugged in", DeviceKind::Microphone)
+            .with_defaults(true, false);
+        devices.push(plugged_in);
         *rig.fake.devices.lock().unwrap() = devices;
         rig.fake.load_gate.release();
         held.join().unwrap().unwrap();
@@ -698,7 +700,10 @@ fn stop_drops_waiting_speech_before_it_closes_the_microphone() {
     until("both sentences are read", || {
         rig.fake.engines.detector_calls.lock().unwrap().len() == 41
     });
-    // The held call returns while the microphone closes slowly.
+    // The held call returns while the microphone closes slowly. It finds no words,
+    // so no event waits for the session lock and the recognizer thread is free to
+    // take the waiting span: the sleep is its time to do that.
+    *rig.fake.engines.recognizer.lock().unwrap() = Mode::Silent;
     *rig.fake.while_closing.lock().unwrap() = Some(Box::new({
         let engines = Arc::clone(&rig.fake.engines);
         move || {
@@ -707,13 +712,11 @@ fn stop_drops_waiting_speech_before_it_closes_the_microphone() {
         }
     }));
     rig.stop().unwrap();
-    thread::sleep(Duration::from_millis(200));
     assert_eq!(
         rig.fake.engines.recognizer_calls.load(Ordering::SeqCst),
         1,
         "the waiting span is not recognized"
     );
-    assert!(rig.events.captions().is_empty());
 }
 
 fn fixture(name: &str) -> serde_json::Value {

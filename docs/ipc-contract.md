@@ -221,6 +221,8 @@ type Note = { id: string; text: string; tag: string | null; createdAtMs: number 
 
 Event rules:
 
+- When the main page starts loading, including on a reload, the shell stops an active
+  session. An idle session is unchanged and emits no error or status event.
 - `meeting://status`: `starting` when a start has passed its refusals, `running` when
   the session runs, `idle` after a stop, after a start that failed once `starting` was
   sent, and when a running session ends by itself. A refused command sends nothing.
@@ -233,8 +235,9 @@ Event rules:
   must not rely on the exact window size. The speech chain sends one final caption
   per recognized piece of speech: `direction` `out`, the Vietnamese text in `source`,
   an empty `target` (no translation yet), a `lineId` not used before in this app run
-  and `delayMs`, a whole number, 0 or more: the milliseconds from the moment the end
-  of that piece of speech was detected, about 256 ms after it, to its text.
+  and `delayMs`, a whole number, 0 or more: the milliseconds from the end-of-speech
+  report (about 256 ms after speech ends), or the forced cut at 15 s, until its text
+  is ready.
 - `meeting://latency` follows each caption with the nearest-rank p50 and p95 of the
   delays of this session.
 - `meeting://banner` from a session: `warning` `One sentence could not be

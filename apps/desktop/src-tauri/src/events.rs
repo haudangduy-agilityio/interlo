@@ -23,8 +23,8 @@ pub struct CaptionEvent {
     pub is_final: bool,
     pub source: String,
     pub target: String,
-    /// From the moment the end of the speech was detected, about 256 ms after
-    /// it, to the moment the text was ready, in milliseconds.
+    /// Milliseconds from the end-of-speech report (about 256 ms after speech
+    /// ends), or the forced cut at 15 s, until the text is ready.
     pub delay_ms: u32,
 }
 
