@@ -193,6 +193,7 @@ export const vi: Record<MessageKey, string> = {
   "setup.fix.model": "",
   "setup.fix.installing": "",
   "models.loading": "",
+  "models.downloadUnavailable": "",
   "models.listLabel": "",
   "models.emptyTitle": "",
   "models.emptyBody": "",

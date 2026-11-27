@@ -38,6 +38,7 @@ export function SetupScreen() {
         }}
         onDownload={downloads.licence.request}
         onCancel={downloads.cancel}
+        canDownloadModels={client.canDownloadModels}
       />
       {downloads.licence.dialog}
     </>
