@@ -16,22 +16,26 @@ const PAD_MS: u32 = 90;
 /// The kept part begins and ends this long after the places that the first and
 /// the last input sample have after a plain division by the speed. The values
 /// come from measured offsets of the time stretch; with them the kept part holds
-/// both ends of the input.
+/// both ends of the input. Measure them again when the pinned version of the
+/// dependency changes.
 const KEEP_FROM_MS: u32 = 6;
 const KEEP_TO_MS: u32 = 15;
+/// The queue plays one channel.
+const MONO: NonZeroU16 = NonZeroU16::MIN;
 
 /// Returns `samples` (one channel) played `speed` times faster at the same
 /// pitch. A speed above `MAX_SPEED_FACTOR` counts as that factor.
 ///
 /// The samples come back unchanged when the speed is not above 1.0 (also when
 /// it is not a number), the sample rate is 0, the input is shorter than
-/// `MIN_SPEED_UP_MS`, or the time stretch fails, so no segment is lost.
+/// `MIN_SPEED_UP_MS`, or the time stretch fails or returns less than the kept
+/// part, so no segment is lost.
 pub fn speed_up(samples: &[f32], sample_rate: u32, speed: f32) -> Vec<f32> {
-    stretched(samples, sample_rate, speed).unwrap_or_else(|| samples.to_vec())
+    try_speed_up(samples, sample_rate, speed).unwrap_or_else(|| samples.to_vec())
 }
 
 /// `None` when the samples must stay as they are.
-fn stretched(samples: &[f32], sample_rate: u32, speed: f32) -> Option<Vec<f32>> {
+fn try_speed_up(samples: &[f32], sample_rate: u32, speed: f32) -> Option<Vec<f32>> {
     let rate = NonZeroU32::new(sample_rate)?;
     let too_short = samples.len() < samples_in(MIN_SPEED_UP_MS, rate);
     if speed.is_nan() || speed <= 1.0 || too_short {
@@ -43,11 +47,11 @@ fn stretched(samples: &[f32], sample_rate: u32, speed: f32) -> Option<Vec<f32>> 
     let mut padded = vec![0.0; pad];
     padded.extend_from_slice(samples);
     padded.resize(padded.len() + pad, 0.0);
-    let output = wsola::stretch(&padded, rate, NonZeroU16::MIN, speed).ok()?;
+    let output = wsola::stretch(&padded, rate, MONO, speed).ok()?;
 
-    let sped = |len: usize| (len as f64 / f64::from(speed)).round() as usize;
-    let from = sped(pad) + samples_in(KEEP_FROM_MS, rate);
-    let to = sped(pad + samples.len()) + samples_in(KEEP_TO_MS, rate);
+    let position_after_stretch = |len: usize| (len as f64 / f64::from(speed)).round() as usize;
+    let from = position_after_stretch(pad) + samples_in(KEEP_FROM_MS, rate);
+    let to = position_after_stretch(pad + samples.len()) + samples_in(KEEP_TO_MS, rate);
     output.get(from..to).map(<[f32]>::to_vec)
 }
 
@@ -103,6 +107,7 @@ mod tests {
         for rate in RATES {
             let input = tone(rate, rate as usize, 200.0);
             let output = speed_up(&input, rate, MAX_SPEED_FACTOR);
+            assert!(output.len() < input.len(), "{rate} Hz: not sped up");
             let hz = frequency_hz(&output, rate);
             assert!((hz - 200.0).abs() <= 4.0, "{rate} Hz: {hz} Hz");
         }
@@ -112,6 +117,7 @@ mod tests {
     fn speed_up_keeps_the_end_of_a_sentence() {
         let input = silence_with_burst(16_000 - 320);
         let output = speed_up(&input, 16_000, MAX_SPEED_FACTOR);
+        assert!(output.len() < input.len(), "not sped up");
         let last_40_ms = &output[output.len() - 640..];
         assert!(
             peak(last_40_ms) >= peak(&input) / 2.0,
@@ -124,6 +130,7 @@ mod tests {
     fn speed_up_keeps_the_start_of_a_sentence() {
         let input = silence_with_burst(0);
         let output = speed_up(&input, 16_000, MAX_SPEED_FACTOR);
+        assert!(output.len() < input.len(), "not sped up");
         let first_40_ms = &output[..640];
         assert!(
             peak(first_40_ms) >= peak(&input) / 2.0,
@@ -144,6 +151,7 @@ mod tests {
     fn speed_above_the_cap_counts_as_the_cap() {
         let input = tone(16_000, 16_000, 200.0);
         let at_cap = speed_up(&input, 16_000, MAX_SPEED_FACTOR);
+        assert!(at_cap.len() < input.len(), "not sped up");
         assert!(speed_up(&input, 16_000, 2.0) == at_cap);
     }
 

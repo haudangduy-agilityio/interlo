@@ -135,7 +135,7 @@ fn a_segment_plays_once_even_when_the_segmenter_output_is_fed_twice() {
 
 #[test]
 fn backlog_speed_never_exceeds_the_cap_while_draining() {
-    // 30 segments of 4 s each: a backlog far above the full speed-up threshold.
+    // 30 segments of 4 s each: far more waiting audio than starts the speed-up.
     let mut queue = PlaybackQueue::new();
     fill(&mut queue, to_segments(&sentence_pieces(30, 4_000)));
     assert!(queue.backlog_ms() > 100_000);
@@ -174,13 +174,13 @@ fn a_huge_backlog_runs_at_the_cap_and_a_small_one_at_normal_speed() {
     assert_eq!(small.current_speed(), 1.0);
 }
 
-/// The simulated time at which a sentence after the first one starts with
-/// nothing waiting behind it. All sentences are `len_ms` long. 4 000 ms of
-/// audio wait behind the first one, a new sentence arrives every `len_ms`, and
-/// a play takes the length divided by the speed read when the sentence starts.
+/// The simulated time at which a segment after the first one starts with
+/// nothing waiting behind it. All segments are `len_ms` long. 4 000 ms of
+/// audio wait behind the first one, a new segment arrives every `len_ms`, and
+/// a play takes the length divided by the speed read when the segment starts.
 /// The simulation stops after 60 000 ms.
 fn caught_up_at_ms(len_ms: u32) -> f64 {
-    let sentence = |index: u32| Segment {
+    let nth_segment = |index: u32| Segment {
         segment_id: format!("seg_{index}"),
         direction: Direction::Incoming,
         samples_len_ms: len_ms,
@@ -188,7 +188,7 @@ fn caught_up_at_ms(len_ms: u32) -> f64 {
     let arrival_ms = |index: u32| f64::from(index * len_ms);
     let mut queue = PlaybackQueue::new();
     let at_start = 1 + 4_000 / len_ms;
-    fill(&mut queue, (0..at_start).map(sentence).collect());
+    fill(&mut queue, (0..at_start).map(nth_segment).collect());
     let mut next_id = at_start;
     let mut next_arrival = 1;
     let mut start_ms = 0.0;
@@ -200,19 +200,12 @@ fn caught_up_at_ms(len_ms: u32) -> f64 {
         let end_ms = start_ms + f64::from(len_ms) / f64::from(queue.current_speed());
         // An arrival at or before the end is queued before the front is played.
         while arrival_ms(next_arrival) <= end_ms {
-            assert!(queue.enqueue(sentence(next_id)).unwrap());
+            assert!(queue.enqueue(nth_segment(next_id)).unwrap());
             next_id += 1;
             next_arrival += 1;
         }
         assert!(take_next(&mut queue).is_some());
         start_ms = end_ms;
-        if queue.is_empty() {
-            // The next sentence starts when it arrives.
-            start_ms = arrival_ms(next_arrival);
-            assert!(queue.enqueue(sentence(next_id)).unwrap());
-            next_id += 1;
-            next_arrival += 1;
-        }
     }
     start_ms
 }
@@ -223,7 +216,7 @@ fn a_forced_lag_of_four_seconds_is_caught_up_within_thirty_seconds() {
         let at = caught_up_at_ms(len_ms);
         assert!(
             at <= 30_000.0,
-            "sentences of {len_ms} ms: caught up at {at} ms"
+            "segments of {len_ms} ms: caught up at {at} ms"
         );
     }
 }

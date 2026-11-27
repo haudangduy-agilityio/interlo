@@ -3,7 +3,7 @@
 //! Segments play strictly in enqueue order and each id plays once. Speed-up
 //! is the only tool for catching up; nothing is cut, skipped or reordered
 //! while playback runs. Catching up starts when more than
-//! `SPEEDUP_START_BACKLOG_MS` of audio waits behind the front segment and
+//! `SPEEDUP_START_WAITING_MS` of audio waits behind the front segment and
 //! lasts until nothing waits behind it; the speed is `MAX_SPEED_FACTOR` while
 //! it lasts and 1.0 otherwise. When the output device is unplugged the queue is
 //! held; if the hold lasts `HOLD_TIMEOUT_MS`, the remaining segments are
@@ -27,7 +27,7 @@ use std::sync::Arc;
 pub const MAX_SPEED_FACTOR: f32 = 1.15;
 /// Catching up starts when more than this much audio waits behind the front
 /// segment. Starting value.
-pub const SPEEDUP_START_BACKLOG_MS: u32 = 2_000;
+pub const SPEEDUP_START_WAITING_MS: u32 = 2_000;
 /// Most segments the queue holds at once. `enqueue` refuses the next one with
 /// `PlaybackError::QueueFull`. Starting value: far above a normal backlog
 /// (the speed-up already starts at 2 s of waiting audio), so a refusal means
@@ -178,7 +178,7 @@ impl PlaybackQueue {
     }
 
     /// Applies the speed rule. Every change of the queue calls it: more than
-    /// `SPEEDUP_START_BACKLOG_MS` of audio behind the front segment turns the
+    /// `SPEEDUP_START_WAITING_MS` of audio behind the front segment turns the
     /// speed-up on, no audio behind it turns it off, and anything between
     /// keeps it as it is.
     fn update_catch_up(&mut self) {
@@ -189,7 +189,7 @@ impl PlaybackQueue {
         let waiting_ms = self.backlog_ms.saturating_sub(front_ms);
         if waiting_ms == 0 {
             self.catching_up = false;
-        } else if waiting_ms > u64::from(SPEEDUP_START_BACKLOG_MS) {
+        } else if waiting_ms > u64::from(SPEEDUP_START_WAITING_MS) {
             self.catching_up = true;
         }
     }
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn queue_speed_follows_backlog() {
+    fn waiting_audio_above_the_threshold_gives_the_capped_speed() {
         let mut q = PlaybackQueue::new();
         q.enqueue(seg("a", 4_000)).unwrap();
         q.enqueue(seg("b", 4_000)).unwrap();
@@ -340,12 +340,18 @@ mod tests {
         let mut q = PlaybackQueue::new();
         q.enqueue(seg("a", 10_000)).unwrap();
         assert_eq!(q.current_speed(), 1.0);
+    }
 
-        // A queue that a hold expiry emptied is not catching up either.
+    #[test]
+    fn a_queue_emptied_by_a_hold_expiry_stops_catching_up() {
+        let mut q = PlaybackQueue::new();
+        q.enqueue(seg("a", 10_000)).unwrap();
         q.enqueue(seg("b", 3_000)).unwrap();
         assert_eq!(q.current_speed(), MAX_SPEED_FACTOR);
+
         q.hold(0);
         assert_eq!(q.expire_hold(HOLD_TIMEOUT_MS), 2);
+
         assert_eq!(q.current_speed(), 1.0);
     }
 
@@ -378,7 +384,7 @@ mod tests {
             q.mark_played(id).unwrap();
         }
 
-        // "d" is the front sentence and the 1 ms of "e" waits behind it.
+        // "d" is the front segment and the 1 ms of "e" waits behind it.
         assert_eq!(q.backlog_ms(), 1_001);
         assert_eq!(q.current_speed(), 1.15);
     }
